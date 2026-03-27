@@ -1,6 +1,6 @@
 # Plataforma de Comissões — Design Spec
 
-**Versão**: 1.0
+**Versão**: 1.1
 **Data**: 2026-03-27
 **Autor**: Eric Valoz (RevOps) + Claude
 **Stakeholders**: Frederico Lofredo (Finance), Felipe Valença (Vendas), Fernando Galeazzo (RevOps)
@@ -141,6 +141,19 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 | name | VARCHAR | Nome do time |
 | leader_id | FK → users | Gerente do time |
 | created_at | TIMESTAMP | |
+| updated_at | TIMESTAMP | |
+
+#### clients (empresa normalizada)
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| id | UUID PK | |
+| name | VARCHAR UNIQUE | Nome normalizado da empresa |
+| hubspot_company_id | VARCHAR | ID da empresa no HubSpot |
+| ev_id | FK → users | EV responsável (1 EV por empresa) |
+| created_at | TIMESTAMP | |
+| updated_at | TIMESTAMP | |
+
+A tabela `clients` normaliza empresas e garante a regra "1 EV por empresa" via FK. Match entre planilha/HubSpot e `clients` usa nome normalizado (lowercase, sem acentos, trim).
 
 #### policies (âncora: ticket de cotação gongado)
 | Campo | Tipo | Descrição |
@@ -148,10 +161,11 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 | id | UUID PK | |
 | hubspot_ticket_id | VARCHAR UNIQUE | ID do ticket de cotação |
 | ev_id | FK → users | EV responsável |
+| client_id | FK → clients | Empresa (normalizada) |
 | deal_id | VARCHAR | ID do deal no HubSpot |
-| client_name | VARCHAR | Nome da empresa |
 | benefit_type | ENUM | SAUDE, ODONTO, VIDA |
-| segment | ENUM | STARTUP, P, M, G, ENTERPRISE |
+| segment | ENUM | PP, P, M, G (ver mapeamento abaixo) |
+| headcount | INTEGER | Qtd vidas/funcionários (origem: HubSpot) |
 | mrr_projected | DECIMAL | MRR previsto no gongo |
 | mrr_post_deploy | DECIMAL | MRR pós-implantação |
 | mrr_actual | DECIMAL | MRR real faturado |
@@ -160,7 +174,7 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 | first_payment_prev | DATE | Previsão 1º pagamento |
 | first_payment_real | DATE | 1º recebimento efetivo |
 | installments_paid | INTEGER | Faturas pagas (0-12) |
-| commission_status | ENUM | PROJECTED, IN_PAYMENT, SETTLED |
+| commission_status | ENUM | PROJECTED, IN_PAYMENT, SETTLED, CANCELLED |
 | partner_operator | VARCHAR | Parceiro/operadora |
 | deal_stage | VARCHAR | Estágio do deal |
 | created_at | TIMESTAMP | |
@@ -173,6 +187,8 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 | policy_id | FK → policies | |
 | nf_valor_liquido | DECIMAL | Valor líquido recebido |
 | nf_mes_recebimento | VARCHAR | Mês (YYYY-MM) |
+| quarter | INTEGER | Trimestre derivado do mês (1-4) |
+| year | INTEGER | Ano derivado do mês |
 | import_batch_id | UUID | Lote de importação |
 | created_at | TIMESTAMP | |
 
@@ -180,7 +196,7 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
 | id | UUID PK | |
-| client_name | VARCHAR | Empresa |
+| client_id | FK → clients | Empresa (normalizada) |
 | quarter | INTEGER | Trimestre (1-4) |
 | year | INTEGER | Ano |
 | amount | DECIMAL | Total de perks |
@@ -209,8 +225,9 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 | segment | ENUM | Porte do deal |
 | achievement_pct | DECIMAL | % atingimento do EV |
 | commission_pct | DECIMAL | % comissão aplicado |
+| commission_pct_version | INTEGER | Versão da tabela de % usada no cálculo |
 | monthly_estimated | DECIMAL | Comissão mensal estimada |
-| monthly_actual | DECIMAL | Comissão mensal real |
+| monthly_actual | DECIMAL | Comissão mensal real (ver lifecycle abaixo) |
 | total_estimated | DECIMAL | Total estimado (12x) |
 | total_actual | DECIMAL | Total real |
 | is_final | BOOLEAN | Apuração fechada? |
@@ -292,12 +309,35 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 
 ### Enums
 
-- `commission_status`: PROJECTED → IN_PAYMENT → SETTLED
+- `commission_status`: PROJECTED → IN_PAYMENT → SETTLED (ou CANCELLED em caso de churn)
 - `appraisal.status`: DRAFT → CALCULATING → VALIDATING → REVIEWING → APPROVED → LOCKED
 - `ev_validations.status`: PENDING → APPROVED → CONTESTED → RESOLVED → AUTO_APPROVED
 - `benefit_type`: SAUDE, ODONTO, VIDA
-- `segment`: STARTUP, P, M, G, ENTERPRISE
+- `segment`: PP, P, M, G
 - `role`: ADMIN, FINANCE, GERENTE, EV, CN
+
+### Mapeamento de Segmentos
+
+O campo `segment` é derivado do `headcount` (vidas/funcionários) do deal:
+
+| Segmento | Headcount | Faixa comissão |
+|----------|-----------|----------------|
+| PP | 1 a 80 | P e PP (até 199) |
+| P | 81 a 199 | P e PP (até 199) |
+| M | 200 a 999 | M |
+| G | 1000+ | G+ |
+
+Nota: O campo `cotar___segmentacao_pipo` do HubSpot traz valores como "Startup (1-80)", "P (81-200)", etc. O sync normaliza para o enum PP/P/M/G. Para fins de comissão, PP e P usam a mesma faixa de %.
+
+### Indexes Recomendados
+
+- `policies.ev_id` + `policies.closed_date` (cálculo de achievement)
+- `policies.client_id` (agrupamento por empresa)
+- `commissions.ev_id` + `commissions.quarter` + `commissions.year`
+- `financial_imports.policy_id` + `financial_imports.nf_mes_recebimento`
+- `perks.client_id` + `perks.quarter` + `perks.year`
+- `audit_logs.table_name` + `audit_logs.record_id`
+- `notifications.user_id` + `notifications.read`
 
 ### Regras de Imutabilidade
 
@@ -311,11 +351,11 @@ RevOps (ADMIN) é o superusuário — tem acesso a tudo que Finance, Gerente e E
 
 ### Tabela de Percentuais
 
-| Porte | 0% a 49,9% | 50% a 99,9% | 100%+ |
-|-------|------------|-------------|-------|
-| P e PP (até 199) | 7% | 8% | 10% |
-| M (200 a 999) | 5% | 6% | 8% |
-| G+ (1000 a 10k) | 3% | 4% | 6% |
+| Segmento (enum) | Porte (headcount) | 0% a 49,9% | 50% a 99,9% | 100%+ |
+|------------------|--------------------|------------|-------------|-------|
+| PP, P | Até 199 vidas | 7% | 8% | 10% |
+| M | 200 a 999 vidas | 5% | 6% | 8% |
+| G | 1000+ vidas | 3% | 4% | 6% |
 
 ### Projeção (automática, a cada sync HubSpot)
 
@@ -343,12 +383,16 @@ Para cada EV no trimestre:
 
 1. **Achievement FINAL**: `SUM(mrr gongos do EV no tri) / meta_mrr`
 2. **Faixa FINAL de %**: lookup na `commission_pct_table` vigente
-3. **Para cada policy**:
-   - Agrupar NFs por empresa: `SUM(nf_valor_liquido)` por `client_name` no tri
-   - Subtrair perks: `base = total_liquido_empresa - perks_empresa`
-   - `comissao_real = base × commission_pct` (faixa final)
-4. **Retroatividade**: % final aplica em TODOS os deals do EV naquele trimestre
-5. Marca `is_final = true`
+3. **Calcular base por empresa**:
+   - `total_liquido_empresa = SUM(nf_valor_liquido)` de todas as policies do mesmo `client_id` no tri
+   - `base_empresa = total_liquido_empresa - perks_empresa` (perks do tri via tabela `perks`)
+4. **Ratear para cada policy** (pro-rata por MRR):
+   - `peso_policy = mrr_comissao_policy / SUM(mrr_comissao de todas policies do client no tri)`
+   - `base_policy = base_empresa × peso_policy`
+   - `comissao_real_policy = base_policy × commission_pct` (faixa final)
+   - Grava em `commissions.monthly_actual` e `commissions.total_actual`
+5. **Retroatividade**: % final aplica em TODOS os deals do EV naquele trimestre
+6. Marca `is_final = true`
 
 ### Regras de Negócio Críticas
 
@@ -360,6 +404,16 @@ Para cada EV no trimestre:
 | Perks por empresa | Abatidos do total líquido da empresa, não da apólice individual |
 | 1 EV por empresa | Não existe caso de EVs diferentes na mesma empresa |
 | MRR cascata | Projetado → pós-implantação → real faturado (usa o mais recente disponível) |
+
+### Lifecycle de monthly_actual e total_actual
+
+Os campos `monthly_actual` e `total_actual` na tabela `commissions` seguem este ciclo:
+
+1. **Antes da apuração**: `monthly_actual = NULL`, `total_actual = NULL`. Só `monthly_estimated` e `total_estimated` existem.
+2. **Na apuração (CALCULATING)**: Motor calcula `monthly_actual` e `total_actual` com base no rateio empresa (ver passo 4 da Apuração). `is_final = false` até LOCKED.
+3. **Após LOCKED**: `monthly_actual` e `total_actual` ficam imutáveis. Este é o valor definitivo da comissão.
+4. **Pagamento mensal**: A policy continua recebendo NFs por até 12 meses. O `monthly_actual` calculado na apuração é o valor mensal que o EV tem direito. As NFs subsequentes não recalculam o valor — ele já foi definido no fechamento do tri.
+5. **Cross-quarter**: Uma policy gongada no Q1 tem comissão calculada no fechamento do Q1 (com % do Q1). Os pagamentos continuam nos trimestres seguintes, mas o `monthly_actual` não muda. Apenas `installments_paid` incrementa.
 
 ### Status da Policy
 
@@ -588,7 +642,11 @@ Tipos de notificação configuráveis pelo RevOps. Canal Slack configurável por
 - Google OAuth 2.0 (contas @piposaude.com)
 - Domínio restrito
 - Primeiro login cria usuário sem role (RevOps atribui)
-- JWT com refresh token (8h / 7 dias)
+- JWT (access token) em memória no frontend (nunca localStorage)
+- Refresh token em httpOnly cookie (seguro contra XSS)
+- Access token expira em 8h, refresh em 7 dias
+- Endpoint `/auth/refresh` renova o access token
+- Logout revoga o refresh token no backend
 
 ### RBAC
 
@@ -717,3 +775,182 @@ Visual limpo, moderno e funcional. Cores com uso consciente e semântico. Hierar
 | Integrações | HubSpot API v3 (cron sync) |
 | Import | Excel (.xlsx) → futuro Snowflake |
 | Design System | Custom Pipo (Obentô base) |
+
+---
+
+## 14. Edge Cases e Regras Especiais
+
+### EV sai da empresa no meio do trimestre
+
+- Deals já gongados permanecem com o EV original (comissão é devida)
+- Meta do EV é mantida integral (não pro-rateada)
+- RevOps pode reatribuir deals futuros manualmente via admin
+- EV inativo continua visível no histórico mas não aparece em novos cadastros
+
+### Policy cancelada / churn antes de 12 parcelas
+
+- Se o cliente cancela, a policy recebe status `CANCELLED` (novo estado adicionado ao enum)
+- Comissão para de ser devida a partir do cancelamento
+- Parcelas já pagas não sofrem clawback (não há estorno)
+- `commission_status`: PROJECTED/IN_PAYMENT → CANCELLED
+- RevOps registra o cancelamento manualmente (ou via sync HubSpot se deal_stage mudar)
+
+### Meta alterada no meio do trimestre
+
+- Metas podem ser editadas a qualquer momento antes da apuração (DRAFT)
+- Uma vez que a apuração entra em CALCULATING, a meta fica congelada para aquele trimestre
+- Tabela `goals` tem `updated_at` para rastreio, mas não é versionada (audit_log cobre o histórico)
+
+### Dados iniciais / migração
+
+- A plataforma começa do zero a partir de um trimestre definido pelo RevOps (ex: Q1 2026)
+- Dados históricos anteriores NÃO são migrados no MVP
+- Se necessário, RevOps pode fazer import retroativo via upload de planilha
+
+---
+
+## 15. Contrato de API
+
+### Padrões Gerais
+
+- **Base URL**: `/api/v1`
+- **Auth header**: `Authorization: Bearer <jwt_token>`
+- **Content-Type**: `application/json` (exceto upload que é `multipart/form-data`)
+- **Paginação**: offset-based com `?page=1&per_page=20` (default 20, max 100)
+- **Ordenação**: `?sort=field&order=asc|desc`
+
+### Formato de Resposta Padrão
+
+```json
+{
+  "data": { ... },
+  "meta": {
+    "page": 1,
+    "per_page": 20,
+    "total": 150,
+    "total_pages": 8
+  }
+}
+```
+
+### Formato de Erro Padrão
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Descrição legível do erro",
+    "details": [
+      {"field": "mrr_target", "message": "Deve ser maior que zero"}
+    ]
+  }
+}
+```
+
+HTTP status codes: 200 (ok), 201 (created), 400 (validation), 401 (unauthorized), 403 (forbidden), 404 (not found), 409 (conflict), 422 (unprocessable), 500 (internal).
+
+### Endpoints Principais
+
+#### Auth
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| POST | /auth/google | Callback OAuth Google → retorna JWT | público |
+| POST | /auth/refresh | Refresh do JWT | autenticado |
+| GET | /auth/me | Dados do usuário logado | autenticado |
+
+#### Policies
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET | /policies | Lista policies (filtros: ev_id, client_id, quarter, year, status) | EV(próprias), GERENTE(time), ADMIN/FINANCE(todas) |
+| GET | /policies/:id | Detalhe de uma policy | EV(própria), GERENTE(time), ADMIN/FINANCE |
+
+#### Commissions
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET | /commissions | Lista comissões (filtros: ev_id, quarter, year, is_final) | EV(próprias), GERENTE(time), ADMIN/FINANCE(todas) |
+| GET | /commissions/summary | Resumo: saldo a receber, atingimento, projeção | EV(próprio), ADMIN |
+| GET | /commissions/projection | Projeção 12 meses de recebimentos | EV(próprio), ADMIN |
+
+#### Goals
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET | /goals | Lista metas (filtros: ev_id, quarter, year) | ADMIN |
+| POST | /goals | Criar/atualizar meta individual | ADMIN |
+| POST | /goals/import | Upload XLSX de metas em massa | ADMIN |
+
+#### Financial
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| POST | /financial/upload | Upload XLSX financeiro → retorna preview | ADMIN |
+| POST | /financial/confirm/:batch_id | Confirma import após preview | ADMIN |
+| GET | /financial/history | Histórico de imports | ADMIN |
+| GET | /financial/template | Download do template XLSX | ADMIN |
+
+#### Workflow (Apuração)
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| POST | /appraisals | Criar apuração (DRAFT) | ADMIN |
+| POST | /appraisals/:id/calculate | Disparar cálculo (DRAFT → CALCULATING) | ADMIN |
+| POST | /appraisals/:id/release | Liberar para validação (CALCULATING → VALIDATING) | ADMIN |
+| POST | /appraisals/:id/send-to-finance | Enviar pra Finance (REVIEWING → APPROVED) | ADMIN |
+| POST | /appraisals/:id/approve-payment | Liberar pagamento (APPROVED → LOCKED) | ADMIN, FINANCE |
+| POST | /appraisals/:id/return | Devolver pro RevOps (APPROVED → REVIEWING) | FINANCE |
+| GET | /appraisals/:id | Detalhe da apuração com consolidado | ADMIN, FINANCE |
+
+#### Validações (EV)
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET | /validations | Lista validações do EV no tri ativo | EV |
+| POST | /validations/:id/approve | Aprovar deal | EV |
+| POST | /validations/:id/contest | Contestar deal (body: comment) | EV |
+| POST | /validations/:id/resolve | Resolver contestação (body: resolution, accepted) | ADMIN |
+
+#### Finance Dashboard
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET | /finance/dashboard | Saldo devedor, fluxo de caixa, orçado vs realizado | ADMIN, FINANCE |
+| GET | /finance/export | Export Excel/CSV/PDF (query: format, filters) | ADMIN, FINANCE |
+
+#### Admin
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET/POST/PUT | /admin/users | CRUD de usuários + atribuição de role | ADMIN |
+| GET/POST/PUT | /admin/teams | CRUD de times | ADMIN |
+| GET/POST | /admin/commission-table | Ver/atualizar tabela de % (cria nova versão) | ADMIN |
+| GET/PUT | /admin/settings | Configurações da plataforma | ADMIN |
+| GET | /admin/sync-status | Status do último sync HubSpot | ADMIN |
+| GET | /admin/audit-log | Log de auditoria (filtros: table, user, date range) | ADMIN |
+
+#### Notifications
+| Método | Path | Descrição | Role |
+|--------|------|-----------|------|
+| GET | /notifications | Lista notificações do usuário (filtro: read) | autenticado |
+| POST | /notifications/:id/read | Marcar como lida | autenticado |
+| POST | /notifications/read-all | Marcar todas como lidas | autenticado |
+
+---
+
+## 16. Observabilidade
+
+### Logging
+
+- Formato logfmt estruturado
+- Campos obrigatórios: timestamp, level, message, request_id, user_id
+- Nunca logar dados sensíveis (tokens, senhas)
+
+### Health Checks
+
+- `GET /health` — liveness (app está rodando)
+- `GET /ready` — readiness (DB conectado, dependências ok)
+
+### Monitoramento de Cron Jobs
+
+- Cada execução do `hubspot-sync` loga: início, fim, duração, registros processados, erros
+- Se o sync falha 3x consecutivas, dispara alerta no Slack pro RevOps
+- `auto-approve-validation` loga quantas validações foram auto-aprovadas
+
+### Backup e Recovery
+
+- RDS com backups automáticos diários (retenção: 7 dias stag, 30 dias prod)
+- Point-in-time recovery habilitado em prod
+- RDS Single-AZ em stag, Multi-AZ em prod
