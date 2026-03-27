@@ -1,6 +1,6 @@
 # Plataforma de Comissões — Design Spec
 
-**Versão**: 1.1
+**Versão**: 1.2
 **Data**: 2026-03-27
 **Autor**: Eric Valoz (RevOps) + Claude
 **Stakeholders**: Frederico Lofredo (Finance), Felipe Valença (Vendas), Fernando Galeazzo (RevOps)
