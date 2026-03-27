@@ -17,6 +17,9 @@ def create_app(config_name=None):
     migrate.init_app(app, db)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}})
 
+    # Import models so Alembic sees them
+    from app import models as _models  # noqa: F401
+
     # Register blueprints
     from app.api import register_blueprints
     register_blueprints(app)
