@@ -1,0 +1,94 @@
+stages:
+  - test
+  - lint
+  - build
+  - push
+  - deploy-stag
+  - deploy-prod
+
+variables:
+  DOCKER_IMAGE_BACKEND: $CI_REGISTRY_IMAGE/backend
+  DOCKER_IMAGE_FRONTEND: $CI_REGISTRY_IMAGE/frontend
+
+# --- Backend ---
+test-backend:
+  stage: test
+  image: python:3.12-slim
+  services:
+    - postgres:16
+  variables:
+    POSTGRES_DB: comissoes_test
+    POSTGRES_USER: test
+    POSTGRES_PASSWORD: test
+    TEST_DATABASE_URL: postgresql://test:test@postgres:5432/comissoes_test
+  script:
+    - cd backend
+    - pip install -r requirements-dev.txt
+    - pytest tests/ -v --tb=short --junitxml=report.xml
+  artifacts:
+    reports:
+      junit: backend/report.xml
+
+lint-backend:
+  stage: lint
+  image: python:3.12-slim
+  script:
+    - cd backend
+    - pip install flake8 black
+    - flake8 app/ tests/
+    - black --check app/ tests/
+
+build-backend:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - cd backend
+    - docker build -t $DOCKER_IMAGE_BACKEND:$CI_COMMIT_SHA .
+    - docker tag $DOCKER_IMAGE_BACKEND:$CI_COMMIT_SHA $DOCKER_IMAGE_BACKEND:latest
+  only:
+    - main
+
+push-backend:
+  stage: push
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+    - docker push $DOCKER_IMAGE_BACKEND:$CI_COMMIT_SHA
+    - docker push $DOCKER_IMAGE_BACKEND:latest
+  only:
+    - main
+
+deploy-stag:
+  stage: deploy-stag
+  image: alpine/helm:3.14
+  script:
+    - helm upgrade --install plataforma-comissoes-backend
+      pipoengineering/platform/charts/microservice
+      -f .k8s/helm/stag/values.yaml
+      --set image.tag=$CI_COMMIT_SHA
+      --namespace default
+  environment:
+    name: staging
+    url: https://comissoes-stag.piposaude.com
+  only:
+    - main
+
+deploy-prod:
+  stage: deploy-prod
+  image: alpine/helm:3.14
+  script:
+    - helm upgrade --install plataforma-comissoes-backend
+      pipoengineering/platform/charts/microservice
+      -f .k8s/helm/prod/values.yaml
+      --set image.tag=$CI_COMMIT_SHA
+      --namespace default
+  environment:
+    name: production
+    url: https://comissoes.piposaude.com
+  when: manual
+  only:
+    - main
