@@ -41,3 +41,49 @@ def refresh():
         return jsonify({"error": {"code": "UNAUTHORIZED", "message": "Token revoked"}}), 401
     access_token = create_access_token(str(user.id), user.role.value if user.role else None)
     return jsonify({"data": {"access_token": access_token}})
+
+
+@auth_bp.route("/google", methods=["POST"])
+def google_login():
+    from app.auth.google_sso import exchange_code_for_tokens, get_user_info, validate_email_domain, GoogleSSOError
+
+    code = request.json.get("code")
+    if not code:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Authorization code required"}}), 400
+
+    try:
+        tokens = exchange_code_for_tokens(code)
+        user_info = get_user_info(tokens["access_token"])
+        validate_email_domain(user_info["email"])
+    except GoogleSSOError as e:
+        return jsonify({"error": {"code": "AUTH_ERROR", "message": str(e)}}), 401
+
+    user = User.query.filter_by(email=user_info["email"]).first()
+    if user is None:
+        user = User(
+            email=user_info["email"],
+            name=user_info.get("name", user_info["email"]),
+            google_id=user_info.get("id"),
+            role=None,
+        )
+        db.session.add(user)
+
+    access_token = create_access_token(
+        str(user.id), user.role.value if user.role else None
+    )
+    refresh_token = create_refresh_token(str(user.id))
+    user.refresh_token = refresh_token
+    db.session.commit()
+
+    return jsonify({
+        "data": {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "role": user.role.value if user.role else None,
+            },
+        }
+    })
