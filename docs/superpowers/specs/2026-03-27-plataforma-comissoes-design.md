@@ -214,6 +214,8 @@ A tabela `clients` normaliza empresas e garante a regra "1 EV por empresa" via F
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
 
+**Unique constraint**: `(ev_id, quarter, year)` — um EV tem exatamente uma meta por trimestre.
+
 #### commissions
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
@@ -234,6 +236,8 @@ A tabela `clients` normaliza empresas e garante a regra "1 EV por empresa" via F
 | created_at | TIMESTAMP | |
 | updated_at | TIMESTAMP | |
 
+**Unique constraint**: `(policy_id, quarter, year)` — uma comissão por policy por trimestre.
+
 #### appraisals (apurações trimestrais)
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
@@ -247,18 +251,24 @@ A tabela `clients` normaliza empresas e garante a regra "1 EV por empresa" via F
 | locked_at | TIMESTAMP | |
 | created_at | TIMESTAMP | |
 
+**Unique constraint**: `(quarter, year)` — uma apuração por trimestre.
+
 #### commission_pct_table (versionada)
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
 | id | UUID PK | |
 | version | INTEGER | Versão da tabela |
-| segment | ENUM | STARTUP, P, M, G, ENTERPRISE |
+| segment | ENUM | PP, P, M, G (mesmo enum das policies) |
 | achievement_min | DECIMAL | Mínimo da faixa (%) |
 | achievement_max | DECIMAL | Máximo da faixa (%) |
 | commission_pct | DECIMAL | % de comissão |
-| valid_from | DATE | Vigência início |
-| valid_until | DATE | Vigência fim (null = atual) |
+| valid_from | DATE | Vigência início (informativo) |
+| valid_until | DATE | Vigência fim (null = atual, informativo) |
 | created_by | FK → users | |
+
+Nota: O campo `version` é a referência primária para lookups. `commissions.commission_pct_version` aponta para `commission_pct_table.version`. Os campos `valid_from`/`valid_until` são informativos para o admin saber quando cada versão entrou em vigor. O motor de cálculo usa sempre o `version` mais recente (maior) com `valid_until IS NULL`.
+
+**Unique constraints**: `(version, segment, achievement_min)` — garante que não existam linhas duplicadas dentro de uma mesma versão.
 
 #### ev_validations
 | Campo | Tipo | Descrição |
@@ -541,7 +551,8 @@ RevOps tem acesso a tudo: todas as visões de Finance, Gerente e EV, além de:
    - Buscar deal associado
    - Buscar apólice ativada
    - Buscar ticket de implantação (via apólice ou deal)
-   - Criar/atualizar registro em `policies`
+   - **Upsert em `clients`**: normalizar `cliente___nome_da_empresa` (lowercase, sem acentos, trim) e criar/atualizar na tabela `clients`. Se o client já existe, verificar que o `ev_id` é o mesmo (regra 1 EV por empresa)
+   - Criar/atualizar registro em `policies` usando o `client_id` resultante
 3. Log do sync (timestamp, criados, atualizados, erros)
 
 ### Campos Mapeados
@@ -553,7 +564,7 @@ RevOps tem acesso a tudo: todas as visões de Finance, Gerente e EV, além de:
 | mrr___receita_mensal | mrr_projected | Ticket cotação |
 | closed_date | closed_date | Ticket cotação |
 | apolice___beneficio | benefit_type | Ticket cotação |
-| cliente___nome_da_empresa | client_name | Ticket cotação |
+| cliente___nome_da_empresa | client_id (via upsert em clients) | Ticket cotação |
 | dealstage | deal_stage | Deal |
 | hs_v2_date_entered_8438574 | deploy_date | Deal |
 | previsao_primeiro_pagamento | first_payment_prev | Ticket implant. |
