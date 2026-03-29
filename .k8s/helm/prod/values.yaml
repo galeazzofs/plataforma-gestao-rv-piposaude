@@ -1,0 +1,47 @@
+replicaCount: 2
+
+image:
+  repository: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/plataforma-comissoes-backend
+  tag: latest
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+nodeToRun: pipo-core-arm64
+
+env:
+  FLASK_ENV: production
+
+secrets:
+  DATABASE_URL: PROD_DATABASE_URL
+  GOOGLE_CLIENT_ID: GOOGLE_CLIENT_ID
+  GOOGLE_CLIENT_SECRET: GOOGLE_CLIENT_SECRET
+  HUBSPOT_TOKEN: PROD_HUBSPOT_TOKEN
+  SLACK_BOT_TOKEN: SLACK_BOT_TOKEN
+  SECRET_KEY: PROD_SECRET_KEY
+
+ingress:
+  enabled: true
+  host: comissoes.piposaude.com
+  tls: true
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8000
+
+tags:
+  Squad: RevOps
+  Domain: Comissoes
+  Environment: prod
+  Service: plataforma-comissoes
