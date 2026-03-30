@@ -97,4 +97,4 @@
             :rows          (or appraisals [])
             :empty-message (if loading? "Carregando..." "Nenhuma apuração encontrada")}]]
 
-         [@new-appraisal-modal {:open? @modal-open? :on-close #(reset! modal-open? false)}]]))))
+         [new-appraisal-modal {:open? @modal-open? :on-close #(reset! modal-open? false)}]]))))

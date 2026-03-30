@@ -29,6 +29,7 @@
    (assoc-in db [:ui :active-modal] nil)))
 
 ;; Navigation — wired to reitit via :navigate! effect (registered in routes.cljs)
+;; Accepts a route-name keyword or a [route-name params] vector
 (rf/reg-event-fx
  :navigate
  (fn [{:keys [db]} [_ route]]

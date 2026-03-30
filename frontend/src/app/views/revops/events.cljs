@@ -17,7 +17,7 @@
  :revops/users-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:admin :users]          (get-in response [:data :items]))
+       (assoc-in [:admin :users]          (:data response))
        (assoc-in [:admin :users-loading?] false))))
 
 (rf/reg-event-db
@@ -36,7 +36,7 @@
 (rf/reg-event-fx
  :revops/update-user
  (fn [_ [_ id payload]]
-   {:http {:method     :put
+   {:http {:method     :patch
            :url        (str ep/users "/" id)
            :body       payload
            :on-success [:revops/fetch-users]
@@ -70,7 +70,7 @@
  :revops/teams-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:admin :teams]          (get-in response [:data :items]))
+       (assoc-in [:admin :teams]          (:data response))
        (assoc-in [:admin :teams-loading?] false))))
 
 (rf/reg-event-db
@@ -89,7 +89,7 @@
 (rf/reg-event-fx
  :revops/update-team
  (fn [_ [_ id payload]]
-   {:http {:method     :put
+   {:http {:method     :patch
            :url        (str ep/teams "/" id)
            :body       payload
            :on-success [:revops/fetch-teams]
@@ -118,7 +118,7 @@
  :revops/goals-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:goals :items]    (get-in response [:data :items]))
+       (assoc-in [:goals :items]    (:data response))
        (assoc-in [:goals :loading?] false))))
 
 (rf/reg-event-db
@@ -169,7 +169,7 @@
  :revops/create-commission-version
  (fn [_ _]
    {:http {:method     :post
-           :url        (str ep/commission-table "/version")
+           :url        ep/commission-table
            :on-success [:revops/fetch-commission-table]
            :on-failure [:revops/commission-table-error]}}))
 
@@ -203,7 +203,7 @@
  :revops/confirm-financial-upload
  (fn [_ [_ upload-id]]
    {:http {:method     :post
-           :url        (str ep/financial-upload "/" upload-id "/confirm")
+           :url        (str "/financial/confirm/" upload-id)
            :on-success [:revops/upload-confirmed]
            :on-failure [:revops/upload-error]}}))
 
@@ -234,7 +234,7 @@
  :revops/appraisals-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:appraisal :list]     (get-in response [:data :items]))
+       (assoc-in [:appraisal :list]     (:data response))
        (assoc-in [:appraisal :loading?] false))))
 
 (rf/reg-event-db
@@ -293,7 +293,7 @@
  (fn [{:keys [db]} _]
    {:db   (assoc-in db [:admin :contestations-loading?] true)
     :http {:method     :get
-           :url        "/admin/contestations"
+           :url        "/validations?status=CONTESTED"
            :on-success [:revops/contestations-loaded]
            :on-failure [:revops/contestations-error]}}))
 
@@ -301,7 +301,7 @@
  :revops/contestations-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:admin :contestations]         (get-in response [:data :items]))
+       (assoc-in [:admin :contestations]         (:data response))
        (assoc-in [:admin :contestations-loading?] false))))
 
 (rf/reg-event-db
@@ -312,7 +312,7 @@
  :revops/resolve-contestation
  (fn [_ [_ id resolution]]
    {:http {:method     :post
-           :url        (str "/admin/contestations/" id "/resolve")
+           :url        (str "/validations/" id "/resolve")
            :body       {:resolution resolution}
            :on-success [:revops/fetch-contestations]
            :on-failure [:revops/contestations-error]}}))
@@ -343,7 +343,7 @@
  :revops/trigger-sync
  (fn [_ _]
    {:http {:method     :post
-           :url        "/admin/sync/trigger"
+           :url        ep/sync-trigger
            :on-success [:revops/fetch-sync-status]
            :on-failure [:revops/sync-status-error]}}))
 
@@ -366,8 +366,8 @@
  :revops/audit-log-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:admin :audit-log]     {:items (get-in response [:data :items])
-                                          :meta  (get-in response [:data :meta])})
+       (assoc-in [:admin :audit-log]     {:items (:data response)
+                                          :meta  (:meta response)})
        (assoc-in [:admin :audit-loading?] false))))
 
 (rf/reg-event-db

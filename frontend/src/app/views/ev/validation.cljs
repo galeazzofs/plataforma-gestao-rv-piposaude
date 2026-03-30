@@ -98,7 +98,7 @@
              :rows          (or validations [])
              :empty-message (if loading? "Carregando..." "Nenhuma validação pendente")}]]]
 
-         [@contest-modal {:open?     @contest-open?
+         [contest-modal {:open?     @contest-open?
                           :on-close  #(reset! contest-open? false)
                           :on-submit (fn [id comment]
                                        (rf/dispatch [:ev/contest-validation id comment]))

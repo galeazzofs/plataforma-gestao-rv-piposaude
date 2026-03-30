@@ -95,7 +95,7 @@
             :rows          (or teams [])
             :empty-message (if loading? "Carregando..." "Nenhum time encontrado")}]]
 
-         [@team-modal {:open?     @modal-open?
+         [team-modal {:open?     @modal-open?
                        :on-close  #(reset! modal-open? false)
                        :team-data @editing-team
                        :users     users}]]))))

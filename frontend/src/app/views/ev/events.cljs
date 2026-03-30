@@ -41,8 +41,8 @@
  :ev/policies-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:policies :items]    (get-in response [:data :items]))
-       (assoc-in [:policies :meta]     (get-in response [:data :meta]))
+       (assoc-in [:policies :items]    (:data response))
+       (assoc-in [:policies :meta]     (:meta response))
        (assoc-in [:policies :loading?] false))))
 
 (rf/reg-event-db
@@ -84,7 +84,7 @@
  :ev/validations-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:validations :items]    (get-in response [:data :items]))
+       (assoc-in [:validations :items]    (:data response))
        (assoc-in [:validations :loading?] false))))
 
 (rf/reg-event-db

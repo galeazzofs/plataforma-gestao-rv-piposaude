@@ -118,7 +118,7 @@
             :rows          (or users [])
             :empty-message (if loading? "Carregando..." "Nenhum usuário encontrado")}]]
 
-         [@user-modal {:open?     @modal-open?
+         [user-modal {:open?     @modal-open?
                        :on-close  #(reset! modal-open? false)
                        :user-data @editing-user
                        :teams     teams}]]))))

@@ -12,6 +12,16 @@
            :on-failure [:auth/login-failure]}}))
 
 (rf/reg-event-fx
+ :auth/dev-login
+ (fn [{:keys [db]} [_ email]]
+   {:db   (assoc-in db [:auth :loading?] true)
+    :http {:method     :post
+           :url        "/auth/dev-login"
+           :body       {:email email}
+           :on-success [:auth/login-success]
+           :on-failure [:auth/login-failure]}}))
+
+(rf/reg-event-fx
  :auth/login-success
  (fn [{:keys [db]} [_ response]]
    (let [data (:data response)]

@@ -65,7 +65,19 @@
    (get-in route [:data :name])))
 
 ;; Navigate effect — pushes state into browser history via reitit
+;; Accepts either a route-name keyword or a [route-name params] vector
 (rf/reg-fx
  :navigate!
- (fn [route-name]
-   (rfe/push-state route-name)))
+ (fn [route-or-pair]
+   (if (vector? route-or-pair)
+     (let [[route-name params] route-or-pair]
+       (if params
+         (rfe/push-state route-name params)
+         (rfe/push-state route-name)))
+     (rfe/push-state route-or-pair))))
+
+;; Navigate event — dispatched from views as [:navigate! :route] or [:navigate! [:route params]]
+(rf/reg-event-fx
+ :navigate!
+ (fn [_ [_ route-or-pair]]
+   {:navigate! route-or-pair}))

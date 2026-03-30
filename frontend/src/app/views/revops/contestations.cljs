@@ -87,6 +87,6 @@
             :rows          (or contestations [])
             :empty-message (if loading? "Carregando..." "Nenhuma contestação encontrada")}]]
 
-         [@resolve-modal {:open?        @modal-open?
+         [resolve-modal {:open?        @modal-open?
                           :on-close     #(reset! modal-open? false)
                           :contestation @selected-cont}]]))))
