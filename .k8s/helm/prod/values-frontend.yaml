@@ -1,0 +1,36 @@
+replicaCount: 2
+
+image:
+  repository: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/plataforma-comissoes-frontend
+  tag: latest
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+nodeToRun: pipo-core-arm64
+
+ingress:
+  enabled: true
+  host: comissoes.piposaude.com
+  tls: true
+
+livenessProbe:
+  httpGet:
+    path: /nginx-health
+    port: 80
+
+readinessProbe:
+  httpGet:
+    path: /nginx-health
+    port: 80
+
+tags:
+  Squad: RevOps
+  Domain: Comissoes
+  Environment: prod
+  Service: plataforma-comissoes-frontend
