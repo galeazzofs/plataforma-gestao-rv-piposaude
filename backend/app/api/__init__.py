@@ -10,6 +10,7 @@ def register_blueprints(app):
     from app.api.v1.validations import validations_bp
     from app.api.v1.finance_dashboard import finance_dashboard_bp
     from app.api.v1.notifications import notifications_bp
+    from app.api.v1.gerente import gerente_bp
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
@@ -21,3 +22,4 @@ def register_blueprints(app):
     app.register_blueprint(validations_bp)
     app.register_blueprint(finance_dashboard_bp)
     app.register_blueprint(notifications_bp)
+    app.register_blueprint(gerente_bp)

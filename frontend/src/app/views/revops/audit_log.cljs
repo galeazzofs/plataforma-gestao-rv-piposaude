@@ -39,8 +39,8 @@
 
 (defn audit-log-page []
   (let [filters (r/atom {:from nil :to nil :table nil :user nil})]
+    (rf/dispatch [:revops/fetch-audit-log @filters])
     (fn []
-      (rf/dispatch [:revops/fetch-audit-log @filters])
       (let [audit-log @(rf/subscribe [:revops/audit-log])
             loading?  @(rf/subscribe [:revops/audit-loading?])
             user      @(rf/subscribe [:auth/current-user])

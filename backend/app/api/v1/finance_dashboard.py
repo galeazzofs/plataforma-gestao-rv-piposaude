@@ -4,7 +4,7 @@ from datetime import date
 from flask import Blueprint, jsonify, request, g, Response
 from sqlalchemy import func
 from app.auth.decorators import require_role
-from app.models import Commission, Policy, UserRole, User, ImportBatch, EvValidation, ValidationStatus
+from app.models import Commission, Policy, UserRole, User, ImportBatch, EvValidation, ValidationStatus, Appraisal, AppraisalStatus
 from app.extensions import db
 
 finance_dashboard_bp = Blueprint("finance_dashboard", __name__, url_prefix="/api/v1/finance")
@@ -76,6 +76,39 @@ def dashboard():
                 }
                 for b in recent_batches
             ],
+        }
+    })
+
+
+@finance_dashboard_bp.route("/approval")
+@require_role(UserRole.ADMIN, UserRole.FINANCE)
+def list_approval():
+    """Return appraisals with status APPROVED, pending finance release."""
+    from app.api.middlewares import paginate_query
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+
+    query = Appraisal.query.filter_by(
+        status=AppraisalStatus.APPROVED
+    ).order_by(Appraisal.year.desc(), Appraisal.quarter.desc())
+
+    items, meta = paginate_query(query, page, per_page)
+
+    return jsonify({
+        "data": {
+            "items": [
+                {
+                    "id": str(a.id),
+                    "quarter": a.quarter,
+                    "year": a.year,
+                    "status": a.status.value,
+                    "validation_deadline": a.validation_deadline.isoformat() if a.validation_deadline else None,
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                    "locked_at": a.locked_at.isoformat() if a.locked_at else None,
+                }
+                for a in items
+            ],
+            "meta": meta,
         }
     })
 

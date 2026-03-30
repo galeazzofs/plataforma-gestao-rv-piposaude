@@ -6,25 +6,21 @@
 
 (defn fmt-brl [v]
   (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+    (let [n (if (string? v) (js/parseFloat v) v)]
+      (str "R$ " (.toLocaleString n "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2})))))
 
 (def columns
   [{:key :client_name  :label "Cliente"     :sortable true}
    {:key :benefit_type :label "Benefício"   :sortable false}
    {:key :segment      :label "Segmento"    :sortable false}
-   {:key :mrr          :label "MRR"         :sortable true
-    :render (fn [row] (fmt-brl (:mrr row)))}
-   {:key :commission_pct :label "%"         :sortable false
-    :render (fn [row] (when-let [p (:commission_pct row)] (str (.toFixed p 1) "%")))}
-   {:key :commission_monthly :label "Comissão/mês" :sortable true
-    :render (fn [row] (fmt-brl (:commission_monthly row)))}
-   {:key :installments :label "Parcelas"    :sortable false
-    :render (fn [row]
-              (let [current (or (:installment_current row) 0)
-                    total   (or (:installment_total row) 12)]
-                (str current "/" total)))}
-   {:key :status :label "Status" :sortable false
-    :render (fn [row] [badge/status-badge {:status (:status row)}])}])
+   {:key :mrr_projected :label "MRR"        :sortable true
+    :render (fn [row] (fmt-brl (:mrr_projected row)))}
+   {:key :commission_status :label "Status Comissão" :sortable false}
+   {:key :mrr_for_commission :label "MRR Comissão"   :sortable true
+    :render (fn [row] (fmt-brl (:mrr_for_commission row)))}
+   {:key :installments_paid :label "Parcelas Pagas"  :sortable false
+    :render (fn [row] (str (or (:installments_paid row) 0)))}
+   {:key :hubspot_ticket_id :label "Ticket ID"       :sortable false}])
 
 (defn deals-table
   "Reusable deals/policies data table."

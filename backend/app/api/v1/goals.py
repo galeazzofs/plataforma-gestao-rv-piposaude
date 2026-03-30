@@ -77,6 +77,26 @@ def create_goal():
     return jsonify({"data": _serialize_goal(goal)}), 201
 
 
+@goals_bp.route("/<goal_id>", methods=["PUT"])
+@require_role(UserRole.ADMIN, UserRole.GERENTE)
+def update_goal(goal_id):
+    """Update a single goal's mrr_target."""
+    goal = db.session.get(Goal, goal_id)
+    if goal is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Goal not found"}}), 404
+
+    data = request.get_json() or {}
+    if "mrr_target" not in data:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "mrr_target required"}}), 400
+
+    old_values = {"mrr_target": str(goal.mrr_target)}
+    goal.mrr_target = data["mrr_target"]
+    log_audit("goals", goal.id, "UPDATE", old_values=old_values, new_values={"mrr_target": str(data["mrr_target"])})
+    db.session.commit()
+
+    return jsonify({"data": _serialize_goal(goal)})
+
+
 @goals_bp.route("/import", methods=["POST"])
 @require_role(UserRole.ADMIN, UserRole.GERENTE)
 def import_goals():

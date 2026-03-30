@@ -164,6 +164,21 @@ def create_team():
     return jsonify({"data": _serialize_team(team)}), 201
 
 
+@admin_bp.route("/teams/<team_id>", methods=["DELETE"])
+@require_role(UserRole.ADMIN)
+def delete_team(team_id):
+    from app.models import Team
+    team = db.session.get(Team, team_id)
+    if team is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Team not found"}}), 404
+
+    log_audit("teams", team.id, "DELETE", old_values={"name": team.name})
+    db.session.delete(team)
+    db.session.commit()
+
+    return jsonify({"data": {"id": team_id, "deleted": True}})
+
+
 @admin_bp.route("/teams/<team_id>", methods=["PATCH"])
 @require_role(UserRole.ADMIN)
 def update_team(team_id):
@@ -247,6 +262,25 @@ def list_settings():
     })
 
 
+@admin_bp.route("/settings", methods=["PUT"])
+@require_role(UserRole.ADMIN)
+def bulk_update_settings():
+    from app.models import PlatformSetting
+    data = request.get_json()
+    if data is None or "settings" not in data:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "settings object required"}}), 400
+
+    user = g.current_user
+    result = {}
+    for key, value in data["settings"].items():
+        setting = PlatformSetting.set(key, value, user_id=user.id)
+        log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": value})
+        result[key] = value
+
+    db.session.commit()
+    return jsonify({"data": result})
+
+
 @admin_bp.route("/settings/<key>", methods=["PUT"])
 @require_role(UserRole.ADMIN)
 def update_setting(key):
@@ -264,6 +298,18 @@ def update_setting(key):
 
 
 # ── Sync Status ────────────────────────────────────────────────────────────────
+
+@admin_bp.route("/sync-trigger", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def sync_trigger():
+    """Manually trigger a HubSpot sync."""
+    try:
+        from app.modules.hubspot_sync.sync import run_sync
+        result = run_sync()
+        return jsonify({"data": {"status": "triggered", "result": result}})
+    except Exception as e:
+        return jsonify({"error": {"code": "SYNC_ERROR", "message": str(e)}}), 500
+
 
 @admin_bp.route("/sync-status")
 @require_role(UserRole.ADMIN)

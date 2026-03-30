@@ -47,29 +47,28 @@
                          (on-close))}
             (if editing? "Salvar" "Criar")]]]]))))
 
-(def team-columns
-  [{:key :name        :label "Nome"       :sortable true}
-   {:key :leader_name :label "Líder"      :sortable false}
-   {:key :members     :label "Membros"    :sortable false
-    :render (fn [row] (str (count (or (:members row) []))))}
-   {:key :actions     :label ""           :sortable false
-    :render (fn [row]
-              [:div {:style {:display "flex" :gap "8px"}}
-               [:button {:style    {:background "none" :border "none" :cursor "pointer"
-                                    :color t/color-primary :font-size (:xs t/font-sizes)}
-                         :on-click #(rf/dispatch [:revops/set-editing-team row])}
-                "Editar"]
-               [:button {:style    {:background "none" :border "none" :cursor "pointer"
-                                    :color t/error-default :font-size (:xs t/font-sizes)}
-                         :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
-                                      (rf/dispatch [:revops/delete-team (:id row)]))}
-                "Remover"]])}])
-
 (defn teams-page []
   (rf/dispatch [:revops/fetch-teams])
   (rf/dispatch [:revops/fetch-users])
   (let [modal-open?  (r/atom false)
-        editing-team (r/atom nil)]
+        editing-team (r/atom nil)
+        team-columns [{:key :name        :label "Nome"       :sortable true}
+                      {:key :leader_name :label "Líder"      :sortable false}
+                      {:key :members     :label "Membros"    :sortable false
+                       :render (fn [row] (str (count (or (:members row) []))))}
+                      {:key :actions     :label ""           :sortable false
+                       :render (fn [row]
+                                 [:div {:style {:display "flex" :gap "8px"}}
+                                  [:button {:style    {:background "none" :border "none" :cursor "pointer"
+                                                       :color t/color-primary :font-size (:xs t/font-sizes)}
+                                            :on-click #(do (reset! editing-team row)
+                                                           (reset! modal-open? true))}
+                                   "Editar"]
+                                  [:button {:style    {:background "none" :border "none" :cursor "pointer"
+                                                       :color t/error-default :font-size (:xs t/font-sizes)}
+                                            :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
+                                                         (rf/dispatch [:revops/delete-team (:id row)]))}
+                                   "Remover"]])}]]
     (fn []
       (let [teams    @(rf/subscribe [:revops/teams])
             users    @(rf/subscribe [:revops/users])

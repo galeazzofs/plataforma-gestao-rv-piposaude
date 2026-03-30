@@ -127,9 +127,9 @@
 
 (rf/reg-event-fx
  :revops/update-goal
- (fn [_ [_ id payload]]
-   {:http {:method     :put
-           :url        (str ep/goals "/" id)
+ (fn [_ [_ _id payload]]
+   {:http {:method     :post
+           :url        ep/goals
            :body       payload
            :on-success [:revops/fetch-goals]
            :on-failure [:revops/goals-error]}}))
@@ -159,6 +159,7 @@
  (fn [db [_ response]]
    (-> db
        (assoc-in [:admin :commission-table]          (get-in response [:data]))
+       (assoc-in [:admin :commission-table-meta]     (get-in response [:meta]))
        (assoc-in [:admin :commission-table-loading?] false))))
 
 (rf/reg-event-db
@@ -167,11 +168,15 @@
 
 (rf/reg-event-fx
  :revops/create-commission-version
- (fn [_ _]
-   {:http {:method     :post
-           :url        ep/commission-table
-           :on-success [:revops/fetch-commission-table]
-           :on-failure [:revops/commission-table-error]}}))
+ (fn [{:keys [db]} [_ rows]]
+   (let [ct-data  (get-in db [:admin :commission-table])
+         version  (inc (or (get-in db [:admin :commission-table-meta :version]) 0))]
+     {:http {:method     :post
+             :url        ep/commission-table
+             :body       (merge {:version version}
+                                (when rows {:rows rows}))
+             :on-success [:revops/fetch-commission-table]
+             :on-failure [:revops/commission-table-error]}})))
 
 ;; ---- Financial Upload ----
 
@@ -254,7 +259,8 @@
  :revops/run-appraisal
  (fn [_ [_ id]]
    {:http {:method     :post
-           :url        (ep/appraisal-run id)
+           :url        (str "/appraisals/" id "/transition")
+           :body       {:to "CALCULATING"}
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
 
@@ -262,7 +268,8 @@
  :revops/approve-appraisal-payment
  (fn [_ [_ id]]
    {:http {:method     :post
-           :url        (ep/appraisal-approve-payment id)
+           :url        (str "/appraisals/" id "/transition")
+           :body       {:to "LOCKED"}
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
 
@@ -343,7 +350,7 @@
  :revops/trigger-sync
  (fn [_ _]
    {:http {:method     :post
-           :url        ep/sync-trigger
+           :url        "/admin/sync-trigger"
            :on-success [:revops/fetch-sync-status]
            :on-failure [:revops/sync-status-error]}}))
 
@@ -401,6 +408,6 @@
  (fn [_ [_ payload]]
    {:http {:method     :put
            :url        ep/settings
-           :body       payload
+           :body       {:settings payload}
            :on-success [:revops/fetch-settings]
            :on-failure [:revops/settings-error]}}))

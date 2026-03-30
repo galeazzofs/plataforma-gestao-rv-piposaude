@@ -14,7 +14,8 @@
 
 (defn fmt-brl [v]
   (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+    (let [n (if (string? v) (js/parseFloat v) v)]
+      (str "R$ " (.toLocaleString n "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2})))))
 
 (defn summary-cards [summary]
   [:div {:style {:display "grid"
@@ -23,18 +24,18 @@
                  :margin-bottom "32px"}}
    [cards/stat-card
     {:label    "Saldo a Receber"
-     :value    (fmt-brl (or (:saldo summary) 0))
+     :value    (fmt-brl (or (:balance_estimated summary) 0))
      :subtitle "Comissões em aberto"
      :color    :default}]
    [cards/progress-card
     {:label      "Atingimento"
-     :current    (or (:commission_total summary) 0)
-     :target     (or (:goal_amount summary) 1)
+     :current    (or (:mrr_sold summary) 0)
+     :target     (or (:mrr_target summary) 1)
      :percentage (or (:achievement_pct summary) 0)}]
    [cards/stat-card
     {:label    "Meta do Período"
-     :value    (fmt-brl (or (:goal_amount summary) 0))
-     :subtitle (str "Q" (or (:quarter summary) "-") "/" (or (:year summary) "-"))
+     :value    (fmt-brl (or (:mrr_target summary) 0))
+     :subtitle (str "Q" (or (:current_quarter summary) "-") "/" (or (:current_year summary) "-"))
      :color    :default}]])
 
 (defn projection-chart [projection]

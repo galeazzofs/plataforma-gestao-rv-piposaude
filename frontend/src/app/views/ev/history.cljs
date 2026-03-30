@@ -36,8 +36,8 @@
 
 (defn history-page []
   (let [filters (r/atom {:quarter nil :year nil :status nil})]
+    (rf/dispatch [:ev/fetch-policies @filters])
     (fn []
-      (rf/dispatch [:ev/fetch-policies @filters])
       (let [policies     @(rf/subscribe [:ev/policies])
             pol-meta     @(rf/subscribe [:ev/policies-meta])
             loading?     @(rf/subscribe [:ev/policies-loading?])

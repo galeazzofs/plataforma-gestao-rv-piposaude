@@ -37,6 +37,11 @@
    (get-in db [:admin :commission-table])))
 
 (rf/reg-sub
+ :revops/commission-table-meta
+ (fn [db _]
+   (get-in db [:admin :commission-table-meta])))
+
+(rf/reg-sub
  :revops/commission-table-loading?
  (fn [db _]
    (get-in db [:admin :commission-table-loading?])))

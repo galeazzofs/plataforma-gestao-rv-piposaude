@@ -18,24 +18,24 @@
     (str value "%")]])
 
 (defn commission-grid [rows]
-  ;; rows: [{:segment "PME" :benefit "Saúde" :pct 8.5} ...]
-  ;; Rendered as a 3x3 (or NxM) grid
+  ;; rows from API: [{:segment "PME" :achievement_min "0" :achievement_max "100" :commission_pct "8.5"} ...]
   [:div {:style {:display "grid"
                  :grid-template-columns "repeat(3, 1fr)"
                  :gap "16px"}}
    (for [row (or rows [])]
-     ^{:key (str (:segment row) (:benefit row))}
-     [grid-cell (str (:segment row) " / " (:benefit row)) (:pct row)])])
+     ^{:key (str (:segment row) (:achievement_min row) (:achievement_max row))}
+     [grid-cell (str (:segment row) " (" (:achievement_min row) "–" (:achievement_max row) "%)") (:commission_pct row)])])
 
 (defn commission-table-page []
   (rf/dispatch [:revops/fetch-commission-table])
   (fn []
     (let [ct-data  @(rf/subscribe [:revops/commission-table])
+          ct-meta  @(rf/subscribe [:revops/commission-table-meta])
           loading? @(rf/subscribe [:revops/commission-table-loading?])
           user     @(rf/subscribe [:auth/current-user])
           route    @(rf/subscribe [:current-route-name])
-          version  (:current_version ct-data)
-          rows     (:rows ct-data)]
+          version  (:version ct-meta)
+          rows     (or ct-data [])]
       [layout/page-shell
        {:sidebar-items revops-shell/sidebar-items
         :current-route route
@@ -53,7 +53,7 @@
           [:span {:style {:color t/text-secondary :font-size (:sm t/font-sizes)}} "Versão atual:"]
           [badge/badge {:variant :success} (str "v" version)]
           [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)}}
-           (str "Efetiva desde " (or (:effective_from ct-data) "—"))]])
+           (str "Efetiva desde " (or (:valid_from (first rows)) "—"))]])
 
        [cards/card {}
         (if loading?

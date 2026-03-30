@@ -48,7 +48,8 @@
  :finance/liberar-pagamento
  (fn [_ [_ appraisal-id]]
    {:http {:method     :post
-           :url        (str "/finance/appraisals/" appraisal-id "/release")
+           :url        (str "/appraisals/" appraisal-id "/transition")
+           :body       {:to "LOCKED"}
            :on-success [:finance/payment-action-success]
            :on-failure [:finance/payment-action-error]}}))
 
@@ -56,7 +57,8 @@
  :finance/devolver
  (fn [_ [_ appraisal-id]]
    {:http {:method     :post
-           :url        (str "/finance/appraisals/" appraisal-id "/return")
+           :url        (str "/appraisals/" appraisal-id "/transition")
+           :body       {:to "REVIEWING"}
            :on-success [:finance/payment-action-success]
            :on-failure [:finance/payment-action-error]}}))
 
@@ -72,14 +74,14 @@
 
 (rf/reg-event-fx
  :finance/export
- (fn [_ [_ params]]
-   {:http {:method     :get
-           :url        (str "/finance/export?"
-                            (clojure.string/join "&"
-                              (for [[k v] params :when v]
-                                (str (name k) "=" v))))
-           :on-success [:finance/export-success]
-           :on-failure [:finance/export-error]}}))
+ (fn [{:keys [db]} [_ params]]
+   (let [base  "http://localhost:5000/api/v1"
+         query (clojure.string/join "&"
+                 (for [[k v] params :when v]
+                   (str (name k) "=" v)))
+         url   (str base "/finance/export" (when (seq query) (str "?" query)))]
+     (.open js/window url "_blank")
+     {:dispatch [:finance/export-success]})))
 
 (rf/reg-event-db
  :finance/export-success
