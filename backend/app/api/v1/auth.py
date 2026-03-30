@@ -43,6 +43,66 @@ def refresh():
     return jsonify({"data": {"access_token": access_token}})
 
 
+@auth_bp.route("/dev-login", methods=["POST"])
+def dev_login():
+    """Dev-only login by email. Bypasses Google OAuth for local testing."""
+    from flask import current_app
+    if not current_app.config.get("DEBUG"):
+        return jsonify({"error": {"code": "FORBIDDEN", "message": "Dev login only available in debug mode"}}), 403
+
+    email = request.json.get("email")
+    if not email:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Email required"}}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if user is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": f"User {email} not found. Run seed.py first."}}), 404
+
+    if not user.active:
+        return jsonify({"error": {"code": "FORBIDDEN", "message": "User is inactive"}}), 403
+
+    access_token = create_access_token(
+        str(user.id), user.role.value if user.role else None
+    )
+    refresh_token = create_refresh_token(str(user.id))
+    user.refresh_token = refresh_token
+    db.session.commit()
+
+    return jsonify({
+        "data": {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "role": user.role.value if user.role else None,
+                "team_id": str(user.team_id) if user.team_id else None,
+            },
+        }
+    })
+
+
+@auth_bp.route("/dev-users")
+def dev_users():
+    """Dev-only: list available users for dev-login picker."""
+    from flask import current_app
+    if not current_app.config.get("DEBUG"):
+        return jsonify({"error": {"code": "FORBIDDEN", "message": "Dev only"}}), 403
+
+    users = User.query.filter_by(active=True).all()
+    return jsonify({
+        "data": [
+            {
+                "email": u.email,
+                "name": u.name,
+                "role": u.role.value if u.role else None,
+            }
+            for u in users
+        ]
+    })
+
+
 @auth_bp.route("/google", methods=["POST"])
 def google_login():
     from app.auth.google_sso import exchange_code_for_tokens, get_user_info, validate_email_domain, GoogleSSOError

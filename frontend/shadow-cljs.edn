@@ -19,8 +19,7 @@
 
    :devtools
    {:http-root "resources/public"
-    :http-port 8080
-    :preloads [devtools.preload]}}
+    :http-port 8080}}
 
   :test
   {:target :karma

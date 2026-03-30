@@ -1,7 +1,11 @@
 import os
-from flask import Flask
-from app.config import config_map
-from app.extensions import db, migrate, cors
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from flask import Flask  # noqa: E402
+from app.config import config_map  # noqa: E402
+from app.extensions import db, migrate, cors  # noqa: E402
 
 
 def create_app(config_name=None):
