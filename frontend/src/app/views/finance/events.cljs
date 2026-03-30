@@ -1,0 +1,92 @@
+(ns app.views.finance.events
+  (:require [re-frame.core :as rf]
+            [app.api.endpoints :as ep]))
+
+(rf/reg-event-fx
+ :finance/fetch-dashboard
+ (fn [{:keys [db]} _]
+   {:db   (assoc-in db [:finance :loading?] true)
+    :http {:method     :get
+           :url        ep/finance-dashboard
+           :on-success [:finance/dashboard-loaded]
+           :on-failure [:finance/dashboard-error]}}))
+
+(rf/reg-event-db
+ :finance/dashboard-loaded
+ (fn [db [_ response]]
+   (-> db
+       (assoc-in [:finance :dashboard] (get-in response [:data]))
+       (assoc-in [:finance :loading?]  false))))
+
+(rf/reg-event-db
+ :finance/dashboard-error
+ (fn [db _]
+   (assoc-in db [:finance :loading?] false)))
+
+(rf/reg-event-fx
+ :finance/fetch-approval
+ (fn [{:keys [db]} _]
+   {:db   (assoc-in db [:finance :approval-loading?] true)
+    :http {:method     :get
+           :url        ep/finance-approval
+           :on-success [:finance/approval-loaded]
+           :on-failure [:finance/approval-error]}}))
+
+(rf/reg-event-db
+ :finance/approval-loaded
+ (fn [db [_ response]]
+   (-> db
+       (assoc-in [:finance :approval-items]   (get-in response [:data :items]))
+       (assoc-in [:finance :approval-loading?] false))))
+
+(rf/reg-event-db
+ :finance/approval-error
+ (fn [db _]
+   (assoc-in db [:finance :approval-loading?] false)))
+
+(rf/reg-event-fx
+ :finance/liberar-pagamento
+ (fn [_ [_ appraisal-id]]
+   {:http {:method     :post
+           :url        (str "/finance/appraisals/" appraisal-id "/release")
+           :on-success [:finance/payment-action-success]
+           :on-failure [:finance/payment-action-error]}}))
+
+(rf/reg-event-fx
+ :finance/devolver
+ (fn [_ [_ appraisal-id]]
+   {:http {:method     :post
+           :url        (str "/finance/appraisals/" appraisal-id "/return")
+           :on-success [:finance/payment-action-success]
+           :on-failure [:finance/payment-action-error]}}))
+
+(rf/reg-event-fx
+ :finance/payment-action-success
+ (fn [_ _]
+   {:dispatch [:finance/fetch-approval]}))
+
+(rf/reg-event-db
+ :finance/payment-action-error
+ (fn [db _]
+   (assoc-in db [:ui :toast] {:type :error :message "Erro ao processar ação de pagamento."})))
+
+(rf/reg-event-fx
+ :finance/export
+ (fn [_ [_ params]]
+   {:http {:method     :get
+           :url        (str "/finance/export?"
+                            (clojure.string/join "&"
+                              (for [[k v] params :when v]
+                                (str (name k) "=" v))))
+           :on-success [:finance/export-success]
+           :on-failure [:finance/export-error]}}))
+
+(rf/reg-event-db
+ :finance/export-success
+ (fn [db _]
+   (assoc-in db [:ui :toast] {:type :success :message "Exportação iniciada com sucesso."})))
+
+(rf/reg-event-db
+ :finance/export-error
+ (fn [db _]
+   (assoc-in db [:ui :toast] {:type :error :message "Erro ao exportar dados."})))

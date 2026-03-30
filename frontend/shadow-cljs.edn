@@ -1,0 +1,28 @@
+{:source-paths ["src" "test"]
+
+ :dependencies [[reagent "1.2.0"]
+                [re-frame "1.4.3"]
+                [metosin/reitit "0.7.2"]
+                [metosin/reitit-frontend "0.7.2"]
+                [cljs-ajax "0.8.4"]
+                [day8.re-frame/http-fx "0.2.4"]
+                [com.andrewmcveigh/cljs-time "0.5.2"]]
+
+ :builds
+ {:app
+  {:target :browser
+   :output-dir "resources/public/js/compiled"
+   :asset-path "/js/compiled"
+
+   :modules
+   {:main {:init-fn app.core/init!}}
+
+   :devtools
+   {:http-root "resources/public"
+    :http-port 8080
+    :preloads [devtools.preload]}}
+
+  :test
+  {:target :karma
+   :output-to "target/test/test.js"
+   :ns-regexp "-test$"}}}
