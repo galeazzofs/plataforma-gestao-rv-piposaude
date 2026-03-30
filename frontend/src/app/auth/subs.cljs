@@ -5,6 +5,12 @@
   (:require [re-frame.core :as rf]
             [app.state.subs]))
 
+;; Alias — convenient access to the current user map
+(rf/reg-sub
+ :auth/current-user
+ :<- [:auth/user]
+ (fn [user _] user))
+
 ;; Derived: does the current user have a specific role?
 (rf/reg-sub
  :auth/has-role?
