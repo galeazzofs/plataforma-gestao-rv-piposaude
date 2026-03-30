@@ -9,6 +9,7 @@
 
 (def sidebar-items
   [{:key :revops/dashboard        :label "Dashboard"         :icon "🏠" :route :revops/dashboard}
+   {:key :revops/policies         :label "Apólices"          :icon "📄" :route :revops/policies}
    {:key :revops/users            :label "Usuários"          :icon "👤" :route :revops/users}
    {:key :revops/teams            :label "Times"             :icon "👥" :route :revops/teams}
    {:key :revops/goals            :label "Metas"             :icon "🎯" :route :revops/goals}

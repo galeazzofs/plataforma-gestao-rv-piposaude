@@ -105,3 +105,18 @@
  :revops/settings-loading?
  (fn [db _]
    (get-in db [:admin :settings-loading?])))
+
+(rf/reg-sub
+ :revops/policies
+ (fn [db _]
+   (get-in db [:admin :policies])))
+
+(rf/reg-sub
+ :revops/policies-meta
+ (fn [db _]
+   (get-in db [:admin :policies-meta])))
+
+(rf/reg-sub
+ :revops/policies-loading?
+ (fn [db _]
+   (get-in db [:admin :policies-loading?])))

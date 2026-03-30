@@ -45,7 +45,8 @@
             [app.views.revops.contestations :as revops-contestations]
             [app.views.revops.sync-status :as revops-sync-status]
             [app.views.revops.audit-log :as revops-audit-log]
-            [app.views.revops.settings :as revops-settings]))
+            [app.views.revops.settings :as revops-settings]
+            [app.views.revops.policies :as revops-policies]))
 
 ;; ---------------------------------------------------------------------------
 ;; Route-based view switching
@@ -81,6 +82,7 @@
 
         ;; RevOps / Admin views
         :revops/dashboard        [revops-dashboard/revops-dashboard-page]
+        :revops/policies         [revops-policies/policies-page]
         :revops/users            [revops-users/users-page]
         :revops/teams            [revops-teams/teams-page]
         :revops/goals            [revops-goals/goals-page]

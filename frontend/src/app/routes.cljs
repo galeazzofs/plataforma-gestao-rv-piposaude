@@ -28,6 +28,7 @@
     ;; RevOps (Admin)
     ["/admin"
      ["/dashboard"          {:name :revops/dashboard        :role #{:ADMIN}}]
+     ["/policies"           {:name :revops/policies        :role #{:ADMIN}}]
      ["/users"              {:name :revops/users            :role #{:ADMIN}}]
      ["/teams"              {:name :revops/teams            :role #{:ADMIN}}]
      ["/goals"              {:name :revops/goals            :role #{:ADMIN}}]

@@ -411,3 +411,31 @@
            :body       {:settings payload}
            :on-success [:revops/fetch-settings]
            :on-failure [:revops/settings-error]}}))
+
+;; ---- Policies (Admin view all) ----
+
+(rf/reg-event-fx
+ :revops/fetch-policies
+ (fn [{:keys [db]} [_ params]]
+   {:db   (assoc-in db [:admin :policies-loading?] true)
+    :http {:method     :get
+           :url        (str ep/policies
+                            "?" (clojure.string/join "&"
+                                  (keep (fn [[k v]]
+                                          (when (and v (not= v ""))
+                                            (str (name k) "=" v)))
+                                        (or params {}))))
+           :on-success [:revops/policies-loaded]
+           :on-failure [:revops/policies-error]}}))
+
+(rf/reg-event-db
+ :revops/policies-loaded
+ (fn [db [_ response]]
+   (-> db
+       (assoc-in [:admin :policies]          (:data response))
+       (assoc-in [:admin :policies-meta]     (:meta response))
+       (assoc-in [:admin :policies-loading?] false))))
+
+(rf/reg-event-db
+ :revops/policies-error
+ (fn [db _] (assoc-in db [:admin :policies-loading?] false)))
