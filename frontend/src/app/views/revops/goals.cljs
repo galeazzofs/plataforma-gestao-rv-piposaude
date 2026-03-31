@@ -122,7 +122,7 @@
           (for [g (or goals [])]
             ^{:key (:id g)}
             [goal-row {:row g :on-edit (fn [id payload]
-                                          (rf/dispatch [:revops/update-goal id payload]))}])]]])])])
+                                          (rf/dispatch [:revops/update-goal id payload]))}])]]]))])
 
 (defn goals-page []
   (rf/dispatch [:revops/fetch-goals])
