@@ -18,7 +18,7 @@
         (str "R$ " (.toLocaleString n "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))))
 
 (def status-filter-options
-  [{:value ""            :label "Todos"}
+  [{:value ""            :label "Todos os status"}
    {:value "PROJECTED"   :label "Projetado"}
    {:value "IN_PAYMENT"  :label "Em Pagamento"}
    {:value "SETTLED"     :label "Quitado"}
@@ -33,19 +33,22 @@
 
 (def columns
   [{:key :client_name      :label "Cliente"       :sortable true}
-   {:key :hubspot_ticket_id :label "Ticket"       :sortable false :width "100px"}
+   {:key :hubspot_ticket_id :label "Ticket"       :sortable false :width "90px"}
    {:key :benefit_type     :label "Benefício"     :sortable true :width "90px"}
-   {:key :segment          :label "Segmento"      :sortable true :width "80px"}
-   {:key :mrr_for_commission :label "MRR"         :sortable true
+   {:key :segment          :label "Seg."          :sortable true :width "60px" :align "center"}
+   {:key :mrr_for_commission :label "MRR"         :sortable true :align "right"
     :render (fn [row] (fmt-brl (:mrr_for_commission row)))}
    {:key :closed_date      :label "Data Gongo"    :sortable true :width "110px"}
-   {:key :installments_paid :label "Parcelas"     :sortable false :width "80px"
+   {:key :installments_paid :label "Parcelas"     :sortable false :width "80px" :align "center"
     :render (fn [row] (str (:installments_paid row) "/12"))}
-   {:key :commission_status :label "Status"       :sortable true :width "120px"
+   {:key :commission_status :label "Status"       :sortable true :width "130px"
     :render (fn [row] [badge/status-badge {:status (:commission_status row)}])}])
 
 (defn filters-bar [filters on-change]
-  [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :flex-wrap "wrap" :margin-bottom "16px"}}
+  [:div {:style {:display "flex" :gap "12px" :align-items "flex-end"
+                 :flex-wrap "wrap" :padding "0 0 16px"
+                 :border-bottom (str "1px solid " t/border-default)
+                 :margin-bottom "16px"}}
    [:div {:style {:width "200px"}}
     [inputs/select {:label "Status"
                     :value (or (:status @filters) "")
@@ -72,10 +75,11 @@
                    :value (or (:year @filters) "")
                    :on-change #(do (swap! filters assoc :year %)
                                     (on-change))}]]
-   [btn/button {:variant :ghost :size :sm
-                :on-click #(do (reset! filters {:status "" :segment "" :quarter "" :year "" :page 1})
-                               (on-change))}
-    "Limpar filtros"]])
+   [:div {:style {:padding-top "20px"}}
+    [btn/button {:variant :ghost :size :sm
+                 :on-click #(do (reset! filters {:status "" :segment "" :quarter "" :year "" :page 1})
+                                (on-change))}
+     "✕ Limpar filtros"]]])
 
 (defn policies-page []
   (let [filters (r/atom {:status "" :segment "" :quarter "" :year "" :page 1})]
@@ -102,7 +106,10 @@
          [cards/card {}
           [filters-bar filters fetch-fn]
           (if loading?
-            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
+            [:div {:style {:padding "64px" :text-align "center"}}
+             [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
+              [:span {:style {:font-size "32px"}} "⏳"]
+              [:span {:style {:color t/text-secondary}} "Carregando apólices..."]]]
             [tbl/data-table
              {:columns       columns
               :rows          (or policies [])

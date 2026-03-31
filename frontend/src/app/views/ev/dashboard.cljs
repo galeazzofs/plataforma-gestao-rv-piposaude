@@ -19,16 +19,16 @@
 
 (defn summary-cards [summary]
   [:div {:style {:display "grid"
-                 :grid-template-columns "repeat(3, 1fr)"
-                 :gap "24px"
-                 :margin-bottom "32px"}}
+                 :grid-template-columns "repeat(auto-fit, minmax(250px, 1fr))"
+                 :gap "20px"}}
    [cards/stat-card
     {:label    "Saldo a Receber"
      :value    (fmt-brl (or (:balance_estimated summary) 0))
      :subtitle "Comissões em aberto"
+     :icon     "💰"
      :color    :default}]
    [cards/progress-card
-    {:label      "Atingimento"
+    {:label      "Atingimento do Período"
      :current    (or (:mrr_sold summary) 0)
      :target     (or (:mrr_target summary) 1)
      :percentage (or (:achievement_pct summary) 0)}]
@@ -36,13 +36,16 @@
     {:label    "Meta do Período"
      :value    (fmt-brl (or (:mrr_target summary) 0))
      :subtitle (str "Q" (or (:current_quarter summary) "-") "/" (or (:current_year summary) "-"))
+     :icon     "🎯"
      :color    :default}]])
 
 (defn projection-chart [projection]
-  [:div {:style {:margin-bottom "32px"}}
-   [:h3 {:style {:font-size (:lg t/font-sizes)
-                 :font-weight (:semibold t/font-weights)
-                 :margin-bottom "16px"}} "Projeção Mensal"]
+  [cards/card {}
+   [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :margin-bottom "20px"}}
+    [:div
+     [:h3 {:style {:font-size (:lg t/font-sizes) :font-weight (:semibold t/font-weights)
+                   :margin "0" :color t/text-primary}} "Projeção Mensal"]
+     [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "Projetado vs. Realizado"]]]
    [charts/line-chart
     {:data  (or projection [])
      :x-key :month
@@ -70,7 +73,13 @@
 
        ;; Summary cards
        (if loading?
-         [:div {:style {:color t/text-secondary :margin-bottom "32px"}} "Carregando..."]
+         [:div {:style {:display "grid"
+                        :grid-template-columns "repeat(auto-fit, minmax(250px, 1fr))"
+                        :gap "20px"}}
+          (for [i (range 3)]
+            ^{:key i}
+            [:div {:style {:background t/bg-card :border-radius (:lg t/border-radius)
+                           :height "120px" :border (str "1px solid " t/border-default)}}])]
          [summary-cards summary])
 
        ;; Projection chart
@@ -78,10 +87,12 @@
          [projection-chart projection])
 
        ;; Deals table
-       [:div
-        [:h3 {:style {:font-size (:lg t/font-sizes)
-                      :font-weight (:semibold t/font-weights)
-                      :margin-bottom "16px"}} "Negócios"]
+       [cards/card {}
+        [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :margin-bottom "16px"}}
+         [:div
+          [:h3 {:style {:font-size (:lg t/font-sizes) :font-weight (:semibold t/font-weights)
+                        :margin "0" :color t/text-primary}} "Negócios"]
+          [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "Todas as apólices do período"]]]
         [deals-table/deals-table
          {:rows     policies
           :loading? pol-loading?}]]])))

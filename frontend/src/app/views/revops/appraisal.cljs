@@ -28,7 +28,7 @@
           :value     (:year @form)
           :options   [{:value "2026" :label "2026"} {:value "2025" :label "2025"}]
           :on-change #(swap! form assoc :year %)}]
-        [:div {:style {:display "flex" :gap "12px" :justify-content "flex-end"}}
+        [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
          [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
          [btn/button {:variant :primary
                       :on-click (fn []
@@ -36,40 +36,63 @@
                                   (on-close))}
           "Criar"]]]])))
 
+(defn status-indicator [status]
+  (let [steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"]
+        current-idx (.indexOf (clj->js steps) status)]
+    [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
+     (map-indexed
+      (fn [idx step]
+        ^{:key step}
+        [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
+         [:div {:style {:width "8px" :height "8px" :border-radius (:full t/border-radius)
+                        :background (cond
+                                      (< idx current-idx) t/success-default
+                                      (= idx current-idx) t/color-primary
+                                      :else t/border-default)}}]
+         (when (< idx (dec (count steps)))
+           [:div {:style {:width "16px" :height "1px"
+                          :background (if (< idx current-idx) t/success-default t/border-default)}}])])
+      steps)]))
+
 (defn step-actions [appraisal]
   (let [status (:status appraisal)
         id     (:id appraisal)]
-    [:div {:style {:display "flex" :gap "8px"}}
+    [:div {:style {:display "flex" :gap "6px"}}
      (case status
        "DRAFT"
-       [btn/button {:variant  :primary
+       [btn/button {:variant  :primary :size :sm
                     :on-click #(rf/dispatch [:revops/run-appraisal id])}
-        "Iniciar Cálculo"]
+        "▶ Iniciar Cálculo"]
 
        "CALCULATING"
-       [:span {:style {:color t/text-secondary :font-size (:sm t/font-sizes)}} "Calculando..."]
+       [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)
+                       :display "flex" :align-items "center" :gap "4px"}}
+        "⏳ Calculando..."]
 
        "REVIEWING"
-       [btn/button {:variant  :primary
+       [btn/button {:variant  :primary :size :sm
                     :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
         "Revisar Valores"]
 
        "VALIDATING"
-       [:span {:style {:color t/text-secondary :font-size (:sm t/font-sizes)}} "Aguardando validação dos EVs"]
+       [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)
+                       :display "flex" :align-items "center" :gap "4px"}}
+        "👁 Aguardando EVs"]
 
        "APPROVED"
-       [btn/button {:variant  :primary
+       [btn/button {:variant  :primary :size :sm
                     :on-click #(rf/dispatch [:revops/approve-appraisal-payment id])}
-        "Liberar para Pagamento"]
+        "💰 Liberar Pagamento"]
 
        nil)]))
 
 (def appraisal-columns
-  [{:key :period :label "Período" :sortable false
-    :render (fn [row] (str "Q" (:quarter row) "/" (:year row)))}
-   {:key :status :label "Status" :sortable false
+  [{:key :period :label "Período" :sortable false :width "100px"
+    :render (fn [row] [:span {:style {:font-weight (:semibold t/font-weights)}}
+                       (str "Q" (:quarter row) "/" (:year row))])}
+   {:key :status :label "Status" :sortable false :width "130px"
     :render (fn [row] [badge/status-badge {:status (:status row)}])}
-   {:key :ev_count  :label "EVs" :sortable false}
+   {:key :ev_count  :label "EVs" :sortable false :align "center" :width "60px"}
    {:key :actions   :label "Ações" :sortable false
     :render step-actions}])
 

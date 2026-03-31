@@ -19,20 +19,25 @@
   (let [editing? (r/atom false)
         value    (r/atom (or (:amount row) 0))]
     (fn []
-      [:tr {:style {:border-bottom (str "1px solid " t/bg-subtle)}}
-       [:td {:style {:padding "12px 16px"}} (:ev_name row)]
-       [:td {:style {:padding "12px 16px"}} (str "Q" (:quarter row) "/" (:year row))]
-       [:td {:style {:padding "12px 16px"}}
+      [:tr {:style {:border-bottom (str "1px solid " t/border-default)}}
+       [:td {:style {:padding "12px 16px" :color t/text-primary}} (:ev_name row)]
+       [:td {:style {:padding "12px 16px" :color t/text-secondary :font-size (:sm t/font-sizes)}}
+        [:span {:style {:background t/beige-100 :color t/beige-700 :padding "2px 8px"
+                        :border-radius (:full t/border-radius) :font-size (:xs t/font-sizes)
+                        :font-weight (:semibold t/font-weights)}}
+         (str "Q" (:quarter row) "/" (:year row))]]
+       [:td {:style {:padding "12px 16px" :text-align "right"}}
         (if @editing?
           [:input {:type      "number"
                    :value     @value
-                   :style     {:padding "4px 8px" :border (str "1px solid " t/border-default)
-                               :border-radius (:sm t/border-radius) :width "120px"}
+                   :style     {:padding "6px 10px" :border (str "1px solid " t/border-default)
+                               :border-radius (:md t/border-radius) :width "140px"
+                               :font-size (:sm t/font-sizes) :text-align "right"}
                    :on-change #(reset! value (js/parseFloat (.. % -target -value)))}]
-          (fmt-brl (:amount row)))]
-       [:td {:style {:padding "12px 16px"}}
+          [:span {:style {:font-weight (:semibold t/font-weights)}} (fmt-brl (:amount row))])]
+       [:td {:style {:padding "12px 16px" :text-align "right"}}
         (if @editing?
-          [:div {:style {:display "flex" :gap "8px"}}
+          [:div {:style {:display "flex" :gap "6px" :justify-content "flex-end"}}
            [btn/button {:variant :primary :size :sm
                         :on-click (fn []
                                     (on-edit (:id row) {:amount @value})
@@ -70,7 +75,7 @@
           [inputs/input {:label "Meta MRR (R$)" :required true :type "number"
                          :value (:mrr_target @form) :placeholder "50000"
                          :on-change #(swap! form assoc :mrr_target %)}]
-          [:div {:style {:display "flex" :gap "12px" :justify-content "flex-end"}}
+          [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
            [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
            [btn/button {:variant :primary
                         :disabled (or (clojure.string/blank? (:ev_id @form))
@@ -89,24 +94,35 @@
 (defn goals-table [goals loading?]
   [cards/card {}
    (if loading?
-     [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
+     [:div {:style {:padding "64px" :text-align "center"}}
+      [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
+       [:span {:style {:font-size "32px"}} "⏳"]
+       [:span {:style {:color t/text-secondary}} "Carregando metas..."]]]
      (if (empty? goals)
-       [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Nenhuma meta encontrada"]
-       [:table {:style {:width "100%" :border-collapse "collapse" :font-size (:sm t/font-sizes)}}
-        [:thead
-         [:tr {:style {:border-bottom (str "2px solid " t/border-default)}}
-          [:th {:style {:padding "12px 16px" :text-align "left" :color t/text-secondary
-                        :font-size (:xs t/font-sizes) :text-transform "uppercase"}} "EV"]
-          [:th {:style {:padding "12px 16px" :text-align "left" :color t/text-secondary
-                        :font-size (:xs t/font-sizes) :text-transform "uppercase"}} "Período"]
-          [:th {:style {:padding "12px 16px" :text-align "left" :color t/text-secondary
-                        :font-size (:xs t/font-sizes) :text-transform "uppercase"}} "Valor (Meta)"]
-          [:th {:style {:padding "12px 16px"}} ""]]]
-        [:tbody
-         (for [g (or goals [])]
-           ^{:key (:id g)}
-           [goal-row {:row g :on-edit (fn [id payload]
-                                         (rf/dispatch [:revops/update-goal id payload]))}])]]))])
+       [:div {:style {:padding "64px" :text-align "center"}}
+        [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
+         [:span {:style {:font-size "32px"}} "🎯"]
+         [:span {:style {:color t/text-secondary}} "Nenhuma meta encontrada"]
+         [:span {:style {:color t/text-disabled :font-size (:xs t/font-sizes)}} "Crie uma meta para começar"]]]
+       [:div {:style {:overflow-x "auto"}}
+        [:table {:style {:width "100%" :border-collapse "collapse" :font-size (:sm t/font-sizes)}}
+         [:thead
+          [:tr {:style {:background t/bg-main :border-bottom (str "1px solid " t/border-default)}}
+           [:th {:style {:padding "10px 16px" :text-align "left" :color t/text-secondary
+                         :font-size (:xs t/font-sizes) :text-transform "uppercase"
+                         :letter-spacing "0.06em" :font-weight (:semibold t/font-weights)}} "EV"]
+           [:th {:style {:padding "10px 16px" :text-align "left" :color t/text-secondary
+                         :font-size (:xs t/font-sizes) :text-transform "uppercase"
+                         :letter-spacing "0.06em" :font-weight (:semibold t/font-weights)}} "Período"]
+           [:th {:style {:padding "10px 16px" :text-align "right" :color t/text-secondary
+                         :font-size (:xs t/font-sizes) :text-transform "uppercase"
+                         :letter-spacing "0.06em" :font-weight (:semibold t/font-weights)}} "Valor (Meta)"]
+           [:th {:style {:padding "10px 16px" :width "160px"}}]]]
+         [:tbody
+          (for [g (or goals [])]
+            ^{:key (:id g)}
+            [goal-row {:row g :on-edit (fn [id payload]
+                                          (rf/dispatch [:revops/update-goal id payload]))}])]]])])])
 
 (defn goals-page []
   (rf/dispatch [:revops/fetch-goals])
@@ -126,14 +142,14 @@
            :title         "Metas"
            :subtitle      "Gerenciar metas por EV, trimestre e ano"
            :header-actions
-           [:div {:style {:display "flex" :gap "12px" :align-items "flex-start"}}
+           [:div {:style {:display "flex" :gap "10px" :align-items "center"}}
+            [inputs/file-upload
+             {:label  "Importar XLSX"
+              :accept ".xlsx,.xls"
+              :on-file #(rf/dispatch [:revops/import-goals %])}]
             [btn/button {:variant :primary
                          :on-click #(reset! modal-open? true)}
-             "+ Nova Meta"]
-            [inputs/file-upload
-             {:label    "Importar XLSX"
-              :accept   ".xlsx,.xls"
-              :on-file  #(rf/dispatch [:revops/import-goals %])}]]}
+             "+ Nova Meta"]]}
           [goals-table goals loading?]]
          [new-goal-modal {:open?    @modal-open?
                           :on-close #(reset! modal-open? false)

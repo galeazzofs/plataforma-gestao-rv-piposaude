@@ -19,6 +19,13 @@
    {:value "FINANCE" :label "Financeiro"}
    {:value "ADMIN"   :label "Admin (RevOps)"}])
 
+(def role-badge-variant
+  {"EV"      :success
+   "CN"      :warning
+   "GERENTE" :info
+   "FINANCE" :info
+   "ADMIN"   :default})
+
 (defn empty-form [] {:name "" :email "" :role "" :team_id ""})
 
 (defn user-modal [{:keys [open? on-close user-data teams]}]
@@ -54,7 +61,7 @@
                              (map #(hash-map :value (str (:id %)) :label (:name %))
                                   (or teams [])))
             :on-change #(swap! form assoc :team_id %)}]
-          [:div {:style {:display "flex" :gap "12px" :justify-content "flex-end"}}
+          [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
            [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
            [btn/button
             {:variant  :primary
@@ -75,22 +82,22 @@
         editing-user (r/atom nil)
         user-columns [{:key :name  :label "Nome"  :sortable true}
                       {:key :email :label "E-mail" :sortable false}
-                      {:key :role  :label "Role"  :sortable false
+                      {:key :role  :label "Role"  :sortable false  :width "120px"
                        :render (fn [row]
-                                 [badge/badge {:variant :default} (:role row)])}
+                                 [badge/badge
+                                  {:variant (get role-badge-variant (:role row) :default)}
+                                  (:role row)])}
                       {:key :team_name :label "Time" :sortable false}
-                      {:key :actions   :label ""    :sortable false
+                      {:key :actions   :label ""    :sortable false  :width "120px"
                        :render (fn [row]
-                                 [:div {:style {:display "flex" :gap "8px"}}
-                                  [:button {:style    {:background "none" :border "none" :cursor "pointer"
-                                                       :color t/color-primary :font-size (:xs t/font-sizes)}
-                                            :on-click #(do (reset! editing-user row)
-                                                           (reset! modal-open? true))}
+                                 [:div {:style {:display "flex" :gap "6px"}}
+                                  [btn/button {:variant :ghost :size :sm
+                                               :on-click #(do (reset! editing-user row)
+                                                              (reset! modal-open? true))}
                                    "Editar"]
-                                  [:button {:style    {:background "none" :border "none" :cursor "pointer"
-                                                       :color t/error-default :font-size (:xs t/font-sizes)}
-                                            :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
-                                                         (rf/dispatch [:revops/delete-user (:id row)]))}
+                                  [btn/button {:variant :danger :size :sm
+                                               :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
+                                                            (rf/dispatch [:revops/delete-user (:id row)]))}
                                    "Remover"]])}]]
     (fn []
       (let [users    @(rf/subscribe [:revops/users])

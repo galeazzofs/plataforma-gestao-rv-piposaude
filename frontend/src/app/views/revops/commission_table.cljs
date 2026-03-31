@@ -9,22 +9,28 @@
             [app.auth.subs]))
 
 (defn grid-cell [label value]
-  [:div {:style {:background t/bg-subtle
-                 :border-radius (:md t/border-radius)
-                 :padding "16px"
-                 :text-align "center"}}
-   [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :margin-bottom "4px"}} label]
-   [:div {:style {:font-size (:xl t/font-sizes) :font-weight (:bold t/font-weights) :color t/color-primary}}
+  [:div {:style {:background t/bg-main
+                 :border-radius (:lg t/border-radius)
+                 :padding "20px"
+                 :border (str "1px solid " t/border-default)
+                 :display "flex"
+                 :flex-direction "column"
+                 :gap "8px"
+                 :transition (str "all " t/transition-fast)}}
+   [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
+                  :text-transform "uppercase" :letter-spacing "0.06em"
+                  :font-weight (:semibold t/font-weights)}} label]
+   [:div {:style {:font-size (:2xl t/font-sizes) :font-weight (:bold t/font-weights) :color t/color-primary}}
     (str value "%")]])
 
 (defn commission-grid [rows]
   ;; rows from API: [{:segment "PME" :achievement_min "0" :achievement_max "100" :commission_pct "8.5"} ...]
   [:div {:style {:display "grid"
-                 :grid-template-columns "repeat(3, 1fr)"
-                 :gap "16px"}}
+                 :grid-template-columns "repeat(auto-fit, minmax(180px, 1fr))"
+                 :gap "12px"}}
    (for [row (or rows [])]
      ^{:key (str (:segment row) (:achievement_min row) (:achievement_max row))}
-     [grid-cell (str (:segment row) " (" (:achievement_min row) "–" (:achievement_max row) "%)") (:commission_pct row)])])
+     [grid-cell (str (:segment row) " · " (:achievement_min row) "–" (:achievement_max row) "%") (:commission_pct row)])])
 
 (defn commission-table-page []
   (rf/dispatch [:revops/fetch-commission-table])
@@ -46,10 +52,10 @@
         [btn/button
          {:variant  :primary
           :on-click #(rf/dispatch [:revops/create-commission-version])}
-         "Criar nova versão"]}
+         "+ Nova Versão"]}
 
        (when version
-         [:div {:style {:margin-bottom "16px" :display "flex" :align-items "center" :gap "12px"}}
+         [:div {:style {:display "flex" :align-items "center" :gap "10px"}}
           [:span {:style {:color t/text-secondary :font-size (:sm t/font-sizes)}} "Versão atual:"]
           [badge/badge {:variant :success} (str "v" version)]
           [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)}}
@@ -57,7 +63,13 @@
 
        [cards/card {}
         (if loading?
-          [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
+          [:div {:style {:padding "64px" :text-align "center"}}
+           [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
+            [:span {:style {:font-size "32px"}} "⏳"]
+            [:span {:style {:color t/text-secondary}} "Carregando tabela..."]]]
           (if (empty? rows)
-            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Nenhuma tabela encontrada"]
+            [:div {:style {:padding "64px" :text-align "center"}}
+             [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
+              [:span {:style {:font-size "32px"}} "📊"]
+              [:span {:style {:color t/text-secondary}} "Nenhuma tabela de comissões encontrada"]]]
             [commission-grid rows]))]])))

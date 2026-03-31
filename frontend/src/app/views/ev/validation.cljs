@@ -23,11 +23,11 @@
 (def columns
   [{:key :client_name        :label "Cliente"       :sortable true}
    {:key :benefit_type       :label "Benefício"     :sortable false}
-   {:key :mrr                :label "MRR"           :sortable true
+   {:key :mrr                :label "MRR"           :sortable true  :align "right"
     :render (fn [row] (fmt-brl (:mrr row)))}
-   {:key :commission_monthly :label "Comissão/mês"  :sortable true
+   {:key :commission_monthly :label "Comissão/mês"  :sortable true  :align "right"
     :render (fn [row] (fmt-brl (:commission_monthly row)))}
-   {:key :status             :label "Status"        :sortable false
+   {:key :status             :label "Status"        :sortable false :width "120px"
     :render (fn [row] [badge/status-badge {:status (:status row)}])}])
 
 (defn contest-modal [{:keys [open? on-close on-submit deal-id]}]
@@ -38,7 +38,7 @@
                     :title    "Contestar negócio"
                     :size     :md}
        [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-        [:p {:style {:color t/text-secondary :margin "0"}}
+        [:p {:style {:color t/text-secondary :margin "0" :font-size (:sm t/font-sizes) :line-height "1.6"}}
          "Descreva o motivo da contestação. Sua mensagem será enviada ao RevOps para análise."]
         [inputs/input
          {:label       "Comentário"
@@ -46,7 +46,7 @@
           :placeholder "Ex: O MRR calculado está incorreto porque..."
           :on-change   #(reset! comment %)
           :required    true}]
-        [:div {:style {:display "flex" :gap "12px" :justify-content "flex-end"}}
+        [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
          [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
          [btn/button {:variant  :danger
                       :disabled (clojure.string/blank? @comment)
@@ -67,10 +67,11 @@
             action-cols (conj columns
                               {:key    :actions
                                :label  "Ações"
+                               :width  "140px"
                                :render (fn [row]
                                          (let [status (:status row)
                                                pending? (= status "PENDING")]
-                                           [:div {:style {:display "flex" :gap "8px"}}
+                                           [:div {:style {:display "flex" :gap "6px"}}
                                             (when pending?
                                               [btn/button
                                                {:variant  :primary
@@ -91,12 +92,17 @@
           :title         "Validação"
           :subtitle      "Revise e aprove ou conteste os negócios calculados"}
 
-         [:div
-          [cards/card {}
-           [tbl/data-table
-            {:columns       action-cols
-             :rows          (or validations [])
-             :empty-message (if loading? "Carregando..." "Nenhuma validação pendente")}]]]
+         [cards/card {}
+          [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :margin-bottom "16px"}}
+           [:div
+            [:h3 {:style {:font-size (:base t/font-sizes) :font-weight (:semibold t/font-weights)
+                          :margin "0" :color t/text-primary}} "Negócios para Validação"]
+            [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
+             (str (count (or validations [])) " itens pendentes")]]]
+          [tbl/data-table
+           {:columns       action-cols
+            :rows          (or validations [])
+            :empty-message (if loading? "Carregando..." "Nenhuma validação pendente")}]]
 
          [contest-modal {:open?     @contest-open?
                           :on-close  #(reset! contest-open? false)

@@ -10,60 +10,85 @@ financial_bp = Blueprint("financial", __name__, url_prefix="/api/v1/financial")
 @financial_bp.route("/upload", methods=["POST"])
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def upload_financial():
-    """Upload financial data (NFs + Perks) for processing.
+    """Upload financial XLSX file with NFs and Perks tabs.
 
-    Expects JSON body with:
-      - nfs: list of NF dicts
-      - perks: list of perk dicts
+    Accepts multipart/form-data with a 'file' field containing .xlsx.
+    Returns preview of parsed data for confirmation.
     """
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
-
-    nfs = data.get("nfs", [])
-    perks = data.get("perks", [])
-    filename = data.get("filename", "upload.json")
+    import tempfile, os
 
     user = g.current_user
 
-    from app.modules.financial.validator import validate_nf_rows, validate_perk_rows
+    if "file" not in request.files:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "File required. Send as multipart/form-data with 'file' field."}}), 400
 
-    valid_nfs, nf_errors = validate_nf_rows(nfs)
-    valid_perks, perk_errors = validate_perk_rows(perks)
-    validation_errors = nf_errors + perk_errors
+    file = request.files["file"]
+    if not file.filename.endswith((".xlsx", ".xls")):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Only .xlsx/.xls files accepted"}}), 400
 
-    if validation_errors:
-        return jsonify({
-            "error": {
-                "code": "VALIDATION_ERROR",
-                "message": "Some rows failed validation",
-                "details": validation_errors,
-            }
-        }), 422
+    # Save temp file and parse
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    file.save(path)
 
-    # Create batch record
-    batch = ImportBatch(
-        filename=filename,
-        uploaded_by=user.id,
-        nf_count=len(valid_nfs),
-        perk_count=len(valid_perks),
-        status="PENDING",
-    )
-    db.session.add(batch)
-    db.session.flush()
+    try:
+        from app.modules.financial.parser import parse_financial_xlsx, ParseError
+        from app.modules.financial.validator import validate_nf_rows, validate_perk_rows
 
-    log_audit("import_batches", batch.id, "CREATE", new_values={"filename": filename, "nf_count": len(valid_nfs)})
-    db.session.commit()
+        try:
+            parsed = parse_financial_xlsx(path)
+        except ParseError as e:
+            return jsonify({"error": {"code": "PARSE_ERROR", "message": str(e)}}), 400
 
-    return jsonify({
-        "data": {
-            "batch_id": str(batch.id),
-            "nf_count": len(valid_nfs),
-            "perk_count": len(valid_perks),
-            "status": "PENDING",
-            "message": "Upload accepted — confirm to apply",
-        }
-    }), 201
+        valid_nfs, nf_errors = validate_nf_rows(parsed["nfs"])
+        valid_perks, perk_errors = validate_perk_rows(parsed["perks"])
+
+        # Create batch in PENDING status
+        batch = ImportBatch(
+            filename=file.filename,
+            uploaded_by=user.id,
+            nf_count=len(valid_nfs),
+            perk_count=len(valid_perks),
+            status="PENDING",
+        )
+        db.session.add(batch)
+        db.session.flush()
+
+        # Store validated data in batch for later confirmation
+        # We save it via a simple approach: process immediately if no errors
+        if not nf_errors and not perk_errors:
+            from app.modules.financial.processor import process_financial_import
+            result = process_financial_import(batch.id, valid_nfs, valid_perks)
+            log_audit("import_batches", batch.id, "CREATE", new_values={
+                "filename": file.filename,
+                "nf_count": result["nfs_created"],
+                "perk_count": result["perks_created"],
+            })
+            db.session.commit()
+
+            return jsonify({
+                "data": {
+                    "batch_id": str(batch.id),
+                    "status": "CONFIRMED",
+                    "nfs_created": result["nfs_created"],
+                    "perks_created": result["perks_created"],
+                    "errors": [],
+                }
+            }), 201
+        else:
+            db.session.commit()
+            return jsonify({
+                "data": {
+                    "batch_id": str(batch.id),
+                    "status": "PENDING",
+                    "nf_count": len(valid_nfs),
+                    "perk_count": len(valid_perks),
+                    "errors": nf_errors + perk_errors,
+                    "message": "Some rows have errors. Fix and re-upload, or confirm to import valid rows only.",
+                }
+            }), 201
+    finally:
+        os.unlink(path)
 
 
 @financial_bp.route("/confirm/<batch_id>", methods=["POST"])

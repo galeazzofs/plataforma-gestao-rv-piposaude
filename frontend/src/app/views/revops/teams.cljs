@@ -35,7 +35,7 @@
             :value     (or (:leader_id @form) "")
             :options   leader-options
             :on-change #(swap! form assoc :leader_id %)}]
-          [:div {:style {:display "flex" :gap "12px" :justify-content "flex-end"}}
+          [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
            [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
            [btn/button
             {:variant  :primary
@@ -54,20 +54,23 @@
         editing-team (r/atom nil)
         team-columns [{:key :name        :label "Nome"       :sortable true}
                       {:key :leader_name :label "Líder"      :sortable false}
-                      {:key :members     :label "Membros"    :sortable false
-                       :render (fn [row] (str (count (or (:members row) []))))}
-                      {:key :actions     :label ""           :sortable false
+                      {:key :members     :label "Membros"    :sortable false :align "center" :width "80px"
                        :render (fn [row]
-                                 [:div {:style {:display "flex" :gap "8px"}}
-                                  [:button {:style    {:background "none" :border "none" :cursor "pointer"
-                                                       :color t/color-primary :font-size (:xs t/font-sizes)}
-                                            :on-click #(do (reset! editing-team row)
-                                                           (reset! modal-open? true))}
+                                 [:span {:style {:display "inline-flex" :align-items "center" :justify-content "center"
+                                                 :width "28px" :height "28px" :border-radius (:full t/border-radius)
+                                                 :background t/beige-100 :color t/beige-700
+                                                 :font-size (:xs t/font-sizes) :font-weight (:bold t/font-weights)}}
+                                  (str (count (or (:members row) [])))])}
+                      {:key :actions     :label ""           :sortable false :width "120px"
+                       :render (fn [row]
+                                 [:div {:style {:display "flex" :gap "6px"}}
+                                  [btn/button {:variant :ghost :size :sm
+                                               :on-click #(do (reset! editing-team row)
+                                                              (reset! modal-open? true))}
                                    "Editar"]
-                                  [:button {:style    {:background "none" :border "none" :cursor "pointer"
-                                                       :color t/error-default :font-size (:xs t/font-sizes)}
-                                            :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
-                                                         (rf/dispatch [:revops/delete-team (:id row)]))}
+                                  [btn/button {:variant :danger :size :sm
+                                               :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
+                                                            (rf/dispatch [:revops/delete-team (:id row)]))}
                                    "Remover"]])}]]
     (fn []
       (let [teams    @(rf/subscribe [:revops/teams])
