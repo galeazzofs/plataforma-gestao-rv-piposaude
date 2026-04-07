@@ -32,7 +32,7 @@ Existe um **app antigo** (https://github.com/galeazzofs/pipo-gestao-rv) em React
 
 - Cadastro manual de contratos (mantemos Policies do HubSpot como fonte).
 - Versionamento de uploads financeiros (substitui o anterior).
-- Suporte a Mental e Fitness como tipos de benefício (descartados no parser).
+- Suporte a Mental e Fitness como tipos de benefício (linhas são persistidas e marcadas como `PRODUTO_NAO_SUPORTADO` na tela de revisão, mas não geram comissão).
 - Fuzzy matching de nomes (match exato com normalização).
 - Multi-tenancy / multi-empresa.
 - Rollback granular pós-LOCKED.
@@ -50,13 +50,13 @@ Existe um **app antigo** (https://github.com/galeazzofs/pipo-gestao-rv) em React
 | 7 | Status Recebimento | Só `RECEBIDO` |
 | 8 | Tipo Receita | Todos contam (Comissão, Fee por Vida, Premiação, Patrocínio, Agenciamento) |
 | 9 | Estornos (NF Líquido < 0) | Entram na soma (subtraem da comissão) |
-| 10 | Produtos Mental/Fitness | Descartados pelo parser (não suportados) |
+| 10 | Produtos Mental/Fitness | Persistidos como `PRODUTO_NAO_SUPORTADO`, visíveis na revisão, não entram na comissão |
 | 11 | Atingimento % | 100% manual, editável por trimestre, snapshot do trimestre do gongo |
 | 12 | Auto-update de `installments_paid` | Sim, conforme NFs entram no cálculo |
 | 13 | Reprocessamento | Botão "Recalcular" zera Commissions e roda do zero |
 | 14 | Upload duplicado | Substitui o anterior do mesmo trimestre |
 | 15 | Mapeamento segment → matriz | PP→PP/P, P→PP/P, M→M, G→G+ |
-| 16 | "EV ativo" | `User.role == EV AND User.is_active == true` |
+| 16 | "EV ativo" | `User.role == EV AND User.active == true` (coluna existente é `active`, não `is_active`) |
 | 17 | Endpoint auto-cálculo achievements | Manter (como ferramenta de baseline opcional) |
 
 ## Arquitetura
@@ -125,7 +125,7 @@ def active_ev_policies_query():
     return (
         db.session.query(Policy)
         .join(User, Policy.ev_id == User.id)
-        .filter(User.role == UserRole.EV, User.is_active.is_(True))
+        .filter(User.role == UserRole.EV, User.active.is_(True))
     )
 ```
 
@@ -137,7 +137,7 @@ Todos os endpoints que listam/processam policies usam essa base. Específicos:
 
 O sync do HubSpot continua puxando tudo (não filtra na entrada) — o filtro é só na leitura.
 
-**Migration:** confirmar que `users` tem coluna `is_active`. Se não tiver, adicionar com default `true`.
+**Migration:** **NÃO precisa** adicionar coluna — `User.active` (Boolean, default true, NOT NULL) já existe em `backend/app/models/user.py:25`.
 
 ### 2. Edição manual da Policy
 
@@ -158,7 +158,7 @@ Body: { ev_id?, first_payment_real?, closed_date?, initial_installments_paid?,
 - Requires role: ADMIN
 - Sets `is_locked = true` automaticamente
 - Atualiza `updated_at`
-- Grava entrada em `audit_logs` (table=policies, action=UPDATE, old/new values)
+- Grava entrada em `audit_logs` (`table_name='policies'`, `record_id=policy.id`, `action='UPDATE'`, `old_values={...}`, `new_values={...}`, `user_id=current_user.id`) — colunas reais do model `AuditLog`
 
 **Sync respeita o lock:**
 
@@ -183,25 +183,48 @@ if policy.is_locked:
 
 **Manter:** `POST /api/v1/admin/ev-achievements/calculate` (auto-baseline opcional).
 
-**Pré-check do calculator:**
+**Pré-check do calculator (snapshot por gongo, não pelo trimestre da apuração):**
 
 ```python
-def validate_achievements(quarter, year):
-    """Returns list of EVs without achievement for the given quarter."""
-    active_evs = User.query.filter_by(role=UserRole.EV, is_active=True).all()
+def validate_achievements_for_appraisal(quarter, year):
+    """Verifies that every (ev, gongo_quarter, gongo_year) combination
+    needed by this appraisal has a stored achievement.
+
+    The calculator looks up achievement using the gongo quarter of each
+    policy (NOT the apuração quarter), so we need to validate the union
+    of all gongo quarters that policies in the active set fall into.
+    """
+    from app.modules.policies.filters import active_ev_policies_query
+
+    # All policies that COULD generate commission this apuração:
+    # any active-EV policy whose first_payment_real makes it possible
+    # for an NF in (quarter, year) to land in vigência.
+    policies = active_ev_policies_query().all()
+
+    needed = set()  # set of (ev_id, gongo_q, gongo_y)
+    for p in policies:
+        if not p.closed_date or not p.ev_id:
+            continue
+        gongo_q = (p.closed_date.month - 1) // 3 + 1
+        needed.add((p.ev_id, gongo_q, p.closed_date.year))
+
     missing = []
-    for ev in active_evs:
+    for ev_id, gq, gy in needed:
         ach = EvQuarterAchievement.query.filter_by(
-            ev_id=ev.id, quarter=quarter, year=year
+            ev_id=ev_id, quarter=gq, year=gy
         ).first()
         if ach is None or ach.achievement_pct is None:
-            missing.append(ev.name)
+            user = User.query.get(ev_id)
+            missing.append(f"{user.name if user else ev_id} → Q{gq}/{gy}")
+
     return missing
 ```
 
-Se `missing` não vazio, calculator levanta `MissingAchievementsError("Faltam achievements: ...")`.
+Se `missing` não vazio, calculator levanta `MissingAchievementsError("Faltam achievements: <list>")` antes de iniciar qualquer processamento.
 
 **Snapshot por gongo:** quando uma NF de Q1/2026 é processada para uma Policy gongada em Q4/2025, o calculator usa o achievement de Q4/2025 do EV (não o de Q1/2026).
+
+**Interação com filtro "EV ativo":** `active_ev_policies_query` exclui policies de EVs inativos **antes** do calculator. Logo `validate_achievements_for_appraisal` só pede achievements de EVs cujas policies passaram no filtro. Edge case: EV ativo em Q4/2025 mas hoje inativo → suas policies somem do cálculo. Se isso for indesejado, admin deve reativar o EV temporariamente.
 
 **Frontend:** nova página `/admin/achievements` com:
 - Filtro por ano + trimestre
@@ -235,17 +258,15 @@ def parse_financial_xlsx(filepath: str, target_quarter: int, target_year: int) -
    - `status_recebimento` ← coluna que contém "status" e "recebimento"
    - `tipo_receita` ← coluna que contém "tipo" e "receita"
 4. Iterar linhas de dados.
-5. Aplicar pré-filtros:
-   - `status_recebimento != 'RECEBIDO'` → skip
-   - `cliente_mae` vazio → skip
-   - `nf_liquido` None ou 0 → skip
-   - `produto` não está em {Saúde, Odonto, Vida} → skip (com contador para relatório)
-   - `data_recebimento` não cai em `target_quarter/target_year` → skip
-6. Retornar `ParseResult` com:
+5. Aplicar pré-filtros (apenas estes — Mental/Fitness NÃO são descartados):
+   - `status_recebimento != 'RECEBIDO'` → skip (descarta A RECEBER)
+   - `cliente_mae` vazio → skip (lixo)
+   - `nf_liquido` None → skip (linha sem valor; mas 0 e negativos passam)
+   - `data_recebimento` não cai em `target_quarter/target_year` → skip (escopo da apuração)
+6. Linhas que passam o filtro são **persistidas** em `financial_imports` com `match_status='UNMATCHED'` (default). O calculator depois sobrescreve esse status.
+7. Retornar `ParseResult` com:
    ```
-   { rows: [{cliente_mae, operadora, produto, nf_liquido, data_recebimento, mes_recebimento, tipo_receita, status_recebimento, _row}],
-     stats: { total_lidas, descartadas_status, descartadas_produto, descartadas_periodo, validas },
-     errors: [] }
+   { rows: [...], stats: { total_lidas, descartadas_status, descartadas_periodo, persistidas }, errors: [] }
    ```
 
 **Tolerância:** datas vêm como `datetime` do openpyxl (com `data_only=True`). Se vier string, tenta `dd/mm/yyyy`.
@@ -257,74 +278,162 @@ def parse_financial_xlsx(filepath: str, target_quarter: int, target_year: int) -
 **Arquivo novo:** `backend/app/modules/financial/matcher.py`
 
 ```python
+import unicodedata
+from collections import defaultdict
+from datetime import date
+
 def normalize(s: str) -> str:
     """lowercase + strip accents + trim spaces"""
-    if not s: return ""
-    return ''.join(c for c in unicodedata.normalize('NFD', s.lower().strip())
-                   if unicodedata.category(c) != 'Mn')
+    if not s:
+        return ""
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', s.lower().strip())
+        if unicodedata.category(c) != 'Mn'
+    )
 
-def match_policy(nf_row: dict, policies: list[Policy]) -> Policy | None:
-    """Returns the most recent policy still in vigência that matches by
-    (cliente_mae, operadora, produto). Returns None if no match."""
-    cliente_n = normalize(nf_row['cliente_mae'])
-    operadora_n = normalize(nf_row['operadora'])
-    produto_n = normalize(nf_row['produto'])
+def build_policy_index(policies):
+    """Build O(1) lookup index keyed by (cliente_n, operadora_n, benefit_type).
 
-    benefit_map = {'saude': 'SAUDE', 'odonto': 'ODONTO', 'vida': 'VIDA'}
-    benefit_type = benefit_map.get(produto_n)
-    if not benefit_type: return None
-
-    candidates = []
+    Each value is a list of policies sorted by closed_date DESC, so the
+    caller can iterate from most-recent to oldest when picking the policy
+    whose vigência window includes a given NF date.
+    """
+    index = defaultdict(list)
     for p in policies:
-        if not p.client or normalize(p.client.name) != cliente_n: continue
-        if normalize(p.partner_operator or '') != operadora_n: continue
-        if not p.benefit_type or p.benefit_type.value != benefit_type: continue
-        candidates.append(p)
-
-    if not candidates: return None
-    # Pega a mais recente
-    return max(candidates, key=lambda p: p.closed_date or date.min)
+        if not p.client or not p.benefit_type:
+            continue
+        key = (
+            normalize(p.client.name),
+            normalize(p.partner_operator or ''),
+            p.benefit_type.value,  # already SAUDE/ODONTO/VIDA
+        )
+        index[key].append(p)
+    # Sort each bucket by closed_date desc
+    for key in index:
+        index[key].sort(key=lambda p: p.closed_date or date.min, reverse=True)
+    return dict(index)
 ```
 
-**Performance:** o calculator pré-carrega todas as policies do batch (`active_ev_policies_query().all()`) e passa a lista pro matcher; matching é em memória (1670 policies × 26k NFs ≈ aceitável).
+**Match key:** `(normalize(cliente_mae), normalize(operadora), benefit_type)`. The benefit_type is mapped from the XLSX's `produto` column at the calculator level (`Saúde→SAUDE`, etc).
 
-**Tests:** unit tests para `normalize` (acentos, espaços) e `match_policy` (não encontrado, multi-policy escolhe a mais recente, produto não suportado).
+**Performance:** O(N) build + O(1) lookup per NF row. For 1670 policies + 9k NFs/quarter, total < 1s.
+
+**Tests:** unit tests para `normalize` (acentos, espaços, vazio, None) e `build_policy_index` (buckets por chave, sort por closed_date desc, policies sem client ou benefit_type ignoradas).
+
+### 5b. Matriz `commission_pct_table`
+
+**Colunas reais (do model `CommissionPctTable`):** `version, segment, achievement_min, achievement_max, commission_pct, valid_from, valid_until, created_by`. Helper de consulta existente: `lookup_commission_pct(segment, achievement_pct)` em `app/modules/commissions/pct_lookup.py` — **reusar, não criar função nova**.
+
+**Seed (12 entradas — 4 segments × 3 faixas, em formato decimal 0–1):**
+
+| segment | achievement_min | achievement_max | commission_pct |
+|---|---|---|---|
+| PP | 0.0000 | 0.4999 | 0.07 |
+| PP | 0.5000 | 0.9999 | 0.08 |
+| PP | 1.0000 | 99.9999 | 0.10 |
+| P  | 0.0000 | 0.4999 | 0.07 |
+| P  | 0.5000 | 0.9999 | 0.08 |
+| P  | 1.0000 | 99.9999 | 0.10 |
+| M  | 0.0000 | 0.4999 | 0.05 |
+| M  | 0.5000 | 0.9999 | 0.06 |
+| M  | 1.0000 | 99.9999 | 0.08 |
+| G  | 0.0000 | 0.4999 | 0.03 |
+| G  | 0.5000 | 0.9999 | 0.04 |
+| G  | 1.0000 | 99.9999 | 0.06 |
+
+**Idempotência da migration:** verifica se já existe uma versão `current_version` com essas 12 linhas exatas. Se sim → no-op. Se não → cria `version = current_version + 1` com as 12 linhas e marca `valid_from = today`.
+
+**Unidades:** `achievement_pct` está armazenado como Decimal entre 0 e 1+ (ex: 75% = 0.7500, 120% = 1.2000). A faixa "≥100%" cobre até 99.9999 pra suportar até 9999% — limite generoso pra não quebrar com superatingimento. **Sem produto-específico** — a matriz é a mesma pra Saúde/Odonto/Vida.
 
 ### 6. Schema novo `financial_imports`
 
-**Migration:**
+**Estado atual no DB:** vazio (`SELECT count(*) FROM financial_imports → 0`). Confirmado pela query inicial de diagnóstico (Q1/2026 não tem NFs cadastradas). **A migration é destrutiva: TRUNCATE da tabela.** Não há audit trail histórico a preservar — o schema antigo nunca foi usado em produção.
+
+**Migration (idempotente):**
 
 ```sql
-ALTER TABLE financial_imports DROP CONSTRAINT uq_financial_policy_month;
+-- Wipe (safe: tabela está vazia)
+TRUNCATE TABLE financial_imports;
+
+-- Drop legacy unique constraint
+ALTER TABLE financial_imports DROP CONSTRAINT IF EXISTS uq_financial_policy_month;
+
+-- Make policy_id nullable
 ALTER TABLE financial_imports ALTER COLUMN policy_id DROP NOT NULL;
 
+-- Add new columns
 ALTER TABLE financial_imports
-  ADD COLUMN cliente_mae VARCHAR(255),
-  ADD COLUMN operadora VARCHAR(255),
-  ADD COLUMN produto VARCHAR(50),
-  ADD COLUMN tipo_receita VARCHAR(100),
-  ADD COLUMN status_recebimento VARCHAR(50),
-  ADD COLUMN data_recebimento DATE,
-  ADD COLUMN match_status VARCHAR(20) NOT NULL DEFAULT 'UNMATCHED',
-  ADD COLUMN matched_at TIMESTAMP NULL;
+  ADD COLUMN IF NOT EXISTS cliente_mae VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS operadora VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS produto VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS tipo_receita VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS status_recebimento VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS data_recebimento DATE,
+  ADD COLUMN IF NOT EXISTS match_status VARCHAR(30) NOT NULL DEFAULT 'UNMATCHED',
+  ADD COLUMN IF NOT EXISTS matched_at TIMESTAMP NULL;
 
-CREATE INDEX ix_financial_imports_quarter_year ON financial_imports(quarter, year);
-CREATE INDEX ix_financial_imports_match_status ON financial_imports(match_status);
+CREATE INDEX IF NOT EXISTS ix_financial_imports_quarter_year ON financial_imports(quarter, year);
+CREATE INDEX IF NOT EXISTS ix_financial_imports_match_status ON financial_imports(match_status);
+CREATE INDEX IF NOT EXISTS ix_financial_imports_policy_id ON financial_imports(policy_id);
 ```
 
-**`match_status` valores:** `MATCHED`, `UNMATCHED`, `EXPIRED`, `PRE_VIGENCIA`, `PRODUTO_NAO_SUPORTADO`, `EV_INATIVO`.
+**`cliente_mae VARCHAR(500)`** — folga generosa porque nomes de clientes na planilha podem ser longos (razão social completa).
 
-**Substituição:** ao fazer upload de Q1/2026 quando já existem linhas:
+**`match_status` valores possíveis:**
+- `MATCHED` — bateu com policy, dentro da vigência, conta na comissão
+- `UNMATCHED` — não achou policy correspondente
+- `EXPIRED` — bateu, mas vigência da policy já passou
+- `PRE_VIGENCIA` — bateu, mas data_recebimento < first_payment_real
+- `PRODUTO_NAO_SUPORTADO` — produto da NF é Mental ou Fitness (persistido pra ficar visível na revisão)
+- `EV_INATIVO` — bateu uma policy, mas o EV vinculado não é ativo cadastrado
+
+**IMPORTANTE:** todas as linhas que passam pelo parser são **persistidas** (mesmo as que vão ser descartadas do cálculo), pra que apareçam na tela de revisão. O parser **não filtra** Mental/Fitness — só marca o `match_status` correto. O **único** filtro do parser é `status_recebimento != 'RECEBIDO'` (descarta A RECEBER) e linhas com `cliente_mae` ou `nf_liquido` vazios.
+
+**Substituição (re-upload do mesmo trimestre):**
 
 ```python
+# Bloqueia se a apuração desse trimestre já está LOCKED
+appraisal = Appraisal.query.filter_by(quarter=q, year=y).first()
+if appraisal and appraisal.status == AppraisalStatus.LOCKED:
+    raise UploadBlockedError(f"Apuração de Q{q}/{y} já está LOCKED. Re-upload não permitido.")
+
+# Caso contrário, deleta e regrava
 FinancialImport.query.filter_by(quarter=q, year=y).delete()
 db.session.flush()
-# ... insere as novas
+# ... insere as novas linhas
 ```
+
+**`import_batches`:** uma linha por upload. Campos: `filename`, `uploaded_by`, `nf_count` (linhas inseridas), `status` (sempre `CONFIRMED` no novo flow — não tem mais 2-step preview). Batches antigos do mesmo (q,y) ficam órfãos no histórico (`import_batches.status='SUPERSEDED'`) — não bloqueiam nada, só servem de histórico de quem subiu o quê e quando.
 
 ### 7. Calculator (reescrita)
 
 **Arquivo:** `backend/app/modules/commissions/calculator.py`
+
+**Mudança crítica em `is_final`:** o calculator **NÃO** seta `commission.is_final = True` em nenhuma circunstância. O flag é setado **somente** quando `transition_appraisal(appraisal, LOCKED)` é chamado (no `state_machine.py`), via:
+
+```python
+# em state_machine.py, dentro de transition_appraisal:
+if new_status == AppraisalStatus.LOCKED:
+    appraisal.locked_at = datetime.now(timezone.utc)
+    appraisal.approved_by_finance = kwargs.get("approved_by")
+    # Marca todas as commissions desta apuração como finais
+    Commission.query.filter_by(
+        quarter=appraisal.quarter, year=appraisal.year, is_final=False
+    ).update({"is_final": True})
+```
+
+Isso garante que recalcular antes do LOCK funciona (todas as commissions estão `is_final=False`).
+
+**Vigência — REGRA ÚNICA (date-based):**
+
+A vigência de uma policy é o intervalo `[start, end]`:
+
+- `start = policy.first_payment_real` (se nulo, policy não pode gerar comissão → PRE_VIGENCIA)
+- `end = first_payment_real + relativedelta(months=12 - initial_installments_paid)`
+
+**`initial_installments_paid` ENCURTA a janela pela direita** (não desloca o início). Exemplo: se `initial_installments_paid = 6` e `first_payment_real = 2026-01-15`, então `end = 2026-07-15` (6 meses depois). Antes da plataforma, presumimos que esses 6 primeiros meses já foram pagos pelo sistema antigo, então só os próximos 6 contam.
+
+`installments_paid` (sem o "initial") **não** afeta a janela — é só métrica informativa, recomputada determinísticamente a cada cálculo (ver passo 5 abaixo).
 
 **Função principal:**
 
@@ -332,38 +441,154 @@ db.session.flush()
 def run_quarterly_appraisal(quarter: int, year: int) -> dict:
     """
     Pre-conditions:
-    - All active EVs have ev_quarter_achievements for this quarter
-    - financial_imports populated for this quarter
+    - validate_achievements_for_appraisal(quarter, year) returns []
+    - financial_imports populated for this quarter (parser already ran)
 
     Process:
-    1. Wipe existing Commissions for (quarter, year) where is_final=False
-    2. Load active-EV policies (active_ev_policies_query)
-    3. Load financial_imports for (quarter, year, status_recebimento=RECEBIDO)
-    4. For each NF row:
-       a. Match policy
-       b. If no match → financial_import.match_status = UNMATCHED, continue
-       c. If policy has no first_payment_real → match_status = PRE_VIGENCIA, continue
-       d. Compute vigência window: [first_payment_real, first_payment_real + 12 months]
-       e. If data_recebimento < window.start → PRE_VIGENCIA, continue
-       f. Effective months remaining = 12 - initial_installments_paid - count(prior NFs of this policy in (q,y))
-       g. If installments_paid >= (12 - initial_installments_paid) OR data_recebimento > window.end → EXPIRED
-       h. Lookup achievement of policy.closed_date's quarter for policy.ev_id
-       i. Lookup commission_pct from matrix using policy.segment + achievement
-       j. commission_amount = nf_valor_liquido * commission_pct (negativos OK)
-       k. Upsert Commission(policy_id, ev_id, q, y) accumulating
-       l. policy.installments_paid += 1
-       m. financial_import.policy_id = policy.id, match_status = MATCHED
-    5. Return summary { ev_summary, totals, unmatched_count, expired_count }
     """
+    # ── 1. Pre-check ──────────────────────────────────────────
+    missing = validate_achievements_for_appraisal(quarter, year)
+    if missing:
+        raise MissingAchievementsError(missing)
+
+    # ── 2. Wipe non-final commissions and reset installments_paid ─
+    # Reset to baseline: installments_paid = initial_installments_paid + count(NFs from LOCKED commissions)
+    # This makes recalc idempotent.
+    Commission.query.filter_by(quarter=quarter, year=year, is_final=False).delete()
+    db.session.flush()
+
+    # Reset installments_paid for all active-EV policies to baseline
+    policies = active_ev_policies_query().all()
+    locked_nfs_per_policy = dict(
+        db.session.query(
+            FinancialImport.policy_id,
+            db.func.count(FinancialImport.id),
+        ).join(Commission, Commission.policy_id == FinancialImport.policy_id)
+         .filter(Commission.is_final.is_(True),
+                 FinancialImport.match_status == 'MATCHED')
+         .group_by(FinancialImport.policy_id)
+         .all()
+    )
+    for p in policies:
+        p.installments_paid = (p.initial_installments_paid or 0) + locked_nfs_per_policy.get(p.id, 0)
+
+    # ── 3. Build matcher index (O(1) lookup) ─────────────────
+    from app.modules.financial.matcher import build_policy_index, normalize
+    policy_index = build_policy_index(policies)
+    # policy_index: dict[(cliente_n, operadora_n, benefit_type)] -> sorted list of policies (by closed_date desc)
+
+    # ── 4. Iterate financial_imports for this quarter ────────
+    nfs = FinancialImport.query.filter_by(
+        quarter=quarter, year=year, status_recebimento='RECEBIDO'
+    ).all()
+
+    benefit_map = {'saude': 'SAUDE', 'odonto': 'ODONTO', 'vida': 'VIDA'}
+
+    for nf in nfs:
+        produto_n = normalize(nf.produto or '')
+        benefit = benefit_map.get(produto_n)
+        if benefit is None:
+            nf.match_status = 'PRODUTO_NAO_SUPORTADO'
+            nf.policy_id = None
+            continue
+
+        key = (normalize(nf.cliente_mae or ''), normalize(nf.operadora or ''), benefit)
+        candidates = policy_index.get(key, [])
+        if not candidates:
+            nf.match_status = 'UNMATCHED'
+            nf.policy_id = None
+            continue
+
+        # Pick most recent policy whose vigência window includes data_recebimento
+        matched = None
+        for policy in candidates:  # already sorted desc by closed_date
+            if not policy.first_payment_real:
+                continue
+            window_end = policy.first_payment_real + relativedelta(
+                months=12 - (policy.initial_installments_paid or 0)
+            )
+            if nf.data_recebimento < policy.first_payment_real:
+                continue
+            if nf.data_recebimento > window_end:
+                continue
+            matched = policy
+            break
+
+        if matched is None:
+            # Has candidates but none in vigência → mark with the closest reason
+            best = candidates[0]  # most recent
+            if not best.first_payment_real:
+                nf.match_status = 'PRE_VIGENCIA'
+            elif nf.data_recebimento < best.first_payment_real:
+                nf.match_status = 'PRE_VIGENCIA'
+            else:
+                nf.match_status = 'EXPIRED'
+            nf.policy_id = best.id
+            continue
+
+        # Lookup achievement at gongo quarter (NOT current quarter)
+        gongo_q = (matched.closed_date.month - 1) // 3 + 1
+        gongo_y = matched.closed_date.year
+        ach = EvQuarterAchievement.query.filter_by(
+            ev_id=matched.ev_id, quarter=gongo_q, year=gongo_y
+        ).first()
+        achievement = ach.achievement_pct if ach else Decimal('0')
+
+        commission_pct, version = lookup_commission_pct(
+            matched.segment.value if matched.segment else 'P',
+            achievement,
+        )
+        if commission_pct is None:
+            commission_pct = Decimal('0')
+
+        commission_amount = (Decimal(nf.nf_valor_liquido) * commission_pct).quantize(Decimal('0.01'))
+
+        # Upsert Commission (accumulate per policy/quarter)
+        comm = Commission.query.filter_by(
+            policy_id=matched.id, quarter=quarter, year=year
+        ).first()
+        if comm is None:
+            comm = Commission(
+                policy_id=matched.id, ev_id=matched.ev_id,
+                quarter=quarter, year=year,
+                segment=matched.segment.value if matched.segment else None,
+                achievement_pct=achievement,
+                commission_pct=commission_pct,
+                commission_pct_version=version,
+                monthly_actual=Decimal('0'),
+                total_actual=Decimal('0'),
+                is_final=False,  # never set to True here
+            )
+            db.session.add(comm)
+        comm.monthly_actual = (comm.monthly_actual or Decimal('0')) + commission_amount
+        comm.total_actual = (comm.total_actual or Decimal('0')) + commission_amount
+
+        # Bookkeeping on the NF row
+        nf.policy_id = matched.id
+        nf.match_status = 'MATCHED'
+        nf.matched_at = datetime.now(timezone.utc)
+
+        # Increment counter (reset to baseline at start of this fn)
+        matched.installments_paid = (matched.installments_paid or 0) + 1
+
+    db.session.flush()
+    return build_summary(quarter, year)
 ```
 
-**Pré-check:** `validate_achievements(quarter, year)` antes do passo 1. Se algum EV ativo está sem achievement, raise `MissingAchievementsError`.
+**Performance:**
 
-**Idempotência:** chamar de novo limpa Commissions de (q,y) com is_final=False e recalcula. Commissions com `is_final=True` (apuração já LOCKED) NÃO são tocadas.
+Volume real: ~109k linhas no XLSX → após filtro `RECEBIDO` ≈ 26k → após filtro de período (1 trimestre) ≈ 6-9k. Policies ativas: ~1670, mas só as que matcham por chave entram no candidato.
 
-**Performance:** todas as queries em bulk; matching em memória; commit único no final.
+A função `build_policy_index(policies)` retorna `dict[(cliente_n, operadora_n, benefit_type)] -> [policies sorted by closed_date desc]`. Construção: O(N×k) com k=3 normalizações. Lookup por NF: O(1) + O(c) onde c = nº de policies do cliente (geralmente 1-2).
 
-**Erros:** linhas que falham são marcadas no `match_status` mas não interrompem o processo.
+Total estimado: < 3s pra um trimestre. Bulk commit único no final.
+
+**Erros:**
+
+- `MissingAchievementsError` antes de qualquer escrita → cálculo aborta, nada mudou
+- `OperationalError` no commit → rollback automático do SQLAlchemy
+- Linhas individuais que dão pau (ex: data inválida): marcam o NF com `match_status='UNMATCHED'` e seguem; cálculo não é interrompido
+- `lookup_commission_pct` retorna None se a faixa não existe → tratado como `commission_pct = 0` (linha vai pra revisão zerada)
 
 ### 8. Tela de revisão (drill-down)
 
@@ -423,11 +648,12 @@ def run_quarterly_appraisal(quarter: int, year: int) -> dict:
 }
 ```
 
-**UI:** tabs `Por EV` / `Não matcheadas` / `Fora de vigência`.
+**UI:** tabs `Por EV` / `Não matcheadas` / `Fora de vigência` / `Não suportado`.
 
-- Por EV: tabela colapsável, expand → drill por policy → expand → linhas de NF.
-- Não matcheadas: tabela com export CSV.
-- Fora de vigência: tabela com export CSV + link pro edit da policy.
+- **Por EV**: tabela colapsável, expand → drill por policy → expand → linhas de NF. Filtros laterais: por **Tipo Receita** (Comissão / Fee por Vida / Premiação / Patrocínio / Agenciamento / Todos) e por **Operadora**.
+- **Não matcheadas** (`UNMATCHED`): tabela com export CSV. Mostra cliente/operadora/produto/data/valor.
+- **Fora de vigência** (`EXPIRED` + `PRE_VIGENCIA`): tabela com export CSV + link pro edit da policy que casou. Útil pra ajustar `first_payment_real` ou `initial_installments_paid`.
+- **Não suportado** (`PRODUTO_NAO_SUPORTADO`): linhas de Mental/Fitness só pra visibilidade.
 
 **Botões header:**
 - `🔄 Recalcular` → `POST /appraisals/{id}/recalculate` (chama `run_quarterly_appraisal` de novo)
@@ -436,11 +662,17 @@ def run_quarterly_appraisal(quarter: int, year: int) -> dict:
 
 ### 9. State machine
 
-Já corrigido na sessão anterior: `transition_appraisal` roda `run_quarterly_appraisal` quando vai pra CALCULATING e fica nesse status (não auto-transitiona).
+Já corrigido na sessão anterior: `transition_appraisal` roda o calculator quando vai pra CALCULATING e fica nesse status (não auto-transitiona).
 
 `VALID_TRANSITIONS` permanece igual.
 
-`run_quarterly_appraisal_v2` é renomeado para `run_quarterly_appraisal` (sem v2). A versão antiga vira deprecated alias por compatibilidade dos testes.
+**Renomeação do calculator:**
+
+- Hoje em `calculator.py` existem `run_quarterly_appraisal()` (linha 136) e `run_quarterly_appraisal_v2()` (linha 144). A V1 já é apenas um alias que chama a V2.
+- **Mudança:** apagar a função `run_quarterly_appraisal_v2`, escrever a nova implementação direto em `run_quarterly_appraisal` (sem sufixo). Atualizar o import em `state_machine.py:46` de `run_quarterly_appraisal_v2` → `run_quarterly_appraisal`.
+- Tests que importam `run_quarterly_appraisal_v2` são atualizados (busca + replace global).
+
+**Adicional ao LOCK transition:** marcar todas as commissions do trimestre como `is_final=True` (ver seção 7).
 
 ## Modelo de dados final
 
@@ -492,7 +724,7 @@ commissions
 commission_pct_table
 ├── id (PK), version
 ├── segment, faixa_min, faixa_max, pct
-└── (seed: 9 entradas conforme matriz acima)
+└── (seed: 12 entradas — 4 segments × 3 faixas)
 ```
 
 ## Erros e edge cases
@@ -504,7 +736,7 @@ commission_pct_table
 | Policy com `is_locked=true` | Sync HubSpot não sobrescreve campos lockáveis |
 | Múltiplas policies no mesmo (cliente,operadora,produto) | Pega a mais recente; antiga aparece em log de "ambiguidade" |
 | NF Líquido negativo | Entra na soma normalmente; pode dar comissão negativa |
-| Produto Mental/Fitness | Descartado pelo parser, contador reportado |
+| Produto Mental/Fitness | Persistido com `match_status=PRODUTO_NAO_SUPORTADO`, visível na revisão, não soma na comissão |
 | Cliente sem normalização match | UNMATCHED, RevOps revisa manualmente |
 | Re-upload | DELETE FROM financial_imports WHERE quarter=q AND year=y; INSERT |
 | Recalcular após edição de policy | Botão "Recalcular" zera Commissions e roda do zero |
@@ -512,6 +744,8 @@ commission_pct_table
 | EV inativado depois do cálculo | Próxima execução exclui suas NFs (filtro global) |
 
 ## Permissões
+
+**Nota sobre roles:** o sistema tem 5 roles: `ADMIN, FINANCE, GERENTE, EV, CN`. **Não existe role `REVOPS`** — o que chamamos de RevOps no negócio é mapeado para `ADMIN` no model. Eric (RevOps Pipo Saúde) tem role `ADMIN`.
 
 | Ação | Roles |
 |---|---|
@@ -544,7 +778,7 @@ Ordem:
 
 1. `add_is_locked_to_policies.py`
 2. `redesign_financial_imports.py` (drop constraint, add columns)
-3. `seed_commission_pct_table.py` (popular as 9 entradas da matriz, idempotente)
+3. `seed_commission_pct_table.py` (popular as 12 entradas da matriz, idempotente — ver tabela em **Componentes detalhados → Matriz**)
 4. `add_is_active_to_users.py` (se ainda não existir)
 
 ## Riscos
