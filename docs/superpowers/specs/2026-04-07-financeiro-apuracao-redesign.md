@@ -343,7 +343,15 @@ def build_policy_index(policies):
 
 **Idempotência da migration:** verifica se já existe uma versão `current_version` com essas 12 linhas exatas. Se sim → no-op. Se não → cria `version = current_version + 1` com as 12 linhas e marca `valid_from = today`.
 
-**Unidades:** `achievement_pct` está armazenado como Decimal entre 0 e 1+ (ex: 75% = 0.7500, 120% = 1.2000). A faixa "≥100%" cobre até 99.9999 pra suportar até 9999% — limite generoso pra não quebrar com superatingimento. **Sem produto-específico** — a matriz é a mesma pra Saúde/Odonto/Vida.
+**Unidades de `achievement_pct`:**
+- **Storage** (DB): Decimal `0–99.9999` em forma fracionária (75% → `0.7500`, 120% → `1.2000`)
+- **Display/UI** (frontend): apresentado como percentual (`achievement_pct × 100`)
+- **API JSON** (`ev_summary.achievement_pct`): convertido pra percentual no serializer (78.5 = 78.5%)
+- **Input do RevOps** na tela de achievements: aceita o valor em percentual, converte pra fração antes de gravar
+
+A faixa "≥100%" do seed cobre até 99.9999 (=9999%) pra não quebrar com superatingimento. **Sem produto-específico** — a matriz é a mesma pra Saúde/Odonto/Vida.
+
+**Coluna `nf_valor_liquido` no model `FinancialImport`:** já existe (`Numeric(12,2)`). A spec usa o nome real `nf_valor_liquido` em todo o calculator e migration. **Aliasing pro JSON da API**: o serializer expõe como `nf_liquido` no `ev_summary` (mais curto, alinha com a coluna da planilha). É só um rename de display; o backend persiste/lê `nf_valor_liquido`.
 
 ### 6. Schema novo `financial_imports`
 
@@ -385,7 +393,7 @@ CREATE INDEX IF NOT EXISTS ix_financial_imports_policy_id ON financial_imports(p
 - `EXPIRED` — bateu, mas vigência da policy já passou
 - `PRE_VIGENCIA` — bateu, mas data_recebimento < first_payment_real
 - `PRODUTO_NAO_SUPORTADO` — produto da NF é Mental ou Fitness (persistido pra ficar visível na revisão)
-- `EV_INATIVO` — bateu uma policy, mas o EV vinculado não é ativo cadastrado
+- ~~`EV_INATIVO`~~ — **REMOVIDO da enum.** O filtro global (`active_ev_policies_query`) já exclui policies de EVs inativos antes do matching, então essas NFs caem em `UNMATCHED` (correto: do ponto de vista do calculator, a policy não existe). Se ainda for útil rastrear separadamente, criar um relatório à parte cruzando NFs UNMATCHED com policies inativas.
 
 **IMPORTANTE:** todas as linhas que passam pelo parser são **persistidas** (mesmo as que vão ser descartadas do cálculo), pra que apareçam na tela de revisão. O parser **não filtra** Mental/Fitness — só marca o `match_status` correto. O **único** filtro do parser é `status_recebimento != 'RECEBIDO'` (descarta A RECEBER) e linhas com `cliente_mae` ou `nf_liquido` vazios.
 
@@ -680,7 +688,7 @@ Já corrigido na sessão anterior: `transition_appraisal` roda o calculator quan
 users
 ├── id (PK)
 ├── email, name, role (ADMIN/REVOPS/EV/GERENTE/FINANCE)
-└── is_active
+└── active
 
 policies
 ├── id (PK), hubspot_ticket_id (unique)
@@ -710,7 +718,7 @@ financial_imports (REDESENHADO)
 ├── nf_mes_recebimento (YYYY-MM)
 ├── data_recebimento (DATE) ⭐ NOVO
 ├── cliente_mae, operadora, produto, tipo_receita, status_recebimento ⭐ NOVO
-├── match_status (MATCHED/UNMATCHED/EXPIRED/PRE_VIGENCIA/PRODUTO_NAO_SUPORTADO/EV_INATIVO) ⭐ NOVO
+├── match_status (MATCHED/UNMATCHED/EXPIRED/PRE_VIGENCIA/PRODUTO_NAO_SUPORTADO) ⭐ NOVO
 └── matched_at ⭐ NOVO
 
 commissions
@@ -723,7 +731,7 @@ commissions
 
 commission_pct_table
 ├── id (PK), version
-├── segment, faixa_min, faixa_max, pct
+├── version, segment, achievement_min, achievement_max, commission_pct, valid_from, valid_until, created_by
 └── (seed: 12 entradas — 4 segments × 3 faixas)
 ```
 
@@ -779,7 +787,8 @@ Ordem:
 1. `add_is_locked_to_policies.py`
 2. `redesign_financial_imports.py` (drop constraint, add columns)
 3. `seed_commission_pct_table.py` (popular as 12 entradas da matriz, idempotente — ver tabela em **Componentes detalhados → Matriz**)
-4. `add_is_active_to_users.py` (se ainda não existir)
+<!-- migration #4 removida: User.active já existe no model atual -->
+
 
 ## Riscos
 
