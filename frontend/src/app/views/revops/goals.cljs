@@ -15,10 +15,10 @@
   (when v
     (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
 
-(defn goal-row [{:keys [row on-edit]}]
+(defn goal-row [_]
   (let [editing? (r/atom false)
-        value    (r/atom (or (:amount row) 0))]
-    (fn []
+        value    (r/atom 0)]
+    (fn [{:keys [row on-edit]}]
       [:tr {:style {:border-bottom (str "1px solid " t/border-default)}}
        [:td {:style {:padding "12px 16px" :color t/text-primary}} (:ev_name row)]
        [:td {:style {:padding "12px 16px" :color t/text-secondary :font-size (:sm t/font-sizes)}}
@@ -50,9 +50,9 @@
                        :on-click #(reset! editing? true)}
            "Editar"])]])))
 
-(defn new-goal-modal [{:keys [open? on-close users]}]
+(defn new-goal-modal [_]
   (let [form (r/atom {:ev_id "" :quarter "" :year "" :mrr_target ""})]
-    (fn []
+    (fn [{:keys [open? on-close users]}]
       (let [quarter-opts [{:value "" :label "Selecione"}
                           {:value "1" :label "Q1"} {:value "2" :label "Q2"}
                           {:value "3" :label "Q3"} {:value "4" :label "Q4"}]

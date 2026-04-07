@@ -13,9 +13,9 @@
 
 (defn empty-team-form [] {:name "" :leader_id ""})
 
-(defn team-modal [{:keys [open? on-close team-data users]}]
-  (let [form (r/atom (or team-data (empty-team-form)))]
-    (fn []
+(defn team-modal [_]
+  (let [form (r/atom (empty-team-form))]
+    (fn [{:keys [open? on-close team-data users]}]
       (let [editing? (some? (:id team-data))
             leader-options (into [{:value "" :label "Sem líder"}]
                                  (map #(hash-map :value (str (:id %)) :label (:name %))
@@ -50,8 +50,10 @@
 (defn teams-page []
   (rf/dispatch [:revops/fetch-teams])
   (rf/dispatch [:revops/fetch-users])
-  (let [modal-open?  (r/atom false)
-        editing-team (r/atom nil)
+  (let [modal-open?    (r/atom false)
+        editing-team   (r/atom nil)
+        confirm-open?  (r/atom false)
+        confirm-row    (r/atom nil)
         team-columns [{:key :name        :label "Nome"       :sortable true}
                       {:key :leader_name :label "Líder"      :sortable false}
                       {:key :members     :label "Membros"    :sortable false :align "center" :width "80px"
@@ -69,8 +71,8 @@
                                                               (reset! modal-open? true))}
                                    "Editar"]
                                   [btn/button {:variant :danger :size :sm
-                                               :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
-                                                            (rf/dispatch [:revops/delete-team (:id row)]))}
+                                               :on-click #(do (reset! confirm-row row)
+                                                              (reset! confirm-open? true))}
                                    "Remover"]])}]]
     (fn []
       (let [teams    @(rf/subscribe [:revops/teams])
@@ -100,4 +102,16 @@
          [team-modal {:open?     @modal-open?
                        :on-close  #(reset! modal-open? false)
                        :team-data @editing-team
-                       :users     users}]]))))
+                       :users     users}]
+
+         [modal/confirm-dialog
+          {:open?         @confirm-open?
+           :on-close      #(reset! confirm-open? false)
+           :on-confirm    (fn []
+                            (when-let [row @confirm-row]
+                              (rf/dispatch [:revops/delete-team (:id row)]))
+                            (reset! confirm-open? false))
+           :title         "Confirmar remoção"
+           :message       (str "Remover " (:name @confirm-row) "?")
+           :confirm-label "Remover"
+           :variant       :danger}]]))))

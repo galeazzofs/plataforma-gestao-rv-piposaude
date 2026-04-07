@@ -1,6 +1,10 @@
+from decimal import Decimal
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth, require_role
-from app.models import Appraisal, AppraisalStatus, UserRole
+from app.models import (
+    Appraisal, AppraisalStatus, UserRole,
+    Commission, EvQuarterAchievement, User,
+)
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
 from app.modules.workflow.state_machine import (
@@ -52,8 +56,11 @@ def create_appraisal():
     if not data:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
 
-    quarter = data.get("quarter")
-    year = data.get("year")
+    try:
+        quarter = int(data.get("quarter", 0))
+        year = int(data.get("year", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year must be integers"}}), 400
 
     if not quarter or not year:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year required"}}), 400
@@ -127,8 +134,89 @@ def _serialize_appraisal(appraisal, detail=False):
         "created_by": str(appraisal.created_by),
         "created_at": appraisal.created_at.isoformat() if appraisal.created_at else None,
         "locked_at": appraisal.locked_at.isoformat() if appraisal.locked_at else None,
+        "ev_count": _ev_count(appraisal),
     }
     if detail:
         data["approved_by_finance"] = str(appraisal.approved_by_finance) if appraisal.approved_by_finance else None
         data["validation_count"] = len(appraisal.validations)
+        data["ev_summary"] = _build_ev_summary(appraisal)
     return data
+
+
+def _ev_count(appraisal):
+    """Number of distinct EVs that have either an achievement or a commission in the quarter."""
+    ev_from_ach = db.session.query(EvQuarterAchievement.ev_id).filter_by(
+        quarter=appraisal.quarter, year=appraisal.year,
+    )
+    ev_from_comm = db.session.query(Commission.ev_id).filter_by(
+        quarter=appraisal.quarter, year=appraisal.year,
+    )
+    return ev_from_ach.union(ev_from_comm).count()
+
+
+def _build_ev_summary(appraisal):
+    """Build per-EV summary for the review screen.
+
+    Combines achievements (Phase 1 of run_quarterly_appraisal_v2) and commissions
+    (Phase 2). Returns a list of dicts: ev_id, ev_name, policies_count, mrr_total,
+    commission_total, achievement_pct, status.
+    """
+    quarter, year = appraisal.quarter, appraisal.year
+
+    # Per-EV achievement (one row per EV per quarter)
+    achievements = EvQuarterAchievement.query.filter_by(
+        quarter=quarter, year=year,
+    ).all()
+
+    # Per-EV commission aggregates for this appraisal quarter
+    commission_rows = (
+        db.session.query(
+            Commission.ev_id,
+            db.func.count(Commission.id).label("policies_count"),
+            db.func.coalesce(db.func.sum(Commission.total_actual), Decimal("0")).label("commission_total"),
+        )
+        .filter(Commission.quarter == quarter, Commission.year == year)
+        .group_by(Commission.ev_id)
+        .all()
+    )
+    commission_by_ev = {
+        row.ev_id: {
+            "policies_count": int(row.policies_count or 0),
+            "commission_total": float(row.commission_total or 0),
+        }
+        for row in commission_rows
+    }
+
+    # Union of EV ids from both sources
+    ev_ids = set(commission_by_ev.keys())
+    for ach in achievements:
+        ev_ids.add(ach.ev_id)
+
+    if not ev_ids:
+        return []
+
+    # Resolve EV names
+    users = User.query.filter(User.id.in_(ev_ids)).all()
+    name_by_id = {u.id: (u.name or u.email) for u in users}
+
+    # Achievement lookup
+    ach_by_ev = {a.ev_id: a for a in achievements}
+
+    summary = []
+    for ev_id in ev_ids:
+        ach = ach_by_ev.get(ev_id)
+        comm = commission_by_ev.get(ev_id, {"policies_count": 0, "commission_total": 0.0})
+        achievement_pct = float(ach.achievement_pct * 100) if ach and ach.achievement_pct is not None else 0.0
+        mrr_total = float(ach.total_mrr or 0) if ach else 0.0
+        summary.append({
+            "ev_id": str(ev_id),
+            "ev_name": name_by_id.get(ev_id, "—"),
+            "policies_count": comm["policies_count"],
+            "mrr_total": mrr_total,
+            "commission_total": comm["commission_total"],
+            "achievement_pct": achievement_pct,
+            "status": "FINAL" if (ach and ach.is_final) else "PROJECTED",
+        })
+
+    summary.sort(key=lambda r: r["ev_name"])
+    return summary

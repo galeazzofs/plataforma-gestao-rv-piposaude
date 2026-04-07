@@ -32,19 +32,21 @@
     :render (fn [row] [badge/status-badge {:status (:status row)}])}])
 
 (defn appraisal-review-page []
-  (let [route-params (rf/subscribe [:current-route])]
+  (let [route        @(rf/subscribe [:current-route])
+        appraisal-id (get-in route [:path-params :id])]
+    (when appraisal-id
+      (rf/dispatch [:revops/fetch-appraisal-detail appraisal-id])
+      (rf/dispatch [:revops/fetch-appraisals]))
     (fn []
-      (let [appraisal-id (get-in @route-params [:path-params :id])
-            _            (when appraisal-id (rf/dispatch [:revops/fetch-appraisal-detail appraisal-id]))
-            appraisals   @(rf/subscribe [:revops/appraisals])
-            appraisal    (first (filter #(= (str (:id %)) (str appraisal-id)) (or appraisals [])))
-            ev-summary   (or (:ev_summary appraisal) [])
-            loading?     @(rf/subscribe [:revops/appraisal-loading?])
-            user         @(rf/subscribe [:auth/current-user])
-            route        @(rf/subscribe [:current-route-name])]
+      (let [appraisals @(rf/subscribe [:revops/appraisals])
+            appraisal  (first (filter #(= (str (:id %)) (str appraisal-id)) (or appraisals [])))
+            ev-summary (or (:ev_summary appraisal) [])
+            loading?   @(rf/subscribe [:revops/appraisal-loading?])
+            user       @(rf/subscribe [:auth/current-user])
+            route-name @(rf/subscribe [:current-route-name])]
         [layout/page-shell
          {:sidebar-items revops-shell/sidebar-items
-          :current-route route
+          :current-route route-name
           :user          user
           :title         "Revisão de Apuração"
           :subtitle      (when appraisal (str "Q" (:quarter appraisal) "/" (:year appraisal)))
@@ -54,7 +56,7 @@
                         :on-click #(rf/dispatch [:navigate! :revops/appraisal])}
             "← Voltar"]
            [btn/button {:variant  :primary
-                        :on-click #(rf/dispatch [:revops/run-appraisal appraisal-id])}
+                        :on-click #(rf/dispatch [:revops/release-to-validation appraisal-id])}
             "Liberar para Validação EVs"]]}
 
          [cards/card {}

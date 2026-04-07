@@ -12,9 +12,9 @@
             [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
 
-(defn resolve-modal [{:keys [open? on-close contestation]}]
+(defn resolve-modal [_]
   (let [resolution (r/atom "")]
-    (fn []
+    (fn [{:keys [open? on-close contestation]}]
       [modal/modal {:open?    open?
                     :on-close on-close
                     :title    "Resolver Contestação"

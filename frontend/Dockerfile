@@ -1,7 +1,8 @@
-# Build stage
+# Build stage — shadow-cljs needs JDK to compile ClojureScript
 FROM node:20-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends default-jdk && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package.json yarn.lock ./
+COPY package.json yarn.lock shadow-cljs.edn ./
 RUN yarn install --frozen-lockfile
 COPY . .
 RUN yarn release

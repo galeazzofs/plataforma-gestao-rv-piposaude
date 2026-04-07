@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth, require_role
 from app.models import Goal, UserRole, User
@@ -53,9 +54,12 @@ def create_goal():
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
 
     ev_id = data.get("ev_id")
-    quarter = data.get("quarter")
-    year = data.get("year")
-    mrr_target = data.get("mrr_target")
+    try:
+        quarter = int(data.get("quarter", 0))
+        year = int(data.get("year", 0))
+        mrr_target = Decimal(str(data.get("mrr_target", "")))
+    except (ValueError, TypeError, InvalidOperation):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter, year must be integers; mrr_target must be numeric"}}), 400
 
     if not all([ev_id, quarter, year, mrr_target is not None]):
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "ev_id, quarter, year, mrr_target required"}}), 400
@@ -90,7 +94,10 @@ def update_goal(goal_id):
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "mrr_target required"}}), 400
 
     old_values = {"mrr_target": str(goal.mrr_target)}
-    goal.mrr_target = data["mrr_target"]
+    try:
+        goal.mrr_target = Decimal(str(data["mrr_target"]))
+    except (InvalidOperation, ValueError):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "mrr_target must be numeric"}}), 400
     log_audit("goals", goal.id, "UPDATE", old_values=old_values, new_values={"mrr_target": str(data["mrr_target"])})
     db.session.commit()
 
@@ -111,9 +118,13 @@ def import_goals():
 
     for i, row in enumerate(data):
         ev_id = row.get("ev_id")
-        quarter = row.get("quarter")
-        year = row.get("year")
-        mrr_target = row.get("mrr_target")
+        try:
+            quarter = int(row.get("quarter", 0))
+            year = int(row.get("year", 0))
+            mrr_target = Decimal(str(row.get("mrr_target", "")))
+        except (ValueError, TypeError, InvalidOperation):
+            errors.append({"index": i, "message": "quarter/year must be integers; mrr_target must be numeric"})
+            continue
 
         if not all([ev_id, quarter, year, mrr_target is not None]):
             errors.append({"index": i, "message": "ev_id, quarter, year, mrr_target required"})

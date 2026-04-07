@@ -4,6 +4,8 @@
             ;; Wire up state — side-effecting requires register events/subs
             [app.state.events]
             [app.state.subs]
+            ;; Toast notifications
+            [app.ds.toast]
             ;; Wire up auth
             [app.auth.events]
             [app.auth.subs]
@@ -103,7 +105,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn app-root []
-  [route-view])
+  [:<>
+   [route-view]
+   [app.ds.toast/toast-container]])
 
 ;; ---------------------------------------------------------------------------
 ;; Entry point

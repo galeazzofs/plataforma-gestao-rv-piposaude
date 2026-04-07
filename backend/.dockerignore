@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.git/
+.gitignore
+instance/
+*.db
+test_*.py
+listar_*.py
+docs/

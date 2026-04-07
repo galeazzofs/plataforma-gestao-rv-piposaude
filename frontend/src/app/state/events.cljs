@@ -8,10 +8,12 @@
    db/initial-db))
 
 ;; UI events
-(rf/reg-event-db
+(rf/reg-event-fx
  :ui/show-toast
- (fn [db [_ {:keys [type message duration]}]]
-   (assoc-in db [:ui :toast] {:type type :message message :duration (or duration 3000)})))
+ (fn [{:keys [db]} [_ {:keys [type message duration]}]]
+   (let [dur (or duration 3000)]
+     {:db (assoc-in db [:ui :toast] {:type type :message message})
+      :dispatch-later [{:ms dur :dispatch [:ui/clear-toast]}]})))
 
 (rf/reg-event-db
  :ui/clear-toast

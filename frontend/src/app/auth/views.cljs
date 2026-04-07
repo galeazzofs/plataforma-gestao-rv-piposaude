@@ -13,61 +13,70 @@
     "CN"       {:background t/beige-500 :color t/color-white}
     {:background t/bg-subtle :color t/text-secondary}))
 
+(defn- fetch-dev-users! [users-atom loading-atom]
+  (-> (js/fetch "/api/v1/auth/dev-users")
+      (.then (fn [resp] (.json resp)))
+      (.then (fn [json]
+               (let [items (aget json "data")]
+                 (reset! users-atom (js->clj items :keywordize-keys true))
+                 (reset! loading-atom false))))
+      (.catch (fn [err]
+                (js/console.error "dev-users fetch error:" err)
+                (reset! loading-atom false)))))
+
 (defn dev-login-picker
   "Dev-only: shows a list of seeded users to login as."
   []
-  (let [users (r/atom nil)
+  (let [users    (r/atom nil)
         loading? (r/atom true)]
-    ;; Fetch available users on mount
-    (-> (js/fetch "http://localhost:5000/api/v1/auth/dev-users")
-        (.then #(.json %))
-        (.then (fn [data]
-                 (reset! users (js->clj (.-data data) :keywordize-keys true))
-                 (reset! loading? false)))
-        (.catch (fn [_]
-                  (reset! loading? false))))
-    (fn []
-      [:div
-       ;; Separator
-       [:div {:style {:display "flex" :align-items "center" :gap "12px" :margin "24px 0 20px"}}
-        [:div {:style {:flex "1" :height "1px" :background t/border-default}}]
-        [:span {:style {:font-size (:xs t/font-sizes) :color t/text-disabled
-                        :text-transform "uppercase" :letter-spacing "0.08em"
-                        :white-space "nowrap"}} "Acesso de Desenvolvimento"]
-        [:div {:style {:flex "1" :height "1px" :background t/border-default}}]]
+    (r/create-class
+     {:component-did-mount
+      (fn [_this]
+        (fetch-dev-users! users loading?))
 
-       (if @loading?
-         [:div {:style {:text-align "center" :padding "20px" :color t/text-disabled
-                        :font-size (:sm t/font-sizes)}} "Carregando usuários..."]
-         [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
-          (for [user @users]
-            ^{:key (:email user)}
-            [:div {:style {:display "flex"
-                           :justify-content "space-between"
-                           :align-items "center"
-                           :padding "12px 14px"
-                           :border-radius (:md t/border-radius)
-                           :border (str "1px solid " t/border-default)
-                           :cursor "pointer"
-                           :transition (str "all " t/transition-fast)
-                           :background t/bg-card}
-                   :on-click #(rf/dispatch [:auth/dev-login (:email user)])}
-             [:div
-              [:div {:style {:font-size (:sm t/font-sizes)
-                             :font-weight (:semibold t/font-weights)
-                             :color t/text-primary}}
-               (:name user)]
-              [:div {:style {:font-size (:xs t/font-sizes)
-                             :color t/text-secondary
-                             :margin-top "1px"}}
-               (:email user)]]
-             [:span {:style (merge {:font-size (:xs t/font-sizes)
-                                    :padding "3px 10px"
-                                    :border-radius (:full t/border-radius)
-                                    :font-weight (:semibold t/font-weights)
-                                    :letter-spacing "0.02em"}
-                                   (role-badge-style (:role user)))}
-              (or (:role user) "SEM ROLE")]])])])))
+      :reagent-render
+      (fn []
+        [:div
+         ;; Separator
+         [:div {:style {:display "flex" :align-items "center" :gap "12px" :margin "24px 0 20px"}}
+          [:div {:style {:flex "1" :height "1px" :background t/border-default}}]
+          [:span {:style {:font-size (:xs t/font-sizes) :color t/text-disabled
+                          :text-transform "uppercase" :letter-spacing "0.08em"
+                          :white-space "nowrap"}} "Acesso de Desenvolvimento"]
+          [:div {:style {:flex "1" :height "1px" :background t/border-default}}]]
+
+         (if @loading?
+           [:div {:style {:text-align "center" :padding "20px" :color t/text-disabled
+                          :font-size (:sm t/font-sizes)}} "Carregando usuários..."]
+           [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
+            (for [user @users]
+              ^{:key (:email user)}
+              [:div {:style {:display "flex"
+                             :justify-content "space-between"
+                             :align-items "center"
+                             :padding "12px 14px"
+                             :border-radius (:md t/border-radius)
+                             :border (str "1px solid " t/border-default)
+                             :cursor "pointer"
+                             :transition (str "all " t/transition-fast)
+                             :background t/bg-card}
+                     :on-click #(rf/dispatch [:auth/dev-login (:email user)])}
+               [:div
+                [:div {:style {:font-size (:sm t/font-sizes)
+                               :font-weight (:semibold t/font-weights)
+                               :color t/text-primary}}
+                 (:name user)]
+                [:div {:style {:font-size (:xs t/font-sizes)
+                               :color t/text-secondary
+                               :margin-top "1px"}}
+                 (:email user)]]
+               [:span {:style (merge {:font-size (:xs t/font-sizes)
+                                      :padding "3px 10px"
+                                      :border-radius (:full t/border-radius)
+                                      :font-weight (:semibold t/font-weights)
+                                      :letter-spacing "0.02em"}
+                                     (role-badge-style (:role user)))}
+                (or (:role user) "SEM ROLE")]])])])})))
 
 (defn login-page []
   (let [loading? @(rf/subscribe [:auth/loading?])

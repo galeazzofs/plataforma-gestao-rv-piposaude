@@ -61,3 +61,23 @@ class HubSpotClient:
         """Get a ticket by ID."""
         params = {"properties": ",".join(properties)}
         return self._request("GET", f"/crm/v3/objects/tickets/{ticket_id}", params=params)
+
+    def get_owner(self, owner_id):
+        """Get an owner by ID. Returns dict with email, firstName, lastName."""
+        return self._request("GET", f"/crm/v3/owners/{owner_id}")
+
+    def get_all_owners(self):
+        """Fetch all owners and return a dict mapping owner_id → email."""
+        owner_map = {}
+        after = None
+        while True:
+            params = {"limit": 100}
+            if after:
+                params["after"] = after
+            result = self._request("GET", "/crm/v3/owners", params=params)
+            for o in result.get("results", []):
+                owner_map[str(o["id"])] = o.get("email")
+            after = result.get("paging", {}).get("next", {}).get("after")
+            if not after:
+                break
+        return owner_map

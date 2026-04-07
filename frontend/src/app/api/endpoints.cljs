@@ -10,6 +10,7 @@
 
 ;; Policies
 (def policies "/policies")
+(def policy-installments (fn [id] (str "/policies/" id "/installments")))
 
 ;; Validations
 (def validations "/validations")

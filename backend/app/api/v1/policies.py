@@ -84,6 +84,89 @@ def get_policy(policy_id):
     return jsonify({"data": _serialize_policy(policy, detail=True)})
 
 
+@policies_bp.route("/<policy_id>/installments", methods=["PATCH"])
+@require_auth
+def update_installments(policy_id):
+    """Manually update installments_paid and first_payment_real for a policy.
+
+    Used by RevOps to set the correct state for policies that were already
+    in payment before the platform existed.
+    Body: {installments_paid: 8, first_payment_real: "2025-09-01", commission_status: "IN_PAYMENT"}
+    """
+    from app.models import CommissionStatus
+    from app.api.middlewares import log_audit
+
+    user = g.current_user
+    if user.role not in (UserRole.ADMIN, UserRole.GERENTE):
+        return jsonify({"error": {"code": "FORBIDDEN", "message": "Admin or Gerente required"}}), 403
+
+    policy = db.session.get(Policy, policy_id)
+    if policy is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Policy not found"}}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+
+    old_values = {
+        "installments_paid": policy.installments_paid,
+        "initial_installments_paid": policy.initial_installments_paid,
+        "first_payment_real": policy.first_payment_real.isoformat() if policy.first_payment_real else None,
+        "commission_status": policy.commission_status.value,
+    }
+
+    if "initial_installments_paid" in data:
+        val = int(data["initial_installments_paid"])
+        if val < 0 or val > 12:
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "initial_installments_paid must be 0-12"}}), 400
+        policy.initial_installments_paid = val
+        # Se installments_paid for menor que o valor inicial, ajusta automaticamente
+        if policy.installments_paid < val:
+            policy.installments_paid = val
+
+    if "installments_paid" in data:
+        val = int(data["installments_paid"])
+        if val < 0 or val > 12:
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "installments_paid must be 0-12"}}), 400
+        if val < policy.initial_installments_paid:
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"installments_paid cannot be less than initial_installments_paid ({policy.initial_installments_paid})"}}), 400
+        policy.installments_paid = val
+
+    if "first_payment_real" in data:
+        if data["first_payment_real"]:
+            policy.first_payment_real = date.fromisoformat(data["first_payment_real"])
+        else:
+            policy.first_payment_real = None
+
+    if "commission_status" in data:
+        try:
+            policy.commission_status = CommissionStatus(data["commission_status"])
+        except ValueError:
+            valid = [s.value for s in CommissionStatus]
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Invalid status. Valid: {valid}"}}), 400
+
+    # Auto-derive status from installments if not explicitly set
+    if "commission_status" not in data:
+        if policy.installments_paid >= 12:
+            policy.commission_status = CommissionStatus.SETTLED
+        elif policy.installments_paid > 0 and policy.commission_status == CommissionStatus.PROJECTED:
+            policy.commission_status = CommissionStatus.IN_PAYMENT
+
+    log_audit(
+        "policies", policy.id, "UPDATE",
+        old_values=old_values,
+        new_values={
+            "installments_paid": policy.installments_paid,
+            "initial_installments_paid": policy.initial_installments_paid,
+            "first_payment_real": policy.first_payment_real.isoformat() if policy.first_payment_real else None,
+            "commission_status": policy.commission_status.value,
+        },
+    )
+    db.session.commit()
+
+    return jsonify({"data": _serialize_policy(policy, detail=True)})
+
+
 def _serialize_policy(policy, detail=False):
     data = {
         "id": str(policy.id),
@@ -97,6 +180,7 @@ def _serialize_policy(policy, detail=False):
         "mrr_for_commission": str(policy.mrr_for_commission) if policy.mrr_for_commission else None,
         "closed_date": policy.closed_date.isoformat() if policy.closed_date else None,
         "installments_paid": policy.installments_paid,
+        "initial_installments_paid": policy.initial_installments_paid,
         "commission_status": policy.commission_status.value,
     }
     if detail:

@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_role, require_auth
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
 
@@ -231,13 +231,22 @@ def create_commission_table_row():
     if not all(k in data for k in required):
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Required: {required}"}}), 400
 
+    from decimal import Decimal
     user = g.current_user
+    try:
+        version = int(data["version"])
+        achievement_min = Decimal(str(data["achievement_min"]))
+        achievement_max = Decimal(str(data["achievement_max"]))
+        commission_pct = Decimal(str(data["commission_pct"]))
+    except (ValueError, TypeError, Exception):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "version must be int; min/max/pct must be numeric"}}), 400
+
     row = CommissionPctTable(
-        version=data["version"],
+        version=version,
         segment=data["segment"],
-        achievement_min=data["achievement_min"],
-        achievement_max=data["achievement_max"],
-        commission_pct=data["commission_pct"],
+        achievement_min=achievement_min,
+        achievement_max=achievement_max,
+        commission_pct=commission_pct,
         valid_from=data.get("valid_from"),
         valid_until=data.get("valid_until"),
         created_by=user.id,
@@ -368,6 +377,156 @@ def audit_log():
         ],
         "meta": meta,
     })
+
+
+# ── EV Quarter Achievement ────────────────────────────────────────────────
+
+@admin_bp.route("/ev-achievements")
+@require_role(UserRole.ADMIN)
+def list_ev_achievements():
+    """List EV quarterly achievements. Filter by quarter/year."""
+    from app.models import EvQuarterAchievement, User
+    quarter = request.args.get("quarter", type=int)
+    year = request.args.get("year", type=int)
+
+    query = EvQuarterAchievement.query
+    if quarter:
+        query = query.filter(EvQuarterAchievement.quarter == quarter)
+    if year:
+        query = query.filter(EvQuarterAchievement.year == year)
+
+    query = query.order_by(EvQuarterAchievement.year.desc(), EvQuarterAchievement.quarter.desc())
+    rows = query.all()
+
+    return jsonify({
+        "data": [_serialize_achievement(a) for a in rows],
+    })
+
+
+@admin_bp.route("/ev-achievements", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def upsert_ev_achievement():
+    """Create or update an EV quarterly achievement manually."""
+    from decimal import Decimal
+    from app.models import EvQuarterAchievement
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+
+    required = ["ev_id", "quarter", "year"]
+    if not all(k in data for k in required):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Required: {required}"}}), 400
+
+    ev_id = data["ev_id"]
+    quarter = int(data["quarter"])
+    year = int(data["year"])
+
+    ach = EvQuarterAchievement.query.filter_by(
+        ev_id=ev_id, quarter=quarter, year=year
+    ).first()
+
+    if ach and ach.is_final:
+        return jsonify({"error": {"code": "LOCKED", "message": "Achievement is final and cannot be changed"}}), 409
+
+    if ach is None:
+        ach = EvQuarterAchievement(ev_id=ev_id, quarter=quarter, year=year)
+        db.session.add(ach)
+
+    if "total_mrr" in data:
+        ach.total_mrr = Decimal(str(data["total_mrr"]))
+    if "mrr_target" in data:
+        ach.mrr_target = Decimal(str(data["mrr_target"]))
+    if "achievement_pct" in data:
+        ach.achievement_pct = Decimal(str(data["achievement_pct"]))
+    if "is_final" in data:
+        ach.is_final = bool(data["is_final"])
+
+    # Auto-calculate achievement if both MRR values present and no explicit pct
+    if "achievement_pct" not in data and ach.total_mrr is not None and ach.mrr_target:
+        ach.achievement_pct = (ach.total_mrr / ach.mrr_target).quantize(Decimal("0.0001"))
+
+    log_audit("ev_quarter_achievements", ach.id, "UPSERT", new_values=data)
+    db.session.commit()
+
+    return jsonify({"data": _serialize_achievement(ach)}), 201
+
+
+@admin_bp.route("/ev-achievements/calculate", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def calculate_ev_achievements():
+    """Auto-calculate achievements for all EVs in a quarter from their gongos."""
+    from decimal import Decimal
+    from app.models import EvQuarterAchievement, Goal, Policy, User, UserRole as UR
+    from app.modules.commissions.achievement import get_quarter_date_range
+
+    data = request.get_json()
+    if not data or "quarter" not in data or "year" not in data:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year required"}}), 400
+
+    quarter = int(data["quarter"])
+    year = int(data["year"])
+    start, end = get_quarter_date_range(quarter, year)
+
+    # Get all EVs with goals for this quarter
+    goals = Goal.query.filter_by(quarter=quarter, year=year).all()
+    results = []
+
+    for goal in goals:
+        # Check if already final
+        existing = EvQuarterAchievement.query.filter_by(
+            ev_id=goal.ev_id, quarter=quarter, year=year
+        ).first()
+        if existing and existing.is_final:
+            results.append(_serialize_achievement(existing))
+            continue
+
+        # Sum MRR from gongos
+        total_mrr = db.session.query(
+            db.func.coalesce(db.func.sum(Policy.mrr_projected), Decimal("0"))
+        ).filter(
+            Policy.ev_id == goal.ev_id,
+            Policy.closed_date >= start,
+            Policy.closed_date < end,
+            Policy.commission_status != "CANCELLED",
+        ).scalar()
+
+        achievement = (Decimal(str(total_mrr)) / goal.mrr_target).quantize(
+            Decimal("0.0001")
+        ) if goal.mrr_target > 0 else Decimal("0")
+
+        if existing is None:
+            existing = EvQuarterAchievement(
+                ev_id=goal.ev_id, quarter=quarter, year=year
+            )
+            db.session.add(existing)
+
+        existing.total_mrr = total_mrr
+        existing.mrr_target = goal.mrr_target
+        existing.achievement_pct = achievement
+
+        results.append(_serialize_achievement(existing))
+
+    log_audit("ev_quarter_achievements", None, "BATCH_CALCULATE",
+              new_values={"quarter": quarter, "year": year, "count": len(results)})
+    db.session.commit()
+
+    return jsonify({"data": results})
+
+
+def _serialize_achievement(a):
+    ev = db.session.get(User, a.ev_id) if a.ev_id else None
+    return {
+        "id": str(a.id),
+        "ev_id": str(a.ev_id),
+        "ev_name": ev.name if ev else None,
+        "quarter": a.quarter,
+        "year": a.year,
+        "total_mrr": str(a.total_mrr) if a.total_mrr else None,
+        "mrr_target": str(a.mrr_target) if a.mrr_target else None,
+        "achievement_pct": str(a.achievement_pct) if a.achievement_pct else None,
+        "is_final": a.is_final,
+    }
 
 
 # ── Serializers ────────────────────────────────────────────────────────────────

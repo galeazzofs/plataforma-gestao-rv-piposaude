@@ -12,6 +12,11 @@
 (def bg-main "#F7F6F3")
 (def bg-surface "#EDECE7")
 (def bg-card "#FFFFFF")
+(def bg-hover "#F0EFEB")
+(def bg-active "#E8E7E2")
+
+;; Borders — interactive
+(def border-hover "#CACACA")
 
 ;; Grayscale — hierarchy
 (def text-primary "#2B2B2B")

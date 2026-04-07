@@ -1,5 +1,6 @@
 (ns app.ds.table
-  (:require [app.ds.tokens :as t]))
+  (:require [app.ds.tokens :as t]
+            [reagent.core :as r]))
 
 (defn data-table
   "Data table with sort, pagination.
@@ -49,17 +50,24 @@
        (map-indexed
         (fn [idx row]
           ^{:key (or (:id row) (hash row))}
-          [:tr {:style {:border-bottom (str "1px solid " t/border-default)
-                        :background (if (odd? idx) t/bg-card "rgba(247,246,243,0.5)")
-                        :transition (str "background " t/transition-fast)}}
-           (for [{:keys [key render align]} columns]
-             ^{:key (str (or (:id row) idx) "-" key)}
-             [:td {:style {:padding "12px 16px" :color t/text-primary
-                           :text-align (or align "left")
-                           :vertical-align "middle"}}
-              (if render
-                (render row)
-                (get row key))])])
+          [(fn []
+             (let [hovered? (r/atom false)
+                   base-bg  (if (even? idx) t/bg-card "#FAFAF8")]
+               (fn []
+                 [:tr {:style {:border-bottom (str "1px solid " t/border-default)
+                               :background (if @hovered? t/bg-hover base-bg)
+                               :transition (str "background " t/transition-fast)
+                               :cursor "default"}
+                       :on-mouse-enter #(reset! hovered? true)
+                       :on-mouse-leave #(reset! hovered? false)}
+                  (for [{:keys [key render align]} columns]
+                    ^{:key (str (or (:id row) idx) "-" key)}
+                    [:td {:style {:padding "12px 16px" :color t/text-primary
+                                  :text-align (or align "left")
+                                  :vertical-align "middle"}}
+                     (if render
+                       (render row)
+                       (get row key))])])))])
         rows))]]
    ;; Pagination
    (when (and page total-pages (> total-pages 1))

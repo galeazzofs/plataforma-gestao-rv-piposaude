@@ -31,9 +31,17 @@ def run_sync():
     updated = 0
     errors = []
 
-    # Search gongoed tickets (won + MRR > 0)
+    # Pre-load owner map (owner_id → email) for EV resolution
+    try:
+        owner_map = client.get_all_owners()
+        logger.info(f"Loaded {len(owner_map)} HubSpot owners")
+    except Exception as e:
+        logger.warning(f"Could not load owners: {e}")
+        owner_map = {}
+
+    # Search gongoed tickets (Placement pipeline → Gongo stage)
     filters = [
-        {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": "closed_won"},
+        {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": "11947921"},
     ]
 
     after = None
@@ -51,12 +59,13 @@ def run_sync():
 
         for ticket in result.get("results", []):
             try:
-                was_created = _process_ticket(client, ticket)
+                was_created = _process_ticket(client, ticket, owner_map)
                 if was_created:
                     created += 1
                 else:
                     updated += 1
             except Exception as e:
+                db.session.rollback()
                 ticket_id = ticket.get("id", "unknown")
                 logger.error(f"Error processing ticket {ticket_id}: {e}")
                 errors.append(f"Ticket {ticket_id}: {e}")
@@ -81,13 +90,14 @@ def run_sync():
     return summary
 
 
-def _process_ticket(hs_client, ticket):
+def _process_ticket(hs_client, ticket, owner_map):
     """Process a single HubSpot ticket into a policy. Returns True if created."""
     props = ticket.get("properties", {})
     ticket_id = ticket["id"]
 
-    # Map EV by email
-    ev_email = props.get("solicitante_demanda", "")
+    # Map EV by resolving HubSpot owner ID → email → local user
+    owner_id = props.get("solicitante_demanda")
+    ev_email = owner_map.get(str(owner_id)) if owner_id else None
     ev = User.query.filter_by(email=ev_email).first() if ev_email else None
 
     # Upsert client

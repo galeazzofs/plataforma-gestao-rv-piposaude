@@ -21,33 +21,46 @@
    {:key :revops/audit-log        :label "Audit Log"         :icon "📋" :route :revops/audit-log}
    {:key :revops/settings         :label "Configurações"     :icon "⚙️" :route :revops/settings}])
 
-(defn stat-action-card [{:keys [label value icon on-click]}]
-  [:div {:style {:background t/bg-card
-                 :border-radius (:lg t/border-radius)
-                 :padding "24px"
-                 :box-shadow (:card t/shadows)
-                 :border (str "1px solid " t/border-default)
-                 :cursor (when on-click "pointer")
-                 :transition (str "all " t/transition-fast)
-                 :display "flex"
-                 :flex-direction "column"
-                 :gap "12px"}
-         :on-click on-click}
-   (when icon
-     [:div {:style {:width "40px" :height "40px" :border-radius (:md t/border-radius)
-                    :background t/beige-100 :display "flex" :align-items "center"
-                    :justify-content "center" :font-size "20px"}}
-      icon])
-   [:div
-    [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
-                   :text-transform "uppercase" :letter-spacing "0.06em"
-                   :font-weight (:semibold t/font-weights) :margin-bottom "4px"}} label]
-    [:div {:style {:font-size (:2xl t/font-sizes) :font-weight (:bold t/font-weights)
-                   :color t/text-primary}} value]]
-   (when on-click
-     [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
-                     :display "flex" :align-items "center" :gap "4px"}}
-      "Ver detalhes →"])])
+(defn stat-action-card [{:keys [label value icon on-click accent]}]
+  (let [accent-bg    (case accent
+                       :success t/success-light
+                       :warning t/warning-light
+                       :error   t/error-light
+                       :info    "#DBEAFE"
+                       t/beige-100)
+        accent-color (case accent
+                       :success t/success-dark
+                       :warning t/warning-dark
+                       :error   t/error-dark
+                       :info    t/blue-700
+                       t/beige-700)]
+    [:div {:style {:background t/bg-card
+                   :border-radius (:lg t/border-radius)
+                   :padding "24px"
+                   :box-shadow (:card t/shadows)
+                   :border (str "1px solid " t/border-default)
+                   :cursor (when on-click "pointer")
+                   :transition (str "all " t/transition-default)
+                   :display "flex"
+                   :flex-direction "column"
+                   :gap "12px"}
+           :on-click on-click}
+     (when icon
+       [:div {:style {:width "44px" :height "44px" :border-radius (:lg t/border-radius)
+                      :background accent-bg :display "flex" :align-items "center"
+                      :justify-content "center" :font-size "20px" :color accent-color}}
+        icon])
+     [:div
+      [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
+                     :text-transform "uppercase" :letter-spacing "0.06em"
+                     :font-weight (:medium t/font-weights) :margin-bottom "6px"}} label]
+      [:div {:style {:font-size (:3xl t/font-sizes) :font-weight (:bold t/font-weights)
+                     :color t/text-primary :line-height "1.1"}} value]]
+     (when on-click
+       [:span {:style {:font-size (:xs t/font-sizes) :color accent-color
+                       :display "flex" :align-items "center" :gap "4px"
+                       :font-weight (:medium t/font-weights)}}
+        "Ver detalhes"])]))
 
 (defn quick-action-card [{:keys [label description icon on-click]}]
   [:div {:style {:background t/bg-card
@@ -91,23 +104,26 @@
         :subtitle      "Visão geral do sistema de comissões"}
 
        ;; Status cards
-       [:div {:style {:display "grid" :grid-template-columns "repeat(auto-fit, minmax(240px, 1fr))" :gap "20px"}}
+       [:div {:style {:display "grid" :grid-template-columns "repeat(auto-fit, minmax(260px, 1fr))" :gap "20px"}}
         [stat-action-card
-         {:label    "Apuração Ativa"
+         {:label    "Apuracao Ativa"
           :value    (if active-appraisal
-                      (reagent.core/as-element [badge/status-badge {:status (:status active-appraisal)}])
-                      "—")
-          :icon     "⚙️"
-          :on-click #(rf/dispatch [:navigate! :revops/appraisal])}]
+                      (str "Q" (:quarter active-appraisal) "/" (:year active-appraisal))
+                      "Nenhuma")
+          :icon     "⚙"
+          :accent   (if active-appraisal :info :default)
+          :on-click #(rf/dispatch [:navigate :revops/appraisal])}]
         [stat-action-card
-         {:label    "Contestações Pendentes"
+         {:label    "Contestacoes Pendentes"
           :value    (str pending-count)
-          :icon     "⚠️"
-          :on-click #(rf/dispatch [:navigate! :revops/contestations])}]
+          :icon     "!"
+          :accent   (if (pos? pending-count) :warning :success)
+          :on-click #(rf/dispatch [:navigate :revops/contestations])}]
         [stat-action-card
-         {:label "Último Sync"
-          :value (or (:last_sync sync-status) "Nunca")
-          :icon  "🔄"}]]
+         {:label  "Ultimo Sync"
+          :value  (or (:last_sync sync-status) "Nunca")
+          :icon   "↻"
+          :accent :default}]]
 
        ;; Quick actions
        [:div
@@ -118,12 +134,12 @@
           {:label       "Gerenciar Apuração"
            :description "Fluxo de cálculo e aprovação"
            :icon        "⚙️"
-           :on-click    #(rf/dispatch [:navigate! :revops/appraisal])}]
+           :on-click    #(rf/dispatch [:navigate :revops/appraisal])}]
          [quick-action-card
           {:label       "Upload Financeiro"
            :description "Importar dados via XLSX"
            :icon        "📁"
-           :on-click    #(rf/dispatch [:navigate! :revops/financial])}]
+           :on-click    #(rf/dispatch [:navigate :revops/financial])}]
          [quick-action-card
           {:label       "Sincronizar HubSpot"
            :description "Atualizar dados de negócios"
@@ -133,4 +149,4 @@
           {:label       "Gerenciar Usuários"
            :description "Usuários e permissões"
            :icon        "👤"
-           :on-click    #(rf/dispatch [:navigate! :revops/users])}]]]])))
+           :on-click    #(rf/dispatch [:navigate :revops/users])}]]]])))

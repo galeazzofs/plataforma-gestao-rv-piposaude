@@ -6,7 +6,7 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL", "postgresql://localhost:5432/comissoes_dev"
+        "DATABASE_URL", "postgresql+psycopg://localhost:5432/comissoes_dev"
     )
     JWT_ACCESS_TOKEN_EXPIRES = 8 * 60 * 60
     JWT_REFRESH_TOKEN_EXPIRES = 7 * 24 * 60 * 60

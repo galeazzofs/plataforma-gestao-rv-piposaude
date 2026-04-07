@@ -24,6 +24,16 @@ build/
 node_modules/
 .shadow-cljs/
 
+# Frontend compiled output
+frontend/resources/public/js/compiled/
+
 # Env
 .env
 .env.local
+
+# Database
+*.db
+
+# Test scripts (dev only)
+backend/test_*.py
+backend/listar_*.py

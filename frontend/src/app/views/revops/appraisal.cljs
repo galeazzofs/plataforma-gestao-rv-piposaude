@@ -12,9 +12,9 @@
             [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
 
-(defn new-appraisal-modal [{:keys [open? on-close]}]
+(defn new-appraisal-modal [_]
   (let [form (r/atom {:quarter "1" :year "2026"})]
-    (fn []
+    (fn [{:keys [open? on-close]}]
       [modal/modal {:open? open? :on-close on-close :title "Nova Apuração" :size :sm}
        [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
         [inputs/select
@@ -65,9 +65,9 @@
         "▶ Iniciar Cálculo"]
 
        "CALCULATING"
-       [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)
-                       :display "flex" :align-items "center" :gap "4px"}}
-        "⏳ Calculando..."]
+       [btn/button {:variant  :primary :size :sm
+                    :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
+        "📋 Revisar Cálculo"]
 
        "REVIEWING"
        [btn/button {:variant  :primary :size :sm

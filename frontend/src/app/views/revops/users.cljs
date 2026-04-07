@@ -28,9 +28,9 @@
 
 (defn empty-form [] {:name "" :email "" :role "" :team_id ""})
 
-(defn user-modal [{:keys [open? on-close user-data teams]}]
-  (let [form (r/atom (or user-data (empty-form)))]
-    (fn []
+(defn user-modal [_]
+  (let [form (r/atom (empty-form))]
+    (fn [{:keys [open? on-close user-data teams]}]
       (let [editing? (some? (:id user-data))]
         [modal/modal {:open?    open?
                       :on-close on-close
@@ -78,8 +78,10 @@
 (defn users-page []
   (rf/dispatch [:revops/fetch-users])
   (rf/dispatch [:revops/fetch-teams])
-  (let [modal-open?  (r/atom false)
-        editing-user (r/atom nil)
+  (let [modal-open?    (r/atom false)
+        editing-user   (r/atom nil)
+        confirm-open?  (r/atom false)
+        confirm-row    (r/atom nil)
         user-columns [{:key :name  :label "Nome"  :sortable true}
                       {:key :email :label "E-mail" :sortable false}
                       {:key :role  :label "Role"  :sortable false  :width "120px"
@@ -96,8 +98,8 @@
                                                               (reset! modal-open? true))}
                                    "Editar"]
                                   [btn/button {:variant :danger :size :sm
-                                               :on-click #(when (js/confirm (str "Remover " (:name row) "?"))
-                                                            (rf/dispatch [:revops/delete-user (:id row)]))}
+                                               :on-click #(do (reset! confirm-row row)
+                                                              (reset! confirm-open? true))}
                                    "Remover"]])}]]
     (fn []
       (let [users    @(rf/subscribe [:revops/users])
@@ -127,4 +129,16 @@
          [user-modal {:open?     @modal-open?
                        :on-close  #(reset! modal-open? false)
                        :user-data @editing-user
-                       :teams     teams}]]))))
+                       :teams     teams}]
+
+         [modal/confirm-dialog
+          {:open?         @confirm-open?
+           :on-close      #(reset! confirm-open? false)
+           :on-confirm    (fn []
+                            (when-let [row @confirm-row]
+                              (rf/dispatch [:revops/delete-user (:id row)]))
+                            (reset! confirm-open? false))
+           :title         "Confirmar remoção"
+           :message       (str "Remover " (:name @confirm-row) "?")
+           :confirm-label "Remover"
+           :variant       :danger}]]))))

@@ -21,6 +21,7 @@ TICKET_IMPLANT_MAP = {
 }
 
 # Segment mapping: HubSpot text → enum value
+# HubSpot sends values like "Startup (1-80)", "P (81-200)", "M (201-500)", "G (501+)"
 SEGMENT_MAP = {
     "pp": "PP",
     "p": "P",
@@ -35,6 +36,7 @@ BENEFIT_MAP = {
     "saúde": "SAUDE",
     "odonto": "ODONTO",
     "odontológico": "ODONTO",
+    "odontologico": "ODONTO",
     "vida": "VIDA",
 }
 
@@ -42,7 +44,9 @@ BENEFIT_MAP = {
 def map_segment(raw):
     if not raw:
         return None
-    return SEGMENT_MAP.get(raw.strip().lower())
+    # Extract prefix before parentheses: "P (81-200)" → "p"
+    key = raw.strip().split("(")[0].strip().lower()
+    return SEGMENT_MAP.get(key)
 
 
 def map_benefit_type(raw):

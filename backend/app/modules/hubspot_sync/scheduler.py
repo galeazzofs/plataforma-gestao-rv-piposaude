@@ -18,7 +18,7 @@ def init_scheduler(app):
 
     scheduler = BackgroundScheduler()
 
-    interval_hours = app.config.get("HUBSPOT_SYNC_INTERVAL_HOURS", 6)
+    interval_minutes = app.config.get("HUBSPOT_SYNC_INTERVAL_MINUTES", 30)
 
     def sync_job():
         with app.app_context():
@@ -31,11 +31,11 @@ def init_scheduler(app):
 
     scheduler.add_job(
         sync_job,
-        trigger=CronTrigger(hour=f"*/{interval_hours}"),
+        trigger=CronTrigger(minute=f"*/{interval_minutes}"),
         id="hubspot_sync",
         replace_existing=True,
     )
 
     scheduler.start()
-    logger.info(f"HubSpot sync scheduler started (every {interval_hours}h)")
+    logger.info(f"HubSpot sync scheduler started (every {interval_minutes}min)")
     return scheduler

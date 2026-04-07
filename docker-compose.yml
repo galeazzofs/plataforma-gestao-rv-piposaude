@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-comissoes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-comissoes_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-comissoes}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-comissoes}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  plataforma-comissoes-backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: ${FLASK_ENV:-prod}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-comissoes}:${POSTGRES_PASSWORD:-comissoes_secret}@db:5432/${POSTGRES_DB:-comissoes}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      HUBSPOT_TOKEN: ${HUBSPOT_TOKEN:-}
+      HUBSPOT_SYNC_INTERVAL_MINUTES: ${HUBSPOT_SYNC_INTERVAL_MINUTES:-30}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - plataforma-comissoes-backend
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:

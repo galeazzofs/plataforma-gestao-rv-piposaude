@@ -1,22 +1,30 @@
 (ns app.ds.layout
   (:require [app.ds.tokens :as t]
-            [re-frame.core :as rf]))
+            [re-frame.core :as rf]
+            [reagent.core :as r]))
 
 (defn sidebar-item
   [{:keys [label icon active? on-click]}]
-  [:div {:style {:display "flex" :align-items "center" :gap "10px"
-                 :padding "9px 14px"
-                 :border-radius (:md t/border-radius)
-                 :cursor "pointer"
-                 :transition (str "all " t/transition-fast)
-                 :background (if active? t/beige-100 "transparent")
-                 :color (if active? t/color-primary t/text-secondary)
-                 :font-weight (if active? (:semibold t/font-weights) (:regular t/font-weights))
-                 :font-size (:sm t/font-sizes)
-                 :border-left (if active? (str "3px solid " t/color-primary) "3px solid transparent")}
-         :on-click on-click}
-   (when icon [:span {:style {:font-size "16px" :line-height "1"}} icon])
-   [:span label]])
+  (let [hovered? (r/atom false)]
+    (fn [{:keys [label icon active? on-click]}]
+      [:div {:style {:display "flex" :align-items "center" :gap "10px"
+                     :padding "9px 14px"
+                     :border-radius (:md t/border-radius)
+                     :cursor "pointer"
+                     :transition (str "all " t/transition-default)
+                     :background (cond
+                                   active?   t/beige-100
+                                   @hovered? t/bg-hover
+                                   :else     "transparent")
+                     :color (if active? t/color-primary t/text-secondary)
+                     :font-weight (if active? (:semibold t/font-weights) (:regular t/font-weights))
+                     :font-size (:sm t/font-sizes)
+                     :border-left (if active? (str "3px solid " t/color-primary) "3px solid transparent")}
+             :on-mouse-enter #(reset! hovered? true)
+             :on-mouse-leave #(reset! hovered? false)
+             :on-click on-click}
+       (when icon [:span {:style {:font-size "16px" :line-height "1"}} icon])
+       [:span label]])))
 
 (defn sidebar
   "Left sidebar navigation."

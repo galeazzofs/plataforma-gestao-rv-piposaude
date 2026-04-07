@@ -30,8 +30,8 @@ class Policy(db.Model):
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     hubspot_ticket_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
-    ev_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=False)
-    client_id = db.Column(GUID, db.ForeignKey("clients.id"), nullable=False)
+    ev_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=True)
+    client_id = db.Column(GUID, db.ForeignKey("clients.id"), nullable=True)
     deal_id = db.Column(db.String(100), nullable=True)
     benefit_type = db.Column(db.Enum(BenefitType, name="benefit_type"), nullable=True)
     segment = db.Column(db.Enum(Segment, name="segment"), nullable=True)
@@ -44,6 +44,7 @@ class Policy(db.Model):
     first_payment_prev = db.Column(db.Date, nullable=True)
     first_payment_real = db.Column(db.Date, nullable=True)
     installments_paid = db.Column(db.Integer, default=0, nullable=False)
+    initial_installments_paid = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     commission_status = db.Column(
         db.Enum(CommissionStatus, name="commission_status"),
         default=CommissionStatus.PROJECTED,

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.extensions import db
 from app.models import Appraisal, AppraisalStatus
 from app.modules.workflow.transitions import VALID_TRANSITIONS
@@ -42,12 +42,21 @@ def transition_appraisal(appraisal, new_status, **kwargs):
     appraisal.status = new_status
 
     # Side effects
+    if new_status == AppraisalStatus.CALCULATING:
+        from app.modules.commissions.calculator import run_quarterly_appraisal_v2
+        run_quarterly_appraisal_v2(appraisal.quarter, appraisal.year)
+        # Status stays in CALCULATING — RevOps must review the calculated
+        # values and explicitly release to VALIDATING via the review screen.
+
     if new_status == AppraisalStatus.LOCKED:
         appraisal.locked_at = datetime.now(timezone.utc)
         appraisal.approved_by_finance = kwargs.get("approved_by")
 
     if new_status == AppraisalStatus.VALIDATING:
-        appraisal.validation_deadline = kwargs.get("validation_deadline")
+        deadline = kwargs.get("validation_deadline")
+        if deadline is None:
+            deadline = (datetime.now(timezone.utc) + timedelta(days=5)).date()
+        appraisal.validation_deadline = deadline
 
     db.session.flush()
     return appraisal

@@ -75,7 +75,7 @@
 (rf/reg-event-fx
  :finance/export
  (fn [{:keys [db]} [_ params]]
-   (let [base  "http://localhost:5000/api/v1"
+   (let [base  "/api/v1"
          query (clojure.string/join "&"
                  (for [[k v] params :when v]
                    (str (name k) "=" v)))

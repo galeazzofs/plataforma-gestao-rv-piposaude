@@ -28,4 +28,9 @@ def create_app(config_name=None):
     from app.api import register_blueprints
     register_blueprints(app)
 
+    # Start HubSpot sync scheduler (skip in testing)
+    if not app.config.get("TESTING") and app.config.get("HUBSPOT_TOKEN"):
+        from app.modules.hubspot_sync.scheduler import init_scheduler
+        init_scheduler(app)
+
     return app

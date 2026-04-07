@@ -30,9 +30,9 @@
    {:key :status             :label "Status"        :sortable false :width "120px"
     :render (fn [row] [badge/status-badge {:status (:status row)}])}])
 
-(defn contest-modal [{:keys [open? on-close on-submit deal-id]}]
+(defn contest-modal [_]
   (let [comment (r/atom "")]
-    (fn []
+    (fn [{:keys [open? on-close on-submit deal-id]}]
       [modal/modal {:open?    open?
                     :on-close on-close
                     :title    "Contestar negócio"
