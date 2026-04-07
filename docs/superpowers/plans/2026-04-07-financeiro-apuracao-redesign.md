@@ -16,7 +16,8 @@
 
 ## Convenções
 
-- **TDD obrigatório**: para cada função nova, write the failing test FIRST, run it, see it fail, then implement.
+- **TDD obrigatório no backend**: para cada função nova, write the failing test FIRST, run it, see it fail, then implement.
+- **Frontend NÃO tem TDD nesse repo** — não existe infraestrutura de `cljs.test` configurada e o padrão estabelecido é validar UI via smoke test manual (Chunk 6). NÃO criar `cljs.test` files; seguir o padrão existente. Se quiser adicionar testes de evento re-frame mais à frente, é uma melhoria à parte.
 - **Commits frequentes**: um commit por tarefa concluída, mensagem no formato `feat:`/`fix:`/`refactor:`/`test:`/`docs:`.
 - **Rodar tests dentro do container** (não no host) pra garantir mesmo Python/libs:
   ```bash
@@ -26,6 +27,7 @@
 - **Não usar Bash pra ler/editar arquivos** — Read/Edit/Write tools.
 - **Não pular `superpowers:test-driven-development`** se a skill estiver disponível.
 - **Worktree:** este plano modifica ~25 arquivos em backend e frontend. Considerar rodar em worktree dedicada (`EnterWorktree` ou `git worktree add`) pra isolar do trabalho atual. Se já estiver em worktree, ok.
+- **Verificar campos NOT NULL antes de criar fixtures de teste**: o `Policy` model tem vários campos obrigatórios (ev_id pode ser nullable, mas confirmar antes). Sempre rodar o teste com setup mínimo pra ver se SQLAlchemy aceita; ajustar fixture conforme necessário.
 
 ## Mapa de arquivos
 
@@ -659,29 +661,47 @@ git commit -m "feat(financial): add NF→Policy matcher with normalized dict ind
 
 ---
 
-### Task 2.2: Sample fixture from real XLSX
+### Task 2.2: Sample fixtures (real XLSX subset + synthetic mini)
 
 **Files:**
-- Create: `backend/tests/fixtures/sample_financial.xlsx`
+- Create: `backend/tests/fixtures/sample_financial.xlsx` (subset da planilha real, ~100 linhas)
+- Create: `backend/tests/fixtures/synthetic_financial.xlsx` (gerado em Python, controle total dos valores)
 
-- [ ] **Step 1: Generate sample fixture (100 rows from real XLSX)**
+Vamos ter dois fixtures:
+1. **`sample_financial.xlsx`** — subset da planilha real pra smoke testing (formato exato, nomes reais)
+2. **`synthetic_financial.xlsx`** — XLSX criado por código com valores conhecidos pra testes precisos (100% determinístico)
+
+- [ ] **Step 1: Pre-copiar a planilha real pro container** (uma vez só)
 
 ```bash
-docker cp "/c/Users/User/Downloads/Consulta - Follow up Faturamento 2026.xlsx" \
+# Copia a planilha pro container — caminho dentro do container fica fixo
+docker cp "C:/Users/User/Downloads/Consulta - Follow up Faturamento 2026.xlsx" \
     plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1:/tmp/full.xlsx
+```
 
-docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 python <<'PY'
+Verificar:
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    ls -la /tmp/full.xlsx
+```
+
+- [ ] **Step 2: Gerar `sample_financial.xlsx` (subset 100 linhas reais)**
+
+Criar `backend/tests/fixtures/__make_sample.py` (script auxiliar, pode deletar depois):
+
+```python
+"""Run inside the backend container to generate sample_financial.xlsx
+from /tmp/full.xlsx (the real spreadsheet pre-copied)."""
 import openpyxl
-from copy import copy
 
-src = openpyxl.load_workbook('/tmp/full.xlsx', read_only=False, data_only=True)
+src = openpyxl.load_workbook('/tmp/full.xlsx', data_only=True)
 ws = src.active
 
 dst = openpyxl.Workbook()
 dws = dst.active
 dws.title = ws.title
 
-# Copy rows 1..5 (headers + summary) and rows 6..105 (100 data rows)
+# Copy rows 1..5 (summary + headers) and rows 6..105 (100 data rows)
 for r in range(1, 106):
     for c in range(1, 40):
         v = ws.cell(row=r, column=c).value
@@ -689,33 +709,109 @@ for r in range(1, 106):
             dws.cell(row=r, column=c).value = v
 
 dst.save('/tmp/sample.xlsx')
-print("Sample saved")
-PY
+print("OK", dws.max_row, "rows")
+```
 
+Rodar:
+```bash
+docker cp backend/tests/fixtures/__make_sample.py \
+    plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1:/tmp/__make_sample.py
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python /tmp/__make_sample.py
 mkdir -p backend/tests/fixtures
 docker cp plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1:/tmp/sample.xlsx \
     backend/tests/fixtures/sample_financial.xlsx
 ```
 
-- [ ] **Step 2: Verify the fixture has expected structure**
-
+Apagar o helper depois:
 ```bash
-docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 python -c "
-import openpyxl
-wb = openpyxl.load_workbook('/tmp/sample.xlsx', data_only=True)
-ws = wb.active
-print('rows:', ws.max_row, 'cols:', ws.max_column)
-print('header row 5 col 10:', ws.cell(5, 10).value)
-"
+rm backend/tests/fixtures/__make_sample.py
 ```
 
-Expected: ~105 rows, header at row 5, "Cliente \"Mãe\"" at col 10.
+- [ ] **Step 3: Gerar `synthetic_financial.xlsx` (controle total)**
 
-- [ ] **Step 3: Commit fixture**
+Criar `backend/tests/fixtures/__make_synthetic.py`:
+
+```python
+"""Generate a tiny XLSX with known values for parser unit tests."""
+from datetime import datetime
+import openpyxl
+
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Consulta receita 2026"
+
+# Summary section (rows 1-3)
+ws.cell(row=1, column=15).value = "Total Base Comissão"  # ignored
+
+# Header row at row 5 (mimic real format)
+headers = {
+    2: "Operadora", 7: "Produto", 10: "Cliente \"Mãe\"",
+    11: "Porte do Cliente", 14: "% Comissão", 20: "NF Líquido",
+    23: "Status Recebimento", 25: "Data Recebimento",
+    32: "Mês Recebimento", 5: "Tipo Receita",
+}
+for col, label in headers.items():
+    ws.cell(row=5, column=col).value = label
+
+# Data rows starting at row 6
+def add_row(r, op, prod, cliente, porte, status, dt, nf_liq, tipo):
+    ws.cell(row=r, column=2).value = op
+    ws.cell(row=r, column=7).value = prod
+    ws.cell(row=r, column=10).value = cliente
+    ws.cell(row=r, column=11).value = porte
+    ws.cell(row=r, column=20).value = nf_liq
+    ws.cell(row=r, column=23).value = status
+    ws.cell(row=r, column=25).value = dt
+    ws.cell(row=r, column=5).value = tipo
+
+# Q1/2026 RECEBIDO Saúde — should pass
+add_row(6, "SulAmerica", "Saúde", "Zup", "G (>=600)", "RECEBIDO",
+        datetime(2026, 2, 15), 1000.00, "Comissão")
+# Q1/2026 RECEBIDO Saúde negative (estorno) — should pass
+add_row(7, "SulAmerica", "Saúde", "Zup", "G (>=600)", "RECEBIDO",
+        datetime(2026, 3, 1), -200.00, "Comissão")
+# Q1/2026 A RECEBER — should be filtered out by status
+add_row(8, "Bradesco", "Saúde", "Acme", "M (201-599)", "A RECEBER",
+        datetime(2026, 1, 20), 500.00, "Comissão")
+# Q2/2026 RECEBIDO — should be filtered out by period when target=Q1
+add_row(9, "Hapvida", "Saúde", "Beta", "P (81-200)", "RECEBIDO",
+        datetime(2026, 4, 5), 300.00, "Comissão")
+# Q1/2026 RECEBIDO Mental — should pass parser, marked PRODUTO_NAO_SUPORTADO by calc
+add_row(10, "Zenklub", "Mental", "Zup", "G (>=600)", "RECEBIDO",
+        datetime(2026, 2, 20), 150.00, "Fee por Vida")
+# Empty cliente — should be filtered out as garbage
+add_row(11, "X", "Saúde", None, "M (201-599)", "RECEBIDO",
+        datetime(2026, 2, 20), 100.00, "Comissão")
+
+wb.save('/tmp/synthetic.xlsx')
+print("OK")
+```
+
+Rodar:
+```bash
+docker cp backend/tests/fixtures/__make_synthetic.py \
+    plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1:/tmp/__make_synthetic.py
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python /tmp/__make_synthetic.py
+docker cp plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1:/tmp/synthetic.xlsx \
+    backend/tests/fixtures/synthetic_financial.xlsx
+rm backend/tests/fixtures/__make_synthetic.py
+```
+
+- [ ] **Step 4: Verificar fixtures**
 
 ```bash
-git add backend/tests/fixtures/sample_financial.xlsx
-git commit -m "test(financial): add 100-row sample fixture from real XLSX"
+ls -la backend/tests/fixtures/
+```
+
+Esperado: `sample_financial.xlsx` (~30KB) + `synthetic_financial.xlsx` (~6KB).
+
+- [ ] **Step 5: Commit fixtures**
+
+```bash
+git add backend/tests/fixtures/sample_financial.xlsx backend/tests/fixtures/synthetic_financial.xlsx
+git commit -m "test(financial): add sample (real subset) + synthetic XLSX fixtures"
 ```
 
 ---
@@ -728,84 +824,105 @@ git commit -m "test(financial): add 100-row sample fixture from real XLSX"
 
 - [ ] **Step 1: Write failing tests for new parser**
 
-Replace `backend/tests/test_modules/test_financial/test_parser.py` with:
+Estes testes usam o `synthetic_financial.xlsx` (controle total) pra asserções precisas, e o `sample_financial.xlsx` (planilha real) só pra smoke do formato. Replace `backend/tests/test_modules/test_financial/test_parser.py` with:
 
 ```python
 import pytest
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from app.modules.financial.parser import parse_financial_xlsx, ParseError
 
-FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "sample_financial.xlsx"
+FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
+SYNTHETIC = FIXTURES / "synthetic_financial.xlsx"
+SAMPLE = FIXTURES / "sample_financial.xlsx"
 
 
-def test_parses_real_xlsx_format():
-    result = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
-    assert result['stats']['total_lidas'] > 0
-    # Some rows should pass the filter
-    assert len(result['rows']) >= 0
+# ── Synthetic XLSX (controlled values) ────────────────────────
+
+def test_synthetic_parses_3_valid_rows_for_q1_2026():
+    """Synthetic has 6 rows total: 3 should pass for Q1/2026
+    (1 RECEBIDO Saúde positive, 1 RECEBIDO Saúde negative, 1 RECEBIDO Mental).
+    Filtered out: 1 A RECEBER, 1 Q2/2026, 1 sem cliente."""
+    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    assert result['stats']['total_lidas'] == 6
+    assert result['stats']['descartadas_status'] == 1  # A RECEBER
+    assert result['stats']['descartadas_periodo'] == 1  # Q2/2026
+    assert result['stats']['descartadas_vazias'] == 1   # sem cliente
+    assert result['stats']['persistidas'] == 3
+    assert len(result['rows']) == 3
 
 
-def test_each_row_has_required_fields():
-    result = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
+def test_synthetic_keeps_negative_values():
+    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    nfs = [r['nf_valor_liquido'] for r in result['rows']]
+    assert -200.00 in nfs
+    assert 1000.00 in nfs
+
+
+def test_synthetic_keeps_mental_product():
+    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    produtos = [r['produto'] for r in result['rows']]
+    assert 'Mental' in produtos
+
+
+def test_synthetic_filters_by_quarter():
+    """Q2/2026 should give different result than Q1/2026."""
+    result_q1 = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    result_q2 = parse_financial_xlsx(str(SYNTHETIC), target_quarter=2, target_year=2026)
+    assert result_q1['stats']['persistidas'] == 3
+    assert result_q2['stats']['persistidas'] == 1  # the Q2 row
+    # The Q2 row should be the Hapvida one
+    assert result_q2['rows'][0]['operadora'] == 'Hapvida'
+
+
+def test_synthetic_parses_dates_as_date_objects():
+    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
     for row in result['rows']:
-        assert 'cliente_mae' in row
-        assert 'operadora' in row
-        assert 'produto' in row
-        assert 'nf_valor_liquido' in row
-        assert 'data_recebimento' in row
-        assert 'mes_recebimento' in row
-        assert 'tipo_receita' in row
-        assert 'status_recebimento' in row
-        assert row['status_recebimento'] == 'RECEBIDO'
-        assert row['cliente_mae']  # not empty
-        assert row['nf_valor_liquido'] is not None
+        assert isinstance(row['data_recebimento'], date)
+        assert row['data_recebimento'].year == 2026
 
 
-def test_filters_out_non_recebido():
-    result = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
+def test_synthetic_status_only_recebido():
+    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
     assert all(r['status_recebimento'] == 'RECEBIDO' for r in result['rows'])
 
 
-def test_filters_by_quarter():
-    result_q1 = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
-    result_q2 = parse_financial_xlsx(str(FIXTURE), target_quarter=2, target_year=2026)
-    # Sample is from 2026 mostly Q1 — Q1 should have more rows
-    assert result_q1['stats']['total_lidas'] == result_q2['stats']['total_lidas']
-    # Both processed full file but filtered different periods
+def test_synthetic_extracts_mes_recebimento():
+    """mes_recebimento is YYYY-MM format derived from data_recebimento."""
+    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    for row in result['rows']:
+        assert len(row['mes_recebimento']) == 7
+        assert row['mes_recebimento'].startswith('2026-')
 
 
-def test_keeps_mental_and_fitness_rows():
-    """Mental/Fitness must be persisted to be visible in review (calculator marks them
-    as PRODUTO_NAO_SUPORTADO). Parser should NOT drop them."""
-    result = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
-    produtos = {r['produto'] for r in result['rows']}
-    # We can't assert Mental/Fitness exist in the sample, but if any row has them they should pass
-    for r in result['rows']:
-        # Parser doesn't filter by produto
-        assert r['produto'] in {'Saúde', 'Odonto', 'Vida', 'Mental', 'Fitness'} or r['produto']
+# ── Real XLSX format smoke test ───────────────────────────────
+
+def test_real_xlsx_format_parses_without_error():
+    """Smoke test against the real spreadsheet subset — verifies header
+    detection and column mapping work for the actual format."""
+    result = parse_financial_xlsx(str(SAMPLE), target_quarter=1, target_year=2026)
+    assert 'rows' in result
+    assert 'stats' in result
+    assert result['stats']['total_lidas'] > 0
 
 
-def test_keeps_negative_values():
-    """Estornos (negativos) entram na soma — parser não filtra."""
-    result = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
-    for r in result['rows']:
-        # nf_valor_liquido can be negative; just must be not None
-        assert r['nf_valor_liquido'] is not None
+def test_real_xlsx_extracts_known_fields():
+    """Every persisted row should have all required fields populated."""
+    result = parse_financial_xlsx(str(SAMPLE), target_quarter=1, target_year=2026)
+    for row in result['rows']:
+        assert row['cliente_mae']
+        assert row['nf_valor_liquido'] is not None
+        assert isinstance(row['data_recebimento'], date)
+        assert row['status_recebimento'] == 'RECEBIDO'
 
+
+# ── Error handling ────────────────────────────────────────────
 
 def test_raises_on_missing_file():
     with pytest.raises((FileNotFoundError, ParseError)):
         parse_financial_xlsx("/nonexistent/path.xlsx", 1, 2026)
-
-
-def test_stats_returned():
-    result = parse_financial_xlsx(str(FIXTURE), target_quarter=1, target_year=2026)
-    assert 'stats' in result
-    assert 'total_lidas' in result['stats']
-    assert 'persistidas' in result['stats']
-    assert result['stats']['persistidas'] == len(result['rows'])
 ```
 
 - [ ] **Step 2: Run tests, expect failures**
@@ -1013,8 +1130,17 @@ git commit -m "feat(financial): rewrite parser for real XLSX format with minimal
 ### Task 3.1: Achievement validator
 
 **Files:**
-- Create or modify: `backend/app/modules/commissions/calculator.py` (add helper)
+- Create new file: `backend/app/modules/commissions/calculator.py` (REPLACING existing — old file gets fully deleted)
 - Create: `backend/tests/test_modules/test_commissions/test_achievement_validation.py`
+
+**IMPORTANTE — Estratégia de substituição do calculator.py:**
+
+Tasks 3.1 e 3.2 juntas reescrevem o `calculator.py` inteiro. Pra evitar confusão:
+
+1. **Task 3.1** adiciona o `validate_achievements_for_appraisal` no INÍCIO do novo arquivo, junto com a classe `MissingAchievementsError`. Mas mantém o `run_quarterly_appraisal_v2` antigo coexistindo (comentado como TODO REMOVE).
+2. **Task 3.2** substitui o resto, deletando o V2 antigo e implementando o `run_quarterly_appraisal` novo.
+
+Ao final da Task 3.2 o arquivo está completamente novo e limpo.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1425,6 +1551,119 @@ def test_missing_achievement_raises_before_any_writes(app_ctx):
     assert Commission.query.count() == 0
     db.session.refresh(nf)
     assert nf.match_status == 'UNMATCHED'  # untouched
+
+
+def test_negative_nf_subtracts_from_commission(app_ctx):
+    """Estornos: NF negativo gera comissão negativa que reduz o total."""
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    # Add a second NF with a negative value for the same policy
+    second_nf = FinancialImport(
+        import_batch_id=nf.import_batch_id, quarter=1, year=2026,
+        nf_valor_liquido=Decimal('-300.00'),
+        nf_mes_recebimento='2026-03',
+        cliente_mae='Zup', operadora='SulAmerica', produto='Saúde',
+        tipo_receita='Comissão', status_recebimento='RECEBIDO',
+        data_recebimento=date(2026, 3, 10),
+        match_status='UNMATCHED',
+    )
+    db.session.add(second_nf); db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    # 1000 * 0.06 = 60.00 (positive NF)
+    # -300 * 0.06 = -18.00 (negative NF)
+    # Total: 60 - 18 = 42.00
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert comm.total_actual == Decimal('42.00')
+
+
+def test_snapshot_uses_gongo_quarter_not_apuracao_quarter(app_ctx):
+    """Achievement % must come from the quarter the policy was gongado, not the
+    apuração quarter. Policy gongado in Q4/2025 used in Q1/2026 apuração → Q4/2025 ach."""
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+
+    # Set Q4/2025 achievement to 30% (faixa <50, → 5%)
+    EvQuarterAchievement.query.filter_by(ev_id=ev.id).delete()
+    db.session.add(EvQuarterAchievement(
+        ev_id=ev.id, quarter=4, year=2025,
+        achievement_pct=Decimal('0.30'),
+    ))
+    # Add a Q1/2026 achievement with a DIFFERENT value (should NOT be used)
+    db.session.add(EvQuarterAchievement(
+        ev_id=ev.id, quarter=1, year=2026,
+        achievement_pct=Decimal('1.50'),  # 150% — would give 8% if used
+    ))
+    db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    # Should use Q4/2025 (30%) → segment M, faixa <50 → 5%
+    # 1000 * 0.05 = 50.00 (NOT 80.00 from 1.50/Q1 lookup)
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert comm.total_actual == Decimal('50.00')
+    assert comm.achievement_pct == Decimal('0.30')
+
+
+def test_multi_policy_picks_most_recent_within_window(app_ctx):
+    """Two policies with same (cliente, operadora, produto). The NF should match
+    the more recent one whose vigência still covers the NF date."""
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev = User(email="ev@x", name="EV", role=UserRole.EV, active=True)
+    db.session.add(ev); db.session.flush()
+    client = Client(name="Zup")
+    db.session.add(client); db.session.flush()
+
+    # Old policy: gongado mar/2025, vigência 2025-04-01 → 2026-04-01
+    p_old = Policy(
+        hubspot_ticket_id="OLD", ev_id=ev.id, client_id=client.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        partner_operator="SulAmerica",
+        closed_date=date(2025, 3, 1),
+        first_payment_real=date(2025, 4, 1),
+    )
+    # New policy: gongado dez/2025, vigência 2026-01-01 → 2027-01-01
+    p_new = Policy(
+        hubspot_ticket_id="NEW", ev_id=ev.id, client_id=client.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        partner_operator="SulAmerica",
+        closed_date=date(2025, 12, 1),
+        first_payment_real=date(2026, 1, 1),
+    )
+    db.session.add_all([p_old, p_new]); db.session.flush()
+
+    # Achievements for both gongo quarters
+    db.session.add(EvQuarterAchievement(ev_id=ev.id, quarter=1, year=2025, achievement_pct=Decimal('0.30')))
+    db.session.add(EvQuarterAchievement(ev_id=ev.id, quarter=4, year=2025, achievement_pct=Decimal('0.80')))
+    db.session.flush()
+
+    batch = ImportBatch(filename="t.xlsx", uploaded_by=ev.id, status="CONFIRMED")
+    db.session.add(batch); db.session.flush()
+
+    nf = FinancialImport(
+        import_batch_id=batch.id, quarter=1, year=2026,
+        nf_valor_liquido=Decimal('1000.00'),
+        nf_mes_recebimento='2026-02',
+        cliente_mae='Zup', operadora='SulAmerica', produto='Saúde',
+        status_recebimento='RECEBIDO',
+        data_recebimento=date(2026, 2, 15),
+        match_status='UNMATCHED',
+    )
+    db.session.add(nf); db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(nf)
+    assert nf.policy_id == p_new.id  # picked the more recent
+
+    # Should use Q4/2025 achievement (80%) → faixa 50-99.9 → 6%
+    # 1000 * 0.06 = 60.00
+    comm = Commission.query.filter_by(policy_id=p_new.id, quarter=1, year=2026).first()
+    assert comm.total_actual == Decimal('60.00')
 ```
 
 - [ ] **Step 2: Run tests, expect failure**
@@ -1699,23 +1938,98 @@ git commit -m "feat(commissions): rewrite run_quarterly_appraisal with NF→Poli
 - Modify: `backend/app/modules/workflow/state_machine.py`
 - Modify: `backend/tests/test_modules/test_workflow/test_state_machine.py`
 
-- [ ] **Step 1: Update import in state_machine.py**
+- [ ] **Step 1: Write the failing LOCK→is_final test FIRST**
 
-In `backend/app/modules/workflow/state_machine.py`, find the line:
+Add to `backend/tests/test_modules/test_workflow/test_state_machine.py`:
+
+```python
+def test_lock_marks_all_quarter_commissions_as_final(app_ctx):
+    from datetime import date
+    from decimal import Decimal
+    from app.extensions import db
+    from app.modules.workflow.state_machine import transition_appraisal
+    from app.models import (
+        Appraisal, AppraisalStatus, Commission, User, UserRole,
+        Policy, Client, Segment, BenefitType,
+    )
+
+    # Setup: minimal user+policy
+    admin = User(email="adm@x", name="Admin", role=UserRole.ADMIN, active=True)
+    db.session.add(admin); db.session.flush()
+
+    ev = User(email="ev@x", name="EV", role=UserRole.EV, active=True)
+    db.session.add(ev); db.session.flush()
+
+    client = Client(name="Zup")
+    db.session.add(client); db.session.flush()
+
+    policy = Policy(
+        hubspot_ticket_id="T1", ev_id=ev.id, client_id=client.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        closed_date=date(2025, 12, 1),
+        first_payment_real=date(2026, 1, 1),
+    )
+    db.session.add(policy); db.session.flush()
+
+    # Apuração in APPROVED state (next legal transition is LOCKED)
+    appraisal = Appraisal(
+        quarter=1, year=2026, status=AppraisalStatus.APPROVED,
+        created_by=admin.id,
+    )
+    db.session.add(appraisal); db.session.flush()
+
+    # Two non-final commissions for this apuração
+    c1 = Commission(
+        policy_id=policy.id, ev_id=ev.id, quarter=1, year=2026,
+        segment="M", achievement_pct=Decimal("0.5"),
+        commission_pct=Decimal("0.06"), commission_pct_version=1,
+        monthly_actual=Decimal("100.00"), total_actual=Decimal("100.00"),
+        is_final=False,
+    )
+    db.session.add(c1); db.session.flush()
+
+    # Transition APPROVED → LOCKED
+    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=admin.id)
+    db.session.flush()
+
+    db.session.refresh(c1)
+    assert c1.is_final is True
+    assert appraisal.status == AppraisalStatus.LOCKED
+    assert appraisal.locked_at is not None
+
+
+def test_calculator_called_when_transitioning_to_calculating(app_ctx):
+    """Smoke: ensure the import path of run_quarterly_appraisal still resolves."""
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+    assert callable(run_quarterly_appraisal)
+```
+
+- [ ] **Step 2: Run new tests, expect failure**
+
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python -m pytest tests/test_modules/test_workflow/test_state_machine.py::test_lock_marks_all_quarter_commissions_as_final -v
+```
+
+Expected: FAIL because the LOCK block doesn't yet update commissions, and possibly the import is still `run_quarterly_appraisal_v2`.
+
+- [ ] **Step 3: Update import in state_machine.py**
+
+In `backend/app/modules/workflow/state_machine.py`, find the line importing the calculator and replace:
 
 ```python
 from app.modules.commissions.calculator import run_quarterly_appraisal_v2
 run_quarterly_appraisal_v2(appraisal.quarter, appraisal.year)
 ```
 
-Replace with:
+with:
 
 ```python
 from app.modules.commissions.calculator import run_quarterly_appraisal
 run_quarterly_appraisal(appraisal.quarter, appraisal.year)
 ```
 
-- [ ] **Step 2: Add LOCK→is_final logic**
+- [ ] **Step 4: Add LOCK→is_final logic**
 
 In the same file, find the `LOCKED` block:
 
@@ -1735,53 +2049,41 @@ if new_status == AppraisalStatus.LOCKED:
     from app.models import Commission
     Commission.query.filter_by(
         quarter=appraisal.quarter, year=appraisal.year, is_final=False
-    ).update({"is_final": True})
+    ).update({"is_final": True}, synchronize_session=False)
 ```
 
-- [ ] **Step 3: Drop the V1/V2 calculator aliases**
+- [ ] **Step 5: Drop the V1/V2 calculator aliases (sanity check)**
 
-In `backend/app/modules/commissions/calculator.py`, ensure there's NO function named `run_quarterly_appraisal_v2`. The new file should only have `run_quarterly_appraisal`. If V2 still exists from previous edits, delete it.
-
-- [ ] **Step 4: Update existing state_machine tests**
-
-Open `backend/tests/test_modules/test_workflow/test_state_machine.py`. Replace any reference to `run_quarterly_appraisal_v2` with `run_quarterly_appraisal`. Add a test for the LOCK→is_final behavior:
-
-```python
-def test_lock_marks_commissions_as_final(app_ctx):
-    from app.modules.workflow.state_machine import transition_appraisal
-    from app.models import Appraisal, AppraisalStatus, Commission
-
-    # Setup: appraisal in APPROVED state with non-final commissions
-    appraisal = Appraisal(quarter=1, year=2026, status=AppraisalStatus.APPROVED, created_by=...)
-    db.session.add(appraisal); db.session.flush()
-    comm = Commission(
-        policy_id=..., ev_id=..., quarter=1, year=2026,
-        is_final=False, total_actual=Decimal("100.00"), monthly_actual=Decimal("100.00"),
-    )
-    db.session.add(comm); db.session.flush()
-
-    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=...)
-
-    db.session.refresh(comm)
-    assert comm.is_final is True
+Run:
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    grep -n "run_quarterly_appraisal_v2" /app/app/modules/commissions/calculator.py
 ```
 
-(Adapt the `...` placeholders with actual fixtures from your test setup.)
+Esperado: no output (V2 não existe mais — Task 3.2 já apagou).
 
-- [ ] **Step 5: Run state machine tests**
+- [ ] **Step 6: Update any leftover V2 references in tests**
+
+```bash
+grep -rn "run_quarterly_appraisal_v2" backend/tests/
+```
+
+Replace any hits with `run_quarterly_appraisal`.
+
+- [ ] **Step 7: Run all state machine tests**
 
 ```bash
 docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
-    python -m pytest tests/test_modules/test_workflow/test_state_machine.py -v
+    python -m pytest tests/test_modules/test_workflow/ -v
 ```
 
-Expected: all pass. Fix any imports that still reference V2.
+Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add backend/app/modules/workflow/state_machine.py backend/tests/test_modules/test_workflow/test_state_machine.py backend/app/modules/commissions/calculator.py
-git commit -m "refactor(workflow): drop run_quarterly_appraisal_v2, mark commissions final on LOCK"
+git add backend/app/modules/workflow/state_machine.py backend/tests/test_modules/test_workflow/test_state_machine.py
+git commit -m "feat(workflow): mark commissions as final on LOCK + drop V2 calculator alias"
 ```
 
 ---
@@ -1792,14 +2094,131 @@ git commit -m "refactor(workflow): drop run_quarterly_appraisal_v2, mark commiss
 
 **Files:**
 - Modify: `backend/app/api/v1/policies.py`
+- Create: `backend/tests/test_api/test_policies_edit.py`
 
 - [ ] **Step 1: Read current state of policies.py**
 
-```bash
-# Read the file with the Read tool, not bash
+Use the Read tool to read `backend/app/api/v1/policies.py` and understand current GET endpoint shape and imports.
+
+- [ ] **Step 2: Write the failing test**
+
+Create `backend/tests/test_api/test_policies_edit.py`:
+
+```python
+import pytest
+from datetime import date
+from app import create_app
+from app.extensions import db
+from app.models import (
+    User, UserRole, Policy, Client, Segment, BenefitType, AuditLog,
+)
+
+
+@pytest.fixture
+def app_ctx():
+    app = create_app('test')
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.session.rollback()
+        db.drop_all()
+
+
+@pytest.fixture
+def client(app_ctx):
+    return app_ctx.test_client()
+
+
+def _admin_token(app_ctx):
+    """Mint a JWT for an admin user. Adjust to match auth helper in your tests."""
+    from app.auth.tokens import create_access_token  # adjust path if different
+    admin = User(email="adm@x", name="Admin", role=UserRole.ADMIN, active=True)
+    db.session.add(admin); db.session.flush()
+    return create_access_token(admin), admin
+
+
+def _make_policy():
+    c = Client(name="Zup")
+    db.session.add(c); db.session.flush()
+    p = Policy(
+        hubspot_ticket_id="T1", client_id=c.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        partner_operator="SulAmerica",
+        closed_date=date(2025, 12, 1),
+    )
+    db.session.add(p); db.session.flush()
+    return p
+
+
+def test_put_policy_updates_initial_installments_paid(client, app_ctx):
+    token, admin = _admin_token(app_ctx)
+    p = _make_policy()
+
+    resp = client.put(
+        f"/api/v1/policies/{p.id}",
+        json={"initial_installments_paid": 6},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+    db.session.refresh(p)
+    assert p.initial_installments_paid == 6
+    assert p.is_locked is True
+
+
+def test_put_policy_creates_audit_log_entry(client, app_ctx):
+    token, admin = _admin_token(app_ctx)
+    p = _make_policy()
+
+    client.put(
+        f"/api/v1/policies/{p.id}",
+        json={"initial_installments_paid": 6},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    log = AuditLog.query.filter_by(table_name="policies", record_id=p.id).first()
+    assert log is not None
+    assert log.action == "UPDATE"
+    assert "initial_installments_paid" in log.new_values
+
+
+def test_put_policy_returns_404_if_not_found(client, app_ctx):
+    token, _ = _admin_token(app_ctx)
+    resp = client.put(
+        "/api/v1/policies/00000000-0000-0000-0000-000000000000",
+        json={"initial_installments_paid": 6},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 404
+
+
+def test_put_policy_requires_admin(client, app_ctx):
+    ev = User(email="ev@x", name="EV", role=UserRole.EV, active=True)
+    db.session.add(ev); db.session.flush()
+    from app.auth.tokens import create_access_token
+    token = create_access_token(ev)
+
+    p = _make_policy()
+    resp = client.put(
+        f"/api/v1/policies/{p.id}",
+        json={"initial_installments_paid": 6},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code in (401, 403)
 ```
 
-- [ ] **Step 2: Add edit endpoint**
+**Nota:** o helper `create_access_token` pode ter outro nome no projeto. Antes de rodar, dar `grep -rn "def create_access_token\|jwt.encode" backend/app/auth/` pra encontrar o helper certo e ajustar o import.
+
+- [ ] **Step 3: Run tests, expect failure**
+
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python -m pytest tests/test_api/test_policies_edit.py -v
+```
+
+Expected: 404 ou erro de import — endpoint não existe ainda.
+
+- [ ] **Step 4: Add edit endpoint**
 
 In `backend/app/api/v1/policies.py`, add:
 
@@ -1849,28 +2268,38 @@ def update_policy(policy_id):
     return jsonify({"data": _serialize_policy(policy)})
 ```
 
-- [ ] **Step 3: Apply active-EV filter to GET**
+- [ ] **Step 5: Apply active-EV filter to GET**
 
-Find the `list_policies` function. Replace `Policy.query` with `active_ev_policies_query()` as the base query.
+Open the file. Find `list_policies` function. The current implementation likely starts with `query = Policy.query.order_by(...)`. Replace with:
 
-- [ ] **Step 4: Test manually**
-
-```bash
-# Curl the endpoint after restart, e.g. PUT /api/v1/policies/<id> with body
-# {"initial_installments_paid": 6}
+```python
+from app.modules.policies.filters import active_ev_policies_query
+# ...
+query = active_ev_policies_query().order_by(Policy.created_at.desc())
 ```
 
-For now we'll defer formal tests to Chunk 6 smoke. Just compile-check and ensure imports work:
+Preserve any additional `.filter(...)` chains that come after.
+
+- [ ] **Step 6: Run tests, expect pass**
+
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python -m pytest tests/test_api/test_policies_edit.py -v
+```
+
+Expected: 4 passed.
+
+- [ ] **Step 7: Compile-check the blueprint**
 
 ```bash
 docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
     python -c "from app.api.v1.policies import policies_bp; print('ok')"
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add backend/app/api/v1/policies.py
+git add backend/app/api/v1/policies.py backend/tests/test_api/test_policies_edit.py
 git commit -m "feat(policies): add PUT endpoint for manual override + apply active-EV filter to GET"
 ```
 
@@ -2102,7 +2531,110 @@ git commit -m "feat(workflow): enrich appraisal serializer with drill-down + add
 - Modify: `backend/app/api/v1/financial.py`
 - Modify: `backend/app/modules/financial/processor.py`
 
-- [ ] **Step 1: Rewrite the processor**
+- [ ] **Step 1: Write failing tests for processor**
+
+Create `backend/tests/test_modules/test_financial/test_processor.py`:
+
+```python
+import pytest
+from datetime import date
+from decimal import Decimal
+from app import create_app
+from app.extensions import db
+from app.models import (
+    FinancialImport, ImportBatch, Appraisal, AppraisalStatus,
+    User, UserRole,
+)
+from app.modules.financial.processor import (
+    persist_financial_rows, UploadBlockedError,
+)
+
+
+@pytest.fixture
+def app_ctx():
+    app = create_app('test')
+    with app.app_context():
+        db.create_all()
+        yield
+        db.session.rollback()
+        db.drop_all()
+
+
+def _admin():
+    u = User(email="adm@x", name="Admin", role=UserRole.ADMIN, active=True)
+    db.session.add(u); db.session.flush()
+    return u
+
+
+def _row(**kw):
+    base = {
+        'cliente_mae': 'Zup', 'operadora': 'SulAmerica', 'produto': 'Saúde',
+        'nf_valor_liquido': 1000.00, 'mes_recebimento': '2026-02',
+        'data_recebimento': date(2026, 2, 15), 'tipo_receita': 'Comissão',
+        'status_recebimento': 'RECEBIDO',
+    }
+    base.update(kw)
+    return base
+
+
+def test_persist_creates_rows(app_ctx):
+    admin = _admin()
+    batch_id = persist_financial_rows(
+        [_row(), _row(cliente_mae='Acme')],
+        quarter=1, year=2026, filename="t.xlsx", uploaded_by=admin.id,
+    )
+    assert FinancialImport.query.count() == 2
+    assert ImportBatch.query.get(batch_id).nf_count == 2
+
+
+def test_persist_replaces_existing_for_same_period(app_ctx):
+    admin = _admin()
+    persist_financial_rows([_row()], 1, 2026, "first.xlsx", admin.id)
+    persist_financial_rows([_row(), _row(cliente_mae='X')], 1, 2026, "second.xlsx", admin.id)
+
+    # Only the second batch's rows remain
+    assert FinancialImport.query.count() == 2
+    # Old batch is marked SUPERSEDED
+    superseded = ImportBatch.query.filter_by(status='SUPERSEDED').count()
+    assert superseded == 1
+
+
+def test_persist_blocks_when_appraisal_locked(app_ctx):
+    admin = _admin()
+    appraisal = Appraisal(
+        quarter=1, year=2026, status=AppraisalStatus.LOCKED, created_by=admin.id,
+    )
+    db.session.add(appraisal); db.session.flush()
+
+    with pytest.raises(UploadBlockedError):
+        persist_financial_rows([_row()], 1, 2026, "t.xlsx", admin.id)
+
+    # Nothing was persisted
+    assert FinancialImport.query.count() == 0
+
+
+def test_persist_does_not_touch_other_periods(app_ctx):
+    admin = _admin()
+    persist_financial_rows([_row()], 1, 2026, "q1.xlsx", admin.id)
+    persist_financial_rows(
+        [_row(data_recebimento=date(2026, 5, 1), mes_recebimento='2026-05')],
+        2, 2026, "q2.xlsx", admin.id,
+    )
+
+    assert FinancialImport.query.filter_by(quarter=1, year=2026).count() == 1
+    assert FinancialImport.query.filter_by(quarter=2, year=2026).count() == 1
+```
+
+- [ ] **Step 2: Run tests, expect failure**
+
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python -m pytest tests/test_modules/test_financial/test_processor.py -v
+```
+
+Expected: ImportError (processor doesn't have `persist_financial_rows` yet).
+
+- [ ] **Step 3: Rewrite the processor**
 
 Replace `backend/app/modules/financial/processor.py`:
 
@@ -2110,7 +2642,8 @@ Replace `backend/app/modules/financial/processor.py`:
 """Persist parsed financial rows into financial_imports.
 
 The new flow has no PENDING/preview state — once parsed, rows are
-committed immediately. Re-uploads delete the period first.
+committed immediately. Re-uploads delete the period's rows and mark
+old batches as SUPERSEDED.
 """
 from datetime import datetime, timezone
 from app.extensions import db
@@ -2125,7 +2658,10 @@ def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
     """Persist rows for a given (quarter, year). Replaces any existing rows
     for that period unless an apuração for it is already LOCKED.
 
-    Returns the ImportBatch id.
+    Old batches that previously held rows for this period get their status
+    set to SUPERSEDED (so the audit trail is preserved without confusion).
+
+    Returns the new ImportBatch id.
     """
     appraisal = Appraisal.query.filter_by(quarter=quarter, year=year).first()
     if appraisal and appraisal.status == AppraisalStatus.LOCKED:
@@ -2133,7 +2669,20 @@ def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
             f"Apuração de Q{quarter}/{year} já está LOCKED. Re-upload não permitido."
         )
 
-    # Delete existing for this period
+    # Find batches whose rows are about to be deleted, mark them SUPERSEDED
+    superseded_batch_ids = {
+        bid for (bid,) in db.session.query(FinancialImport.import_batch_id)
+        .filter(FinancialImport.quarter == quarter,
+                FinancialImport.year == year)
+        .distinct()
+        .all()
+    }
+    if superseded_batch_ids:
+        ImportBatch.query.filter(
+            ImportBatch.id.in_(superseded_batch_ids)
+        ).update({"status": "SUPERSEDED"}, synchronize_session=False)
+
+    # Delete existing rows for this period
     FinancialImport.query.filter_by(quarter=quarter, year=year).delete()
     db.session.flush()
 
@@ -2164,7 +2713,16 @@ def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
     return batch.id
 ```
 
-- [ ] **Step 2: Rewrite the upload endpoint**
+- [ ] **Step 4: Run tests, expect pass**
+
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python -m pytest tests/test_modules/test_financial/test_processor.py -v
+```
+
+Expected: 4 passed.
+
+- [ ] **Step 5: Rewrite the upload endpoint**
 
 Replace the `upload_financial` function in `backend/app/api/v1/financial.py`:
 
@@ -2226,18 +2784,77 @@ def upload_financial():
         os.unlink(path)
 ```
 
-- [ ] **Step 3: Verify import compiles**
+- [ ] **Step 6: Verify import compiles**
 
 ```bash
 docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
     python -c "from app.api.v1.financial import financial_bp; print('ok')"
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Smoke test the upload endpoint via test client**
+
+Add to `backend/tests/test_api/test_financial_upload.py`:
+
+```python
+import pytest
+from pathlib import Path
+from app import create_app
+from app.extensions import db
+from app.models import User, UserRole, FinancialImport
+
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "synthetic_financial.xlsx"
+
+
+@pytest.fixture
+def app_ctx():
+    app = create_app('test')
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.session.rollback()
+        db.drop_all()
+
+
+def test_upload_synthetic_xlsx_persists_3_rows(app_ctx):
+    """End-to-end: POST the synthetic fixture and verify rows persisted."""
+    from app.auth.tokens import create_access_token
+
+    admin = User(email="adm@x", name="Admin", role=UserRole.ADMIN, active=True)
+    db.session.add(admin); db.session.commit()
+    token = create_access_token(admin)
+
+    client = app_ctx.test_client()
+    with open(FIXTURE, "rb") as f:
+        resp = client.post(
+            "/api/v1/financial/upload",
+            data={
+                "file": (f, "synthetic.xlsx"),
+                "quarter": "1",
+                "year": "2026",
+            },
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert body["data"]["rows_persisted"] == 3
+    assert FinancialImport.query.filter_by(quarter=1, year=2026).count() == 3
+```
+
+Run:
+```bash
+docker exec plataforma-gestao-rv-pipo-plataforma-comissoes-backend-1 \
+    python -m pytest tests/test_api/test_financial_upload.py -v
+```
+
+Expected: 1 passed.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add backend/app/api/v1/financial.py backend/app/modules/financial/processor.py
-git commit -m "feat(financial): rewrite upload to persist directly + handle re-upload semantics"
+git add backend/app/api/v1/financial.py backend/app/modules/financial/processor.py backend/tests/test_modules/test_financial/test_processor.py backend/tests/test_api/test_financial_upload.py
+git commit -m "feat(financial): rewrite upload to persist directly + handle re-upload + tests"
 ```
 
 ---
@@ -2399,14 +3016,41 @@ Create `frontend/src/app/views/revops/policy_edit_modal.cljs`:
 
 - [ ] **Step 2: Wire into policies.cljs**
 
-In `frontend/src/app/views/revops/policies.cljs`, import the modal and add a state atom:
+Read `frontend/src/app/views/revops/policies.cljs` first. Then:
 
+a) Add to `:require`:
 ```clojure
-(:require ...
-          [app.views.revops.policy-edit-modal :as edit-modal])
+[reagent.core :as r]
+[app.views.revops.policy-edit-modal :as edit-modal]
 ```
 
-Add an "Edit" button to each row in the data-table that opens the modal with the selected policy.
+b) Inside the page component, add state:
+```clojure
+(let [selected-policy (r/atom nil)
+      modal-open? (r/atom false)]
+  (fn []
+    ...
+```
+
+c) Add a new column to the data-table `:columns` vector (right after the existing "Ações" or last column):
+```clojure
+{:key :edit :label "" :width "80px"
+ :render
+ (fn [row]
+   [btn/button
+    {:variant :secondary :size :sm
+     :on-click #(do (reset! selected-policy row)
+                    (reset! modal-open? true))}
+    "✏️ Editar"])}
+```
+
+d) Render the modal at the bottom of the page component (sibling of the table card):
+```clojure
+[edit-modal/policy-edit-modal
+ {:open? @modal-open?
+  :policy @selected-policy
+  :on-close #(reset! modal-open? false)}]
+```
 
 - [ ] **Step 3: Commit**
 
@@ -2425,7 +3069,7 @@ git commit -m "feat(frontend): add policy edit modal for manual override"
 - Modify: `frontend/src/app/core.cljs`
 - Modify: `frontend/src/app/views/revops/dashboard.cljs` (sidebar)
 
-- [ ] **Step 1: Create the page**
+- [ ] **Step 1: Create the page (full implementation)**
 
 Create `frontend/src/app/views/revops/achievements.cljs`:
 
@@ -2438,37 +3082,93 @@ Create `frontend/src/app/views/revops/achievements.cljs`:
             [app.ds.table :as tbl]
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
+            [app.ds.tokens :as t]
             [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
 
 (defn achievements-page []
-  (let [filter (r/atom {:quarter 1 :year 2026})]
-    (rf/dispatch [:revops/fetch-achievements @filter])
+  (let [filter-state (r/atom {:quarter 1 :year 2026})
+        edits (r/atom {})] ; ev_id → new pct value
+    (rf/dispatch [:revops/fetch-achievements @filter-state])
     (fn []
       (let [user @(rf/subscribe [:auth/current-user])
-            route @(rf/subscribe [:current-route-name])
-            achievements @(rf/subscribe [:revops/achievements])]
+            route-name @(rf/subscribe [:current-route-name])
+            achievements (or @(rf/subscribe [:revops/achievements]) [])
+            on-filter-change
+            (fn [k v]
+              (swap! filter-state assoc k v)
+              (reset! edits {})
+              (rf/dispatch [:revops/fetch-achievements @filter-state]))]
         [layout/page-shell
          {:sidebar-items revops-shell/sidebar-items
-          :current-route route
+          :current-route route-name
           :user user
           :title "Atingimento por EV"
-          :subtitle "Editar % de atingimento por trimestre"}
+          :subtitle "Editar % de atingimento manual por trimestre"
+          :header-actions
+          [btn/button
+           {:variant :secondary
+            :on-click #(rf/dispatch
+                        [:revops/auto-calc-achievements @filter-state])}
+           "🤖 Auto-calcular baseline"]}
          [cards/card {}
           [:div {:style {:display "flex" :gap "12px" :margin-bottom "16px"}}
-           [inputs/select {:label "Trimestre" :value (:quarter @filter)
-                           :options [{:value 1 :label "Q1"} {:value 2 :label "Q2"}
-                                     {:value 3 :label "Q3"} {:value 4 :label "Q4"}]
-                           :on-change #(do (swap! filter assoc :quarter (js/parseInt %))
-                                           (rf/dispatch [:revops/fetch-achievements @filter]))}]
-           [inputs/select {:label "Ano" :value (:year @filter)
-                           :options [{:value 2025 :label "2025"} {:value 2026 :label "2026"}
-                                     {:value 2027 :label "2027"}]
-                           :on-change #(do (swap! filter assoc :year (js/parseInt %))
-                                           (rf/dispatch [:revops/fetch-achievements @filter]))}]]
-          ;; Render table — each row is a (ev, achievement_pct) editable
-          ;; (Implementation detail: table with inline edit + save button)
-          ]]]))))
+           [inputs/select
+            {:label "Trimestre"
+             :value (str (:quarter @filter-state))
+             :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
+                       {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
+             :on-change #(on-filter-change :quarter (js/parseInt %))}]
+           [inputs/select
+            {:label "Ano"
+             :value (str (:year @filter-state))
+             :options [{:value "2025" :label "2025"} {:value "2026" :label "2026"}
+                       {:value "2027" :label "2027"}]
+             :on-change #(on-filter-change :year (js/parseInt %))}]]
+
+          [tbl/data-table
+           {:columns
+            [{:key :ev_name :label "EV"}
+             {:key :total_mrr :label "MRR Total"
+              :render #(when (:total_mrr %)
+                         (str "R$ " (.toLocaleString (:total_mrr %) "pt-BR")))}
+             {:key :mrr_target :label "Meta MRR"
+              :render #(when (:mrr_target %)
+                         (str "R$ " (.toLocaleString (:mrr_target %) "pt-BR")))}
+             {:key :achievement_pct :label "% Atingimento (editável)"
+              :render
+              (fn [row]
+                (let [ev-id (:ev_id row)
+                      stored (or (* 100 (or (:achievement_pct row) 0)) 0)
+                      current (get @edits ev-id stored)]
+                  [:input
+                   {:type "number" :step "0.01" :min "0" :max "9999"
+                    :value current
+                    :style {:width "100px"}
+                    :on-change #(swap! edits assoc ev-id
+                                       (js/parseFloat (.. % -target -value)))}]))}
+             {:key :is_final :label "Final"
+              :render #(if (:is_final %) "✅" "—")}
+             {:key :actions :label "" :width "100px"
+              :render
+              (fn [row]
+                (let [ev-id (:ev_id row)
+                      pct (get @edits ev-id)]
+                  (when pct
+                    [btn/button
+                     {:variant :primary :size :sm
+                      :on-click
+                      #(do
+                         (rf/dispatch
+                          [:revops/save-achievement
+                           {:ev_id ev-id
+                            :quarter (:quarter @filter-state)
+                            :year (:year @filter-state)
+                            :achievement_pct (/ pct 100.0)}]) ; convert back to fraction
+                         (swap! edits dissoc ev-id))}
+                     "Salvar"])))}]
+            :rows achievements
+            :empty-message "Nenhum EV. Cadastre EVs primeiro."}]]]))))
 ```
 
 - [ ] **Step 2: Add route**
@@ -2493,7 +3193,7 @@ And import the namespace.
 
 In `dashboard.cljs` `sidebar-items`, add a row for Achievements pointing to `:revops/achievements`.
 
-- [ ] **Step 5: Add fetch event**
+- [ ] **Step 5: Add fetch + auto-calc events + sub**
 
 In `events.cljs`:
 
@@ -2513,6 +3213,21 @@ In `events.cljs`:
 (rf/reg-sub
  :revops/achievements
  (fn [db _] (get-in db [:admin :achievements])))
+
+(rf/reg-event-fx
+ :revops/auto-calc-achievements
+ (fn [_ [_ {:keys [quarter year]}]]
+   {:http {:method :post
+           :url "/admin/ev-achievements/calculate"
+           :body {:quarter quarter :year year}
+           :on-success [:revops/auto-calc-done quarter year]
+           :on-failure [:revops/achievement-error]}}))
+
+(rf/reg-event-fx
+ :revops/auto-calc-done
+ (fn [_ [_ quarter year _]]
+   {:dispatch-n [[:revops/fetch-achievements {:quarter quarter :year year}]
+                 [:ui/show-toast {:type :success :message "Baseline calculado"}]]}))
 ```
 
 - [ ] **Step 6: Commit**
@@ -2529,56 +3244,195 @@ git commit -m "feat(frontend): add achievements editor page (per-quarter, manual
 **Files:**
 - Modify: `frontend/src/app/views/revops/appraisal_review.cljs`
 
-- [ ] **Step 1: Rewrite the review page**
+- [ ] **Step 1: Rewrite the review page (full implementation, no stubs)**
 
-Replace `frontend/src/app/views/revops/appraisal_review.cljs` with a tabs-based version:
+Replace `frontend/src/app/views/revops/appraisal_review.cljs` with:
 
 ```clojure
 (ns app.views.revops.appraisal-review
   (:require [re-frame.core :as rf]
             [reagent.core :as r]
+            [clojure.string :as str]
             [app.ds.layout :as layout]
             [app.ds.cards :as cards]
             [app.ds.tabs :as tabs]
             [app.ds.table :as tbl]
             [app.ds.badge :as badge]
             [app.ds.buttons :as btn]
+            [app.ds.inputs :as inputs]
             [app.ds.tokens :as t]
             [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
 
 (defn fmt-brl [v]
-  (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+  (when (some? v)
+    (str "R$ " (.toLocaleString (js/Number. v) "pt-BR"
+                                #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
 
-(defn ev-row [ev]
-  ;; Collapsible row showing EV summary; click to expand drill-down per policy
-  ...)
+(defn fmt-pct [v]
+  (when (some? v)
+    (str (.toFixed (js/Number. v) 1) "%")))
 
-(defn por-ev-tab [ev-summary]
-  [:div
-   (for [ev ev-summary]
-     ^{:key (:ev_id ev)} [ev-row ev])])
-
-(defn unmatched-tab [unmatched]
+;; ── Drill-down: NF list inside a Policy block ─────────────
+(defn nf-list-table [nfs]
   [tbl/data-table
-   {:columns [{:key :cliente_mae :label "Cliente"}
-              {:key :operadora :label "Operadora"}
-              {:key :produto :label "Produto"}
-              {:key :data_recebimento :label "Data"}
-              {:key :nf_liquido :label "NF Líquido" :render #(fmt-brl (:nf_liquido %))}]
-    :rows unmatched
-    :empty-message "Nenhuma linha não matcheada"}])
+   {:columns
+    [{:key :data_recebimento :label "Data" :width "100px"}
+     {:key :tipo_receita :label "Tipo" :width "140px"}
+     {:key :nf_liquido :label "NF Líquido" :align "right"
+      :render (fn [r] (fmt-brl (:nf_liquido r)))}]
+    :rows nfs
+    :empty-message "—"}])
 
-(defn expired-tab [expired]
-  ;; Same structure as unmatched-tab plus a column for the matched policy
-  ...)
+;; ── Policy block (one per Policy under an EV) ─────────────
+(defn policy-block [policy]
+  (let [open? (r/atom false)]
+    (fn [policy]
+      [:div {:style {:border (str "1px solid " t/border-default)
+                     :border-radius (:md t/border-radius)
+                     :padding "12px" :margin-bottom "8px"}}
+       [:div {:style {:display "flex" :justify-content "space-between"
+                      :align-items "center" :cursor "pointer"}
+              :on-click #(swap! open? not)}
+        [:div
+         [:strong (:client_name policy)]
+         [:span {:style {:color t/text-secondary :margin-left "8px"}}
+          (str (:operadora policy) " · " (:produto policy) " · " (:segment policy))]]
+        [:div {:style {:font-weight (:semibold t/font-weights)}}
+         (fmt-brl (:subtotal policy))]]
+       (when @open?
+         [:div {:style {:margin-top "12px" :padding-top "12px"
+                        :border-top (str "1px solid " t/border-default)}}
+          [:div {:style {:display "flex" :gap "16px" :margin-bottom "8px"
+                         :font-size (:sm t/font-sizes) :color t/text-secondary}}
+           [:div "Início vigência: " (or (:first_payment_real policy) "—")]
+           [:div "Gongo: " (or (:closed_date policy) "—")]
+           [:div "Atingimento usado: " (fmt-pct (:achievement_used_pct policy))]
+           [:div "% Comissão: " (fmt-pct (* 100 (or (:commission_pct policy) 0)))]]
+          [nf-list-table (:nfs policy)]])])))
+
+;; ── EV row (one per EV in Por EV tab) ─────────────────────
+(defn ev-row [ev tipo-filter operadora-filter]
+  (let [open? (r/atom false)]
+    (fn [ev tipo-filter operadora-filter]
+      (let [filter-nfs (fn [nfs]
+                         (cond->> nfs
+                           (and tipo-filter (not= tipo-filter "Todos"))
+                           (filter #(= (:tipo_receita %) tipo-filter))))
+            filtered-policies (->> (:policies ev)
+                                   (filter (fn [p]
+                                             (or (= operadora-filter "Todas")
+                                                 (nil? operadora-filter)
+                                                 (= (:operadora p) operadora-filter))))
+                                   (map (fn [p] (update p :nfs filter-nfs))))]
+        [:div {:style {:border (str "1px solid " t/border-default)
+                       :border-radius (:md t/border-radius)
+                       :margin-bottom "12px" :background t/bg-card}}
+         [:div {:style {:padding "16px" :cursor "pointer"
+                        :display "flex" :justify-content "space-between"}
+                :on-click #(swap! open? not)}
+          [:div
+           [:div {:style {:font-weight (:semibold t/font-weights)
+                          :font-size (:lg t/font-sizes)}} (:ev_name ev)]
+           [:div {:style {:color t/text-secondary :font-size (:sm t/font-sizes)}}
+            (str (:policies_count ev) " apólices · "
+                 (:nf_count ev) " NFs · "
+                 "Atingimento: " (fmt-pct (:achievement_pct ev)))]]
+          [:div {:style {:font-size (:xl t/font-sizes)
+                         :font-weight (:bold t/font-weights)
+                         :color t/color-primary}}
+           (fmt-brl (:total_commission ev))]]
+         (when @open?
+           [:div {:style {:padding "0 16px 16px 16px"}}
+            (for [p filtered-policies]
+              ^{:key (:policy_id p)} [policy-block p])])]))))
+
+;; ── Por EV tab ────────────────────────────────────────────
+(defn por-ev-tab [ev-summary]
+  (let [tipo-filter (r/atom "Todos")
+        operadora-filter (r/atom "Todas")]
+    (fn [ev-summary]
+      (let [all-operadoras (->> ev-summary
+                                (mapcat :policies)
+                                (map :operadora)
+                                distinct
+                                sort)]
+        [:div
+         [:div {:style {:display "flex" :gap "12px" :margin-bottom "16px"}}
+          [inputs/select
+           {:label "Tipo Receita" :value @tipo-filter
+            :options [{:value "Todos" :label "Todos"}
+                      {:value "Comissão" :label "Comissão"}
+                      {:value "Fee por Vida" :label "Fee por Vida"}
+                      {:value "Premiação" :label "Premiação"}
+                      {:value "Patrocínio - Eventos" :label "Patrocínio"}
+                      {:value "Agenciamento" :label "Agenciamento"}]
+            :on-change #(reset! tipo-filter %)}]
+          [inputs/select
+           {:label "Operadora" :value @operadora-filter
+            :options (cons {:value "Todas" :label "Todas"}
+                           (map (fn [o] {:value o :label o}) all-operadoras))
+            :on-change #(reset! operadora-filter %)}]]
+         (for [ev ev-summary]
+           ^{:key (:ev_id ev)} [ev-row ev @tipo-filter @operadora-filter])]))))
+
+;; ── Generic NF table for unmatched/expired/nao-suportado ──
+(defn nf-table [rows show-policy?]
+  [tbl/data-table
+   {:columns
+    (cond-> [{:key :cliente_mae :label "Cliente"}
+             {:key :operadora :label "Operadora"}
+             {:key :produto :label "Produto"}
+             {:key :data_recebimento :label "Data" :width "110px"}
+             {:key :tipo_receita :label "Tipo"}
+             {:key :nf_liquido :label "NF Líquido" :align "right"
+              :render #(fmt-brl (:nf_liquido %))}]
+      show-policy?
+      (conj {:key :match_status :label "Status"
+             :render #(do [badge/badge {:variant :warning} (:match_status %)])}))
+    :rows rows
+    :empty-message "Nenhuma linha"}])
+
+(defn export-csv-button [rows filename]
+  [btn/button
+   {:variant :secondary :size :sm
+    :on-click
+    (fn []
+      (let [headers ["cliente_mae" "operadora" "produto" "data_recebimento"
+                     "tipo_receita" "nf_liquido" "match_status"]
+            csv-rows (cons (str/join "," headers)
+                           (map (fn [r]
+                                  (str/join ","
+                                            (map #(str "\"" (or (get r (keyword %)) "") "\"")
+                                                 headers)))
+                                rows))
+            content (str/join "\n" csv-rows)
+            blob (js/Blob. #js [content] #js {:type "text/csv"})
+            url (.createObjectURL js/URL blob)
+            a (.createElement js/document "a")]
+        (set! (.-href a) url)
+        (set! (.-download a) filename)
+        (.click a)
+        (.revokeObjectURL js/URL url)))}
+   "📥 Exportar CSV"])
+
+(defn unmatched-tab [rows]
+  [:div
+   [:div {:style {:margin-bottom "12px"}} [export-csv-button rows "nao-matcheadas.csv"]]
+   [nf-table rows false]])
+
+(defn expired-tab [rows]
+  [:div
+   [:div {:style {:margin-bottom "12px"}} [export-csv-button rows "fora-vigencia.csv"]]
+   [nf-table rows true]])
 
 (defn nao-suportado-tab [rows]
-  [tbl/data-table
-   {:columns [...]
-    :rows rows}])
+  [:div
+   [:p {:style {:color t/text-secondary :font-size (:sm t/font-sizes)}}
+    "Linhas com produto não suportado pelo modelo (Mental, Fitness)."]
+   [nf-table rows false]])
 
+;; ── Page ──────────────────────────────────────────────────
 (defn appraisal-review-page []
   (let [route @(rf/subscribe [:current-route])
         appraisal-id (get-in route [:path-params :id])
@@ -2587,12 +3441,13 @@ Replace `frontend/src/app/views/revops/appraisal_review.cljs` with a tabs-based 
       (rf/dispatch [:revops/fetch-appraisal-detail appraisal-id]))
     (fn []
       (let [appraisals @(rf/subscribe [:revops/appraisals])
-            appraisal (first (filter #(= (str (:id %)) (str appraisal-id)) (or appraisals [])))
-            ev-summary (:ev_summary appraisal)
-            unmatched (:unmatched appraisal)
-            expired (:expired appraisal)
-            nao-sup (:nao_suportado appraisal)
-            totals (:totals appraisal)
+            appraisal (first (filter #(= (str (:id %)) (str appraisal-id))
+                                     (or appraisals [])))
+            ev-summary (or (:ev_summary appraisal) [])
+            unmatched (or (:unmatched appraisal) [])
+            expired (or (:expired appraisal) [])
+            nao-sup (or (:nao_suportado appraisal) [])
+            totals (or (:totals appraisal) {})
             user @(rf/subscribe [:auth/current-user])
             route-name @(rf/subscribe [:current-route-name])]
         [layout/page-shell
@@ -2613,19 +3468,29 @@ Replace `frontend/src/app/views/revops/appraisal_review.cljs` with a tabs-based 
             "✅ Liberar para Validação EVs"]]}
 
          [cards/card {}
-          [:div {:style {:display "flex" :gap "16px" :margin-bottom "16px"}}
-           [:div "Total: " [:strong (fmt-brl (:total_commission totals))]]
-           [:div "EVs: " (:ev_count totals)]
-           [:div "Apólices: " (:policy_count totals)]
-           [:div "NFs matcheadas: " (:matched_nf_count totals)]
-           [:div "Não matcheadas: " (:unmatched_count totals)]
-           [:div "Fora vigência: " (:expired_count totals)]]
+          [:div {:style {:display "flex" :gap "24px" :margin-bottom "16px"
+                         :padding "12px" :background t/bg-main
+                         :border-radius (:md t/border-radius)}}
+           [:div [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "TOTAL"]
+            [:div {:style {:font-size (:xl t/font-sizes) :font-weight (:bold t/font-weights)}}
+             (fmt-brl (:total_commission totals))]]
+           [:div [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "EVs"]
+            [:div (str (:ev_count totals 0))]]
+           [:div [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "Apólices"]
+            [:div (str (:policy_count totals 0))]]
+           [:div [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "NFs OK"]
+            [:div (str (:matched_nf_count totals 0))]]
+           [:div [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "Não match"]
+            [:div (str (:unmatched_count totals 0))]]
+           [:div [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}} "Fora vig"]
+            [:div (str (:expired_count totals 0))]]]
 
-          [tabs/tabs {:value @active-tab :on-change #(reset! active-tab %)}
-           [{:value :por-ev :label "Por EV"}
-            {:value :unmatched :label (str "Não matcheadas (" (count unmatched) ")")}
-            {:value :expired :label (str "Fora de vigência (" (count expired) ")")}
-            {:value :nao-sup :label (str "Não suportado (" (count nao-sup) ")")}]]
+          [tabs/tabs
+           {:value @active-tab :on-change #(reset! active-tab %)
+            :tabs [{:value :por-ev :label "Por EV"}
+                   {:value :unmatched :label (str "Não matcheadas (" (count unmatched) ")")}
+                   {:value :expired :label (str "Fora de vigência (" (count expired) ")")}
+                   {:value :nao-sup :label (str "Não suportado (" (count nao-sup) ")")}]}]
 
           (case @active-tab
             :por-ev [por-ev-tab ev-summary]
@@ -2634,7 +3499,10 @@ Replace `frontend/src/app/views/revops/appraisal_review.cljs` with a tabs-based 
             :nao-sup [nao-suportado-tab nao-sup])]]))))
 ```
 
-(The `ev-row`, `expired-tab`, `nao-suportado-tab` are sketched — fill in similar to `unmatched-tab`.)
+**Notas pra implementação:**
+- A API exata de `app.ds.tabs/tabs` pode ser ligeiramente diferente do que está aqui. Antes de usar, ler `frontend/src/app/ds/tabs.cljs` e ajustar o map de props.
+- `app.ds.inputs/select` já é usado no codebase — manter mesmo padrão.
+- Se `app.ds.tabs` não existir, criar usando o padrão dos outros componentes do design system (~50 linhas, similar a `card`).
 
 - [ ] **Step 2: Commit**
 
