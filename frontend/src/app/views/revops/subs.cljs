@@ -52,6 +52,11 @@
    (get-in db [:admin :upload-preview])))
 
 (rf/reg-sub
+ :revops/upload-result
+ (fn [db _]
+   (get-in db [:admin :upload-result])))
+
+(rf/reg-sub
  :revops/upload-loading?
  (fn [db _]
    (get-in db [:admin :upload-loading?])))

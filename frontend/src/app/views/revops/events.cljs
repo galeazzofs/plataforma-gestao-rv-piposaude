@@ -182,47 +182,45 @@
 
 (rf/reg-event-fx
  :revops/upload-financial
- (fn [{:keys [db]} [_ file]]
-   {:db   (assoc-in db [:admin :upload-loading?] true)
-    :http {:method     :post
-           :url        ep/financial-upload
-           :body       file
-           :on-success [:revops/upload-preview-loaded]
-           :on-failure [:revops/upload-error]}}))
-
-(rf/reg-event-db
- :revops/upload-preview-loaded
- (fn [db [_ response]]
-   (-> db
-       (assoc-in [:admin :upload-preview]  (get-in response [:data]))
-       (assoc-in [:admin :upload-loading?] false))))
-
-(rf/reg-event-db
- :revops/upload-error
- (fn [db _]
-   (-> db
-       (assoc-in [:admin :upload-loading?] false)
-       (assoc-in [:ui :toast] {:type :error :message "Erro ao processar arquivo."}))))
+ (fn [{:keys [db]} [_ file quarter year]]
+   (let [fd (js/FormData.)]
+     (.append fd "file" file)
+     (.append fd "quarter" (str quarter))
+     (.append fd "year" (str year))
+     {:db   (-> db
+                (assoc-in [:admin :upload-loading?] true)
+                (assoc-in [:admin :upload-result] nil))
+      :http {:method     :post
+             :url        ep/financial-upload
+             :body       fd
+             :on-success [:revops/upload-success]
+             :on-failure [:revops/upload-error]}})))
 
 (rf/reg-event-fx
- :revops/confirm-financial-upload
- (fn [_ [_ upload-id]]
-   {:http {:method     :post
-           :url        (str "/financial/confirm/" upload-id)
-           :on-success [:revops/upload-confirmed]
-           :on-failure [:revops/upload-error]}}))
+ :revops/upload-success
+ (fn [{:keys [db]} [_ response]]
+   {:db (-> db
+            (assoc-in [:admin :upload-result] (:data response))
+            (assoc-in [:admin :upload-loading?] false))
+    :dispatch [:ui/show-toast
+               {:type :success
+                :message (str "Upload concluído: "
+                              (or (get-in response [:data :rows_persisted]) 0)
+                              " linhas persistidas.")}]}))
+
+(rf/reg-event-fx
+ :revops/upload-error
+ (fn [{:keys [db]} [_ resp]]
+   (let [err (or (get-in resp [:error :message]) "Erro ao processar arquivo")]
+     {:db (assoc-in db [:admin :upload-loading?] false)
+      :dispatch [:ui/show-toast {:type :error :message err}]})))
 
 (rf/reg-event-db
- :revops/upload-confirmed
+ :revops/upload-reset
  (fn [db _]
    (-> db
-       (assoc-in [:admin :upload-preview] nil)
-       (assoc-in [:ui :toast] {:type :success :message "Upload confirmado com sucesso."}))))
-
-(rf/reg-event-db
- :revops/upload-preview-cancel
- (fn [db _]
-   (assoc-in db [:admin :upload-preview] nil)))
+       (assoc-in [:admin :upload-result] nil)
+       (assoc-in [:admin :upload-loading?] false))))
 
 ;; ---- Appraisal ----
 
