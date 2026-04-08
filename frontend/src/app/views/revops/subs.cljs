@@ -120,3 +120,13 @@
  :revops/policies-loading?
  (fn [db _]
    (get-in db [:admin :policies-loading?])))
+
+(rf/reg-sub
+ :revops/achievements
+ (fn [db _]
+   (get-in db [:admin :achievements])))
+
+(rf/reg-sub
+ :revops/achievements-loading?
+ (fn [db _]
+   (get-in db [:admin :achievements-loading?])))

@@ -10,6 +10,7 @@
 
 ;; Policies
 (def policies "/policies")
+(defn policy-edit [id] (str "/policies/" id))
 
 ;; Validations
 (def validations "/validations")
@@ -23,7 +24,12 @@
 (def appraisals (fn [] "/appraisals"))
 (def appraisal-detail (fn [id] (str "/appraisals/" id)))
 (def appraisal-run (fn [id] (str "/appraisals/" id "/run")))
+(def appraisal-recalculate (fn [id] (str "/appraisals/" id "/recalculate")))
 (def appraisal-approve-payment (fn [id] (str "/appraisals/" id "/approve-payment")))
+
+;; Achievements (per EV per quarter — manual editor)
+(def achievements "/admin/ev-achievements")
+(def achievements-calculate "/admin/ev-achievements/calculate")
 
 ;; Finance
 (def finance-dashboard "/finance/dashboard")

@@ -261,8 +261,57 @@
    {:http {:method     :post
            :url        (str "/appraisals/" id "/transition")
            :body       {:to "CALCULATING"}
-           :on-success [:revops/fetch-appraisals]
+           :on-success [:revops/appraisal-calculated id]
+           :on-failure [:revops/appraisal-calculate-error]}}))
+
+(rf/reg-event-fx
+ :revops/appraisal-calculated
+ (fn [_ [_ id _resp]]
+   {:dispatch-n [[:revops/fetch-appraisals]
+                 [:navigate! [:revops/appraisal-review {:id id}]]
+                 [:ui/show-toast {:type :success
+                                  :message "Cálculo concluído. Revise os valores antes de liberar."}]]}))
+
+(rf/reg-event-fx
+ :revops/appraisal-calculate-error
+ (fn [_ [_ resp]]
+   (let [err (get-in resp [:error] {})
+         msg (cond
+               (= "MISSING_ACHIEVEMENTS" (:code err))
+               (str "Faltam atingimentos: " (clojure.string/join ", " (or (:missing err) [])))
+               :else (or (:message err) "Erro ao iniciar cálculo"))]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))
+
+(rf/reg-event-fx
+ :revops/recalculate-appraisal
+ (fn [_ [_ id]]
+   {:http {:method     :post
+           :url        (ep/appraisal-recalculate id)
+           :on-success [:revops/recalculated id]
+           :on-failure [:revops/appraisal-calculate-error]}}))
+
+(rf/reg-event-fx
+ :revops/recalculated
+ (fn [_ [_ id _resp]]
+   {:dispatch-n [[:revops/fetch-appraisal-detail id]
+                 [:ui/show-toast {:type :success :message "Recalculado!"}]]}))
+
+(rf/reg-event-fx
+ :revops/release-to-validation
+ (fn [_ [_ id]]
+   {:http {:method     :post
+           :url        (str "/appraisals/" id "/transition")
+           :body       {:to "VALIDATING"}
+           :on-success [:revops/validation-released]
            :on-failure [:revops/appraisals-error]}}))
+
+(rf/reg-event-fx
+ :revops/validation-released
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-appraisals]
+                 [:navigate! :revops/appraisal]
+                 [:ui/show-toast {:type :success
+                                  :message "Liberado para validação dos EVs."}]]}))
 
 (rf/reg-event-fx
  :revops/approve-appraisal-payment
@@ -272,6 +321,87 @@
            :body       {:to "LOCKED"}
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
+
+;; ---- Edit Policy (manual override) ----
+
+(rf/reg-event-fx
+ :revops/update-policy
+ (fn [_ [_ id payload]]
+   {:http {:method     :put
+           :url        (ep/policy-edit id)
+           :body       payload
+           :on-success [:revops/policy-updated]
+           :on-failure [:revops/policy-update-error]}}))
+
+(rf/reg-event-fx
+ :revops/policy-updated
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-policies]
+                 [:ui/show-toast {:type :success :message "Apólice atualizada"}]]}))
+
+(rf/reg-event-fx
+ :revops/policy-update-error
+ (fn [_ _]
+   {:dispatch [:ui/show-toast {:type :error :message "Erro ao atualizar apólice"}]}))
+
+;; ---- Achievements (per EV per quarter) ----
+
+(rf/reg-event-fx
+ :revops/fetch-achievements
+ (fn [{:keys [db]} [_ {:keys [quarter year]}]]
+   {:db   (assoc-in db [:admin :achievements-loading?] true)
+    :http {:method :get
+           :url (str ep/achievements "?quarter=" quarter "&year=" year)
+           :on-success [:revops/achievements-loaded]
+           :on-failure [:revops/achievements-error]}}))
+
+(rf/reg-event-db
+ :revops/achievements-loaded
+ (fn [db [_ resp]]
+   (-> db
+       (assoc-in [:admin :achievements] (:data resp))
+       (assoc-in [:admin :achievements-loading?] false))))
+
+(rf/reg-event-db
+ :revops/achievements-error
+ (fn [db _] (assoc-in db [:admin :achievements-loading?] false)))
+
+(rf/reg-event-fx
+ :revops/save-achievement
+ (fn [_ [_ payload]]
+   {:http {:method :post
+           :url ep/achievements
+           :body payload
+           :on-success [:revops/achievement-saved payload]
+           :on-failure [:revops/achievement-error]}}))
+
+(rf/reg-event-fx
+ :revops/achievement-saved
+ (fn [_ [_ payload _resp]]
+   {:dispatch-n [[:revops/fetch-achievements
+                  {:quarter (:quarter payload) :year (:year payload)}]
+                 [:ui/show-toast {:type :success :message "Atingimento salvo"}]]}))
+
+(rf/reg-event-fx
+ :revops/achievement-error
+ (fn [_ _]
+   {:dispatch [:ui/show-toast {:type :error :message "Erro ao salvar atingimento"}]}))
+
+(rf/reg-event-fx
+ :revops/auto-calc-achievements
+ (fn [_ [_ {:keys [quarter year] :as payload}]]
+   {:http {:method :post
+           :url ep/achievements-calculate
+           :body payload
+           :on-success [:revops/auto-calc-done quarter year]
+           :on-failure [:revops/achievement-error]}}))
+
+(rf/reg-event-fx
+ :revops/auto-calc-done
+ (fn [_ [_ quarter year _resp]]
+   {:dispatch-n [[:revops/fetch-achievements {:quarter quarter :year year}]
+                 [:ui/show-toast {:type :success
+                                  :message "Baseline calculado"}]]}))
 
 (rf/reg-event-fx
  :revops/fetch-appraisal-detail
