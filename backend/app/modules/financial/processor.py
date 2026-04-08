@@ -1,86 +1,89 @@
-from decimal import Decimal
+"""Persist parsed financial rows into financial_imports.
+
+The new flow has no PENDING/preview state — once parsed, rows are
+committed immediately. Re-uploads delete the period's rows and mark
+old batches as SUPERSEDED.
+"""
+from datetime import datetime, timezone
+
 from app.extensions import db
-from app.models import (
-    FinancialImport, ImportBatch, Perk, Policy, Client, CommissionStatus,
-)
-from app.models.client import normalize_client_name
+from app.models import FinancialImport, ImportBatch, Appraisal, AppraisalStatus
 
 
-def process_financial_import(batch_id, valid_nfs, valid_perks):
-    """Process validated financial data: insert NFs, perks, update policies.
+class UploadBlockedError(Exception):
+    """Raised when an upload is rejected because the apuração is LOCKED."""
+
+
+def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
+    """Persist rows for a given (quarter, year). Replaces any existing rows
+    for that period unless an apuração for it is already LOCKED.
+
+    Old batches that previously held rows for this period get their status
+    set to SUPERSEDED (preserving audit history without confusion).
 
     Args:
-        batch_id: UUID of the ImportBatch
-        valid_nfs: List of validated NF dicts
-        valid_perks: List of validated perk dicts
+        rows: list of dicts from parse_financial_xlsx (cliente_mae, operadora,
+              produto, nf_valor_liquido, data_recebimento, mes_recebimento,
+              tipo_receita, status_recebimento, ...)
+        quarter: int 1-4
+        year: int
+        filename: original upload filename (audit only)
+        uploaded_by: User ID
 
-    Returns summary dict.
+    Returns the new ImportBatch id.
+
+    Raises:
+        UploadBlockedError if there's a LOCKED apuração for (quarter, year).
     """
-    nfs_created = 0
-    perks_created = 0
-
-    # Process NFs
-    for nf in valid_nfs:
-        mes = nf["nf_mes_recebimento"]
-        month = int(mes.split("-")[1])
-        year_val = int(mes.split("-")[0])
-        quarter = (month - 1) // 3 + 1
-
-        fi = FinancialImport(
-            policy_id=nf["policy_id"],
-            nf_valor_liquido=nf["nf_valor_liquido"],
-            nf_mes_recebimento=mes,
-            quarter=quarter,
-            year=year_val,
-            import_batch_id=batch_id,
+    appraisal = Appraisal.query.filter_by(quarter=quarter, year=year).first()
+    if appraisal and appraisal.status == AppraisalStatus.LOCKED:
+        raise UploadBlockedError(
+            f"Apuração de Q{quarter}/{year} já está LOCKED. Re-upload não permitido."
         )
-        db.session.add(fi)
-        nfs_created += 1
 
-        # Update policy
-        policy = Policy.query.get(nf["policy_id"])
-        if policy:
-            policy.installments_paid = (policy.installments_paid or 0) + 1
+    # Find batches whose rows are about to be deleted, mark them SUPERSEDED
+    superseded_batch_ids = {
+        bid for (bid,) in db.session.query(FinancialImport.import_batch_id)
+        .filter(FinancialImport.quarter == quarter,
+                FinancialImport.year == year)
+        .distinct()
+        .all()
+    }
+    if superseded_batch_ids:
+        ImportBatch.query.filter(
+            ImportBatch.id.in_(superseded_batch_ids)
+        ).update({"status": "SUPERSEDED"}, synchronize_session=False)
 
-            # First payment?
-            if policy.first_payment_real is None:
-                from datetime import date
-                policy.first_payment_real = date(year_val, month, 1)
-
-            # Status transition
-            if policy.commission_status == CommissionStatus.PROJECTED:
-                policy.commission_status = CommissionStatus.IN_PAYMENT
-
-            if policy.installments_paid >= 12:
-                policy.commission_status = CommissionStatus.SETTLED
-
-    # Process Perks
-    for perk_data in valid_perks:
-        client = Client.query.filter_by(
-            name_normalized=normalize_client_name(perk_data["client_name"])
-        ).first()
-
-        if client:
-            perk = Perk(
-                client_id=client.id,
-                quarter=perk_data["quarter"],
-                year=perk_data["year"],
-                amount=perk_data["amount"],
-                import_batch_id=batch_id,
-            )
-            db.session.add(perk)
-            perks_created += 1
-
+    # Delete existing rows for this period
+    FinancialImport.query.filter_by(quarter=quarter, year=year).delete()
     db.session.flush()
 
-    # Update batch
-    batch = ImportBatch.query.get(batch_id)
-    if batch:
-        batch.nf_count = nfs_created
-        batch.perk_count = perks_created
-        batch.status = "CONFIRMED"
+    batch = ImportBatch(
+        filename=filename,
+        uploaded_by=uploaded_by,
+        nf_count=len(rows),
+        perk_count=0,
+        status="CONFIRMED",
+    )
+    db.session.add(batch)
+    db.session.flush()
 
-    return {
-        "nfs_created": nfs_created,
-        "perks_created": perks_created,
-    }
+    for row in rows:
+        fi = FinancialImport(
+            import_batch_id=batch.id,
+            quarter=quarter,
+            year=year,
+            nf_valor_liquido=row['nf_valor_liquido'],
+            nf_mes_recebimento=row['mes_recebimento'],
+            cliente_mae=row['cliente_mae'],
+            operadora=row['operadora'],
+            produto=row['produto'],
+            tipo_receita=row.get('tipo_receita'),
+            status_recebimento=row['status_recebimento'],
+            data_recebimento=row['data_recebimento'],
+            match_status='UNMATCHED',
+        )
+        db.session.add(fi)
+
+    db.session.flush()
+    return batch.id

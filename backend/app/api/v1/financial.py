@@ -1,8 +1,18 @@
+"""Financial upload + history endpoints.
+
+The new flow accepts the real "Consulta - Follow up Faturamento" XLSX
+as multipart upload. Parser → processor pipeline persists rows directly.
+No more 2-step preview/confirm.
+"""
+import os
+import tempfile
+
 from flask import Blueprint, jsonify, request, g
+
 from app.auth.decorators import require_auth, require_role
-from app.models import ImportBatch, FinancialImport, UserRole
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
+from app.models import ImportBatch, UserRole
 
 financial_bp = Blueprint("financial", __name__, url_prefix="/api/v1/financial")
 
@@ -10,95 +20,90 @@ financial_bp = Blueprint("financial", __name__, url_prefix="/api/v1/financial")
 @financial_bp.route("/upload", methods=["POST"])
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def upload_financial():
-    """Upload financial data (NFs + Perks) for processing.
+    """Upload XLSX, parse, and persist as financial_imports for a target quarter.
 
-    Expects JSON body with:
-      - nfs: list of NF dicts
-      - perks: list of perk dicts
+    Multipart form fields:
+        file: .xlsx file
+        quarter: int 1-4
+        year: int
     """
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
-
-    nfs = data.get("nfs", [])
-    perks = data.get("perks", [])
-    filename = data.get("filename", "upload.json")
-
     user = g.current_user
 
-    from app.modules.financial.validator import validate_nf_rows, validate_perk_rows
+    if "file" not in request.files:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "File required"},
+        }), 400
 
-    valid_nfs, nf_errors = validate_nf_rows(nfs)
-    valid_perks, perk_errors = validate_perk_rows(perks)
-    validation_errors = nf_errors + perk_errors
-
-    if validation_errors:
+    file = request.files["file"]
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         return jsonify({
             "error": {
                 "code": "VALIDATION_ERROR",
-                "message": "Some rows failed validation",
-                "details": validation_errors,
-            }
-        }), 422
+                "message": "Only .xlsx/.xls files accepted",
+            },
+        }), 400
 
-    # Create batch record
-    batch = ImportBatch(
-        filename=filename,
-        uploaded_by=user.id,
-        nf_count=len(valid_nfs),
-        perk_count=len(valid_perks),
-        status="PENDING",
-    )
-    db.session.add(batch)
-    db.session.flush()
-
-    log_audit("import_batches", batch.id, "CREATE", new_values={"filename": filename, "nf_count": len(valid_nfs)})
-    db.session.commit()
-
-    return jsonify({
-        "data": {
-            "batch_id": str(batch.id),
-            "nf_count": len(valid_nfs),
-            "perk_count": len(valid_perks),
-            "status": "PENDING",
-            "message": "Upload accepted — confirm to apply",
-        }
-    }), 201
-
-
-@financial_bp.route("/confirm/<batch_id>", methods=["POST"])
-@require_role(UserRole.ADMIN, UserRole.FINANCE)
-def confirm_financial(batch_id):
-    """Confirm and apply a pending financial batch."""
-    batch = db.session.get(ImportBatch, batch_id)
-    if batch is None:
-        return jsonify({"error": {"code": "NOT_FOUND", "message": "Batch not found"}}), 404
-
-    if batch.status != "PENDING":
+    quarter = request.form.get("quarter", type=int)
+    year = request.form.get("year", type=int)
+    if not quarter or not year:
         return jsonify({
             "error": {
-                "code": "CONFLICT",
-                "message": f"Batch already in status: {batch.status}",
-            }
-        }), 409
+                "code": "VALIDATION_ERROR",
+                "message": "quarter+year form fields required",
+            },
+        }), 400
 
-    # Check if batch already has imports
-    existing_imports = FinancialImport.query.filter_by(import_batch_id=batch_id).count()
-    if existing_imports > 0:
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    file.save(path)
+
+    try:
+        from app.modules.financial.parser import parse_financial_xlsx, ParseError
+        from app.modules.financial.processor import (
+            persist_financial_rows, UploadBlockedError,
+        )
+
+        try:
+            parsed = parse_financial_xlsx(path, quarter, year)
+        except ParseError as e:
+            return jsonify({
+                "error": {"code": "PARSE_ERROR", "message": str(e)},
+            }), 400
+
+        try:
+            batch_id = persist_financial_rows(
+                parsed['rows'], quarter, year, file.filename, user.id,
+            )
+        except UploadBlockedError as e:
+            return jsonify({
+                "error": {"code": "UPLOAD_BLOCKED", "message": str(e)},
+            }), 409
+
+        log_audit(
+            "import_batches", str(batch_id), "CREATE",
+            new_values={
+                "filename": file.filename,
+                "quarter": quarter,
+                "year": year,
+                "nf_count": len(parsed['rows']),
+            },
+        )
+        db.session.commit()
+
         return jsonify({
-            "error": {"code": "CONFLICT", "message": "Batch already has imported records"}
-        }), 409
-
-    batch.status = "CONFIRMED"
-    log_audit("import_batches", batch.id, "UPDATE", old_values={"status": "PENDING"}, new_values={"status": "CONFIRMED"})
-    db.session.commit()
-
-    return jsonify({
-        "data": {
-            "batch_id": str(batch.id),
-            "status": "CONFIRMED",
-        }
-    })
+            "data": {
+                "batch_id": str(batch_id),
+                "quarter": quarter,
+                "year": year,
+                "rows_persisted": len(parsed['rows']),
+                "stats": parsed['stats'],
+            },
+        }), 201
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 @financial_bp.route("/history")
@@ -120,25 +125,23 @@ def financial_history():
 @financial_bp.route("/template")
 @require_auth
 def financial_template():
-    """Return the expected upload template schema."""
+    """Return a description of the expected upload XLSX format."""
     return jsonify({
         "data": {
-            "nfs": [
-                {
-                    "hubspot_ticket_id": "string (required)",
-                    "nf_valor_liquido": "number (required)",
-                    "nf_mes_recebimento": "YYYY-MM (required)",
-                }
+            "format": "Real Pipo financeiro spreadsheet (Consulta - Follow up Faturamento)",
+            "single_sheet": True,
+            "header_row": "Auto-detected (looks for 'Cliente Mãe' in first 20 rows)",
+            "columns": [
+                "Operadora", "Produto", "Cliente \"Mãe\"",
+                "NF Líquido", "Status Recebimento", "Data Recebimento",
+                "Mês Recebimento", "Tipo Receita",
             ],
-            "perks": [
-                {
-                    "client_name": "string (required)",
-                    "perk_type": "string (required)",
-                    "value": "number (required)",
-                    "period": "YYYY-MM (required)",
-                }
+            "filters": [
+                "Status Recebimento must be 'RECEBIDO'",
+                "data_recebimento must fall in target (quarter, year)",
+                "Cliente \"Mãe\" and NF Líquido must be non-empty",
             ],
-        }
+        },
     })
 
 
