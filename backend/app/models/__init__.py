@@ -12,6 +12,7 @@ from app.models.ev_validation import EvValidation, ValidationStatus
 from app.models.notification import Notification
 from app.models.platform_setting import PlatformSetting
 from app.models.audit_log import AuditLog
+from app.models.ev_quarter_achievement import EvQuarterAchievement
 
 __all__ = [
     "User", "UserRole",
@@ -28,4 +29,5 @@ __all__ = [
     "Notification",
     "PlatformSetting",
     "AuditLog",
+    "EvQuarterAchievement",
 ]

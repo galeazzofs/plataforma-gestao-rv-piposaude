@@ -170,11 +170,11 @@ def parse_financial_xlsx(filepath, target_quarter, target_year):
             stats['descartadas_periodo'] += 1
             continue
 
-        mes_rec_raw = cell(r, 'mes_recebimento')
-        if isinstance(mes_rec_raw, str) and mes_rec_raw.strip():
-            mes_rec = mes_rec_raw.strip()
-        else:
-            mes_rec = data_rec.strftime("%Y-%m")
+        # ALWAYS derive YYYY-MM from data_recebimento. The XLSX's
+        # "Mês Recebimento" column is unreliable (sometimes a full English
+        # month name like "September" which doesn't fit varchar(7), sometimes
+        # YYYY-MM, sometimes a date). Trust data_recebimento instead.
+        mes_rec = data_rec.strftime("%Y-%m")
 
         rows.append({
             'cliente_mae': str(cliente_mae).strip(),
