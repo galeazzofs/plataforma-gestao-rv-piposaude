@@ -44,6 +44,7 @@ class Policy(db.Model):
     first_payment_prev = db.Column(db.Date, nullable=True)
     first_payment_real = db.Column(db.Date, nullable=True)
     installments_paid = db.Column(db.Integer, default=0, nullable=False)
+    initial_installments_paid = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     commission_status = db.Column(
         db.Enum(CommissionStatus, name="commission_status"),
