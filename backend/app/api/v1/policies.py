@@ -170,13 +170,18 @@ def _serialize_policy(policy, detail=False):
         "id": str(policy.id),
         "hubspot_ticket_id": policy.hubspot_ticket_id,
         "ev_id": str(policy.ev_id) if policy.ev_id else None,
+        "ev_name": policy.ev.name if policy.ev else None,
         "client_id": str(policy.client_id) if policy.client_id else None,
         "client_name": policy.client.name if policy.client else None,
         "benefit_type": policy.benefit_type.value if policy.benefit_type else None,
         "segment": policy.segment.value if policy.segment else None,
         "mrr_projected": str(policy.mrr_projected) if policy.mrr_projected else None,
+        "mrr_post_deploy": str(policy.mrr_post_deploy) if policy.mrr_post_deploy else None,
         "mrr_for_commission": str(policy.mrr_for_commission) if policy.mrr_for_commission else None,
         "closed_date": policy.closed_date.isoformat() if policy.closed_date else None,
+        "deploy_date": policy.deploy_date.isoformat() if policy.deploy_date else None,
+        "first_payment_prev": policy.first_payment_prev.isoformat() if policy.first_payment_prev else None,
+        "deal_stage": policy.deal_stage,
         "installments_paid": policy.installments_paid,
         "commission_status": policy.commission_status.value,
     }
@@ -184,12 +189,8 @@ def _serialize_policy(policy, detail=False):
         data.update({
             "deal_id": policy.deal_id,
             "headcount": policy.headcount,
-            "mrr_post_deploy": str(policy.mrr_post_deploy) if policy.mrr_post_deploy else None,
             "mrr_actual": str(policy.mrr_actual) if policy.mrr_actual else None,
-            "deploy_date": policy.deploy_date.isoformat() if policy.deploy_date else None,
-            "first_payment_prev": policy.first_payment_prev.isoformat() if policy.first_payment_prev else None,
             "first_payment_real": policy.first_payment_real.isoformat() if policy.first_payment_real else None,
             "partner_operator": policy.partner_operator,
-            "deal_stage": policy.deal_stage,
         })
     return data

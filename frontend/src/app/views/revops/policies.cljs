@@ -18,6 +18,22 @@
       (when-not (js/isNaN n)
         (str "R$ " (.toLocaleString n "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))))
 
+(def benefit-labels
+  {"SAUDE"  "Saúde"
+   "ODONTO" "Odonto"
+   "VIDA"   "Vida"})
+
+(defn fmt-benefit [v]
+  (or (get benefit-labels v) v "—"))
+
+(defn fmt-date [iso]
+  (if (and iso (string? iso) (>= (count iso) 10))
+    (let [[y m d] (clojure.string/split (subs iso 0 10) #"-")]
+      (str d "/" m "/" y))
+    "—"))
+
+(defn or-dash [v] (if (or (nil? v) (= v "")) "—" v))
+
 (def status-filter-options
   [{:value ""            :label "Todos"}
    {:value "PROJECTED"   :label "Projetado"}
@@ -34,15 +50,24 @@
 
 (defn build-columns [open-edit]
   [{:key :client_name      :label "Cliente"       :sortable true}
-   {:key :hubspot_ticket_id :label "Ticket"       :sortable false :width "100px"}
-   {:key :benefit_type     :label "Benefício"     :sortable true :width "90px"}
-   {:key :segment          :label "Segmento"      :sortable true :width "80px"}
-   {:key :mrr_for_commission :label "MRR"         :sortable true
+   {:key :ev_name          :label "EV"            :sortable true :width "140px"
+    :render (fn [row] (or-dash (:ev_name row)))}
+   {:key :benefit_type     :label "Benefício"     :sortable true :width "90px"
+    :render (fn [row] (fmt-benefit (:benefit_type row)))}
+   {:key :segment          :label "Seg."          :sortable true :width "70px"}
+   {:key :mrr_for_commission :label "MRR"         :sortable true :width "120px"
     :render (fn [row] (fmt-brl (:mrr_for_commission row)))}
-   {:key :closed_date      :label "Data Gongo"    :sortable true :width "110px"}
-   {:key :installments_paid :label "Parcelas"     :sortable false :width "80px"
-    :render (fn [row] (str (:installments_paid row) "/12"))}
-   {:key :commission_status :label "Status"       :sortable true :width "120px"
+   {:key :mrr_post_deploy  :label "MRR Pós-Impl." :sortable false :width "130px"
+    :render (fn [row] (or (fmt-brl (:mrr_post_deploy row)) "—"))}
+   {:key :deal_stage       :label "Estágio"       :sortable true :width "130px"
+    :render (fn [row] (or-dash (:deal_stage row)))}
+   {:key :closed_date      :label "Gongo"         :sortable true :width "100px"
+    :render (fn [row] (fmt-date (:closed_date row)))}
+   {:key :deploy_date      :label "Implantação"   :sortable false :width "110px"
+    :render (fn [row] (fmt-date (:deploy_date row)))}
+   {:key :first_payment_prev :label "Prev. 1º Pag." :sortable false :width "110px"
+    :render (fn [row] (fmt-date (:first_payment_prev row)))}
+   {:key :commission_status :label "Status"       :sortable true :width "130px"
     :render (fn [row] [badge/status-badge {:status (:commission_status row)}])}
    {:key :edit :label "" :sortable false :width "90px"
     :render (fn [row]

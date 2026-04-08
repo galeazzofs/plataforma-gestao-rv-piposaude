@@ -38,6 +38,8 @@
 ;; Admin
 (def users    "/admin/users")
 (def teams    "/admin/teams")
+(defn team-members [team-id] (str "/admin/teams/" team-id "/members"))
+(defn team-member  [team-id user-id] (str "/admin/teams/" team-id "/members/" user-id))
 (def commission-table        "/admin/commission-table")
 (def commission-table-import "/admin/commission-table/import")
 (def financial-upload "/financial/upload")

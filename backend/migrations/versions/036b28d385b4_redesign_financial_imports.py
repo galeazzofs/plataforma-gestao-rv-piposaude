@@ -18,14 +18,24 @@ depends_on = None
 
 
 def upgrade():
-    # Table is empty in production (verified). Safe to wipe.
-    op.execute("TRUNCATE TABLE financial_imports")
+    bind = op.get_bind()
+    dialect = bind.dialect.name
 
-    # Drop legacy unique constraint
-    op.execute("ALTER TABLE financial_imports DROP CONSTRAINT IF EXISTS uq_financial_policy_month")
+    # Table is empty in production (verified). Safe to wipe.
+    if dialect == 'postgresql':
+        op.execute("TRUNCATE TABLE financial_imports")
+    else:
+        op.execute("DELETE FROM financial_imports")
+
+    # Drop legacy unique constraint (Postgres only — SQLite handles via batch_alter_table below)
+    if dialect == 'postgresql':
+        op.execute("ALTER TABLE financial_imports DROP CONSTRAINT IF EXISTS uq_financial_policy_month")
 
     with op.batch_alter_table('financial_imports', schema=None) as batch_op:
-        batch_op.alter_column('policy_id', existing_type=postgresql.UUID(), nullable=True)
+        if dialect == 'postgresql':
+            batch_op.alter_column('policy_id', existing_type=postgresql.UUID(), nullable=True)
+        else:
+            batch_op.alter_column('policy_id', existing_type=sa.String(length=36), nullable=True)
         batch_op.add_column(sa.Column('cliente_mae', sa.String(length=500), nullable=True))
         batch_op.add_column(sa.Column('operadora', sa.String(length=255), nullable=True))
         batch_op.add_column(sa.Column('produto', sa.String(length=50), nullable=True))

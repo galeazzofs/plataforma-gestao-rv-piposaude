@@ -18,7 +18,11 @@ def list_users():
 
     query = User.query.order_by(User.name)
     active = request.args.get("active")
-    if active is not None:
+    # Default to active-only so soft-deleted users disappear from the admin list.
+    # Pass ?active=false to see deactivated users, or ?active=all for everyone.
+    if active is None:
+        query = query.filter(User.active.is_(True))
+    elif active.lower() != "all":
         query = query.filter(User.active == (active.lower() == "true"))
 
     items, meta = paginate_query(query, page, per_page)
@@ -65,7 +69,7 @@ def create_user():
         email=email,
         name=name,
         role=role_enum,
-        team_id=data.get("team_id"),
+        team_id=data.get("team_id") or None,
         active=True,
     )
     db.session.add(user)
@@ -95,7 +99,7 @@ def update_user(user_id):
         except ValueError:
             return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Invalid role: {data['role']}"}}), 400
     if "team_id" in data:
-        user.team_id = data["team_id"]
+        user.team_id = data["team_id"] or None
     if "active" in data:
         user.active = bool(data["active"])
 
@@ -191,9 +195,63 @@ def update_team(team_id):
     if "name" in data:
         team.name = data["name"]
     if "leader_id" in data:
-        team.leader_id = data["leader_id"]
+        team.leader_id = data["leader_id"] or None
 
     log_audit("teams", team.id, "UPDATE", new_values=data)
+    db.session.commit()
+
+    return jsonify({"data": _serialize_team(team)})
+
+
+@admin_bp.route("/teams/<team_id>/members", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def add_team_member(team_id):
+    """Assign a user to a team. Body: {user_id}."""
+    from app.models import Team, User
+    team = db.session.get(Team, team_id)
+    if team is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Team not found"}}), 404
+
+    data = request.get_json() or {}
+    user_id = data.get("user_id")
+    if not user_id:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "user_id required"}}), 400
+
+    user = db.session.get(User, user_id)
+    if user is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "User not found"}}), 404
+
+    old_team_id = str(user.team_id) if user.team_id else None
+    user.team_id = team.id
+    log_audit(
+        "users", user.id, "UPDATE",
+        old_values={"team_id": old_team_id},
+        new_values={"team_id": str(team.id)},
+    )
+    db.session.commit()
+
+    return jsonify({"data": _serialize_team(team)})
+
+
+@admin_bp.route("/teams/<team_id>/members/<user_id>", methods=["DELETE"])
+@require_role(UserRole.ADMIN)
+def remove_team_member(team_id, user_id):
+    """Remove a user from a team (sets user.team_id = NULL)."""
+    from app.models import Team, User
+    team = db.session.get(Team, team_id)
+    if team is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Team not found"}}), 404
+
+    user = db.session.get(User, user_id)
+    if user is None or str(user.team_id) != str(team.id):
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "User is not a member of this team"}}), 404
+
+    user.team_id = None
+    log_audit(
+        "users", user.id, "UPDATE",
+        old_values={"team_id": str(team.id)},
+        new_values={"team_id": None},
+    )
     db.session.commit()
 
     return jsonify({"data": _serialize_team(team)})
@@ -532,21 +590,43 @@ def _serialize_achievement(a):
 # ── Serializers ────────────────────────────────────────────────────────────────
 
 def _serialize_user(u):
+    from app.models import Team
+    team_name = None
+    if u.team_id:
+        team = db.session.get(Team, u.team_id)
+        team_name = team.name if team else None
     return {
         "id": str(u.id),
         "email": u.email,
         "name": u.name,
         "role": u.role.value if u.role else None,
         "team_id": str(u.team_id) if u.team_id else None,
+        "team_name": team_name,
         "active": u.active,
     }
 
 
 def _serialize_team(t):
+    from app.models import User
+    leader_name = None
+    if t.leader_id:
+        leader = db.session.get(User, t.leader_id)
+        leader_name = leader.name if leader else None
+    members = User.query.filter_by(team_id=t.id, active=True).order_by(User.name).all()
     return {
         "id": str(t.id),
         "name": t.name,
         "leader_id": str(t.leader_id) if t.leader_id else None,
+        "leader_name": leader_name,
+        "members": [
+            {
+                "id": str(m.id),
+                "name": m.name,
+                "email": m.email,
+                "role": m.role.value if m.role else None,
+            }
+            for m in members
+        ],
     }
 
 

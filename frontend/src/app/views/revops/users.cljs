@@ -28,8 +28,15 @@
 
 (defn empty-form [] {:name "" :email "" :role "" :team_id ""})
 
-(defn user-modal [_]
-  (let [form (r/atom (empty-form))]
+(defn- form-from-user [user-data]
+  (merge (empty-form)
+         (select-keys (or user-data {}) [:name :email :role :team_id])
+         (when (:team_id user-data) {:team_id (str (:team_id user-data))})))
+
+(defn user-modal [{:keys [user-data]}]
+  ;; Form-2: seed the local form atom from props on mount. The parent
+  ;; passes a :key so this remounts (and re-seeds) when the target row changes.
+  (let [form (r/atom (form-from-user user-data))]
     (fn [{:keys [open? on-close user-data teams]}]
       (let [editing? (some? (:id user-data))]
         [modal/modal {:open?    open?
@@ -69,9 +76,12 @@
                            (clojure.string/blank? (:email @form))
                            (clojure.string/blank? (:role @form)))
              :on-click (fn []
-                         (if editing?
-                           (rf/dispatch [:revops/update-user (:id user-data) @form])
-                           (rf/dispatch [:revops/create-user @form]))
+                         (let [payload (-> @form
+                                           ;; "" → nil so the backend stores NULL, not ""
+                                           (update :team_id (fn [v] (when-not (clojure.string/blank? v) v))))]
+                           (if editing?
+                             (rf/dispatch [:revops/update-user (:id user-data) (dissoc payload :email)])
+                             (rf/dispatch [:revops/create-user payload])))
                          (on-close))}
             (if editing? "Salvar" "Criar")]]]]))))
 
@@ -126,10 +136,11 @@
             :rows          (or users [])
             :empty-message (if loading? "Carregando..." "Nenhum usuário encontrado")}]]
 
+         ^{:key (str "user-modal-" (or (:id @editing-user) "new") "-" @modal-open?)}
          [user-modal {:open?     @modal-open?
-                       :on-close  #(reset! modal-open? false)
-                       :user-data @editing-user
-                       :teams     teams}]
+                      :on-close  #(reset! modal-open? false)
+                      :user-data @editing-user
+                      :teams     teams}]
 
          [modal/confirm-dialog
           {:open?         @confirm-open?

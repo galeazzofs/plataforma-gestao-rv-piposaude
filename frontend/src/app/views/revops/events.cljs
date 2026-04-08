@@ -103,6 +103,35 @@
            :on-success [:revops/fetch-teams]
            :on-failure [:revops/teams-error]}}))
 
+(rf/reg-event-fx
+ :revops/add-team-member
+ (fn [_ [_ team-id user-id]]
+   {:http {:method     :post
+           :url        (ep/team-members team-id)
+           :body       {:user_id user-id}
+           :on-success [:revops/team-membership-changed]
+           :on-failure [:revops/team-membership-error]}}))
+
+(rf/reg-event-fx
+ :revops/remove-team-member
+ (fn [_ [_ team-id user-id]]
+   {:http {:method     :delete
+           :url        (ep/team-member team-id user-id)
+           :on-success [:revops/team-membership-changed]
+           :on-failure [:revops/team-membership-error]}}))
+
+(rf/reg-event-fx
+ :revops/team-membership-changed
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-teams]
+                 [:revops/fetch-users]
+                 [:ui/show-toast {:type :success :message "Time atualizado"}]]}))
+
+(rf/reg-event-fx
+ :revops/team-membership-error
+ (fn [_ _]
+   {:dispatch [:ui/show-toast {:type :error :message "Erro ao atualizar membros do time"}]}))
+
 ;; ---- Goals ----
 
 (rf/reg-event-fx
