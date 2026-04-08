@@ -31,9 +31,17 @@ def run_sync():
     updated = 0
     errors = []
 
-    # Search gongoed tickets (won + MRR > 0)
+    # Pre-load owner map (owner_id → email) for EV resolution
+    try:
+        owner_map = client.get_all_owners()
+        logger.info(f"Loaded {len(owner_map)} HubSpot owners")
+    except Exception as e:
+        logger.warning(f"Could not load owners: {e}")
+        owner_map = {}
+
+    # Search gongoed tickets (Placement pipeline → Gongo stage)
     filters = [
-        {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": "closed_won"},
+        {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": "11947921"},
     ]
 
     after = None
@@ -51,12 +59,13 @@ def run_sync():
 
         for ticket in result.get("results", []):
             try:
-                was_created = _process_ticket(client, ticket)
+                was_created = _process_ticket(client, ticket, owner_map)
                 if was_created:
                     created += 1
                 else:
                     updated += 1
             except Exception as e:
+                db.session.rollback()
                 ticket_id = ticket.get("id", "unknown")
                 logger.error(f"Error processing ticket {ticket_id}: {e}")
                 errors.append(f"Ticket {ticket_id}: {e}")
@@ -81,16 +90,27 @@ def run_sync():
     return summary
 
 
-def _process_ticket(hs_client, ticket):
-    """Process a single HubSpot ticket into a policy. Returns True if created."""
+def _process_ticket(hs_client, ticket, owner_map=None):
+    """Process a single HubSpot ticket into a policy. Returns True if created.
+
+    Respects Policy.is_locked: when set, lockable fields (ev_id, client_id,
+    segment, closed_date, first_payment_real, initial_installments_paid,
+    partner_operator) are NOT overwritten. Non-lockable fields (mrr_projected,
+    benefit_type, deal_*) are always updated.
+    """
+    owner_map = owner_map or {}
     props = ticket.get("properties", {})
     ticket_id = ticket["id"]
 
-    # Map EV by email
-    ev_email = props.get("solicitante_demanda", "")
+    # Resolve EV: owner_id → email → user OR direct email fallback
+    owner_id_or_email = props.get("solicitante_demanda")
+    if owner_id_or_email:
+        ev_email = owner_map.get(str(owner_id_or_email), owner_id_or_email)
+    else:
+        ev_email = None
     ev = User.query.filter_by(email=ev_email).first() if ev_email else None
 
-    # Upsert client
+    # Upsert client (we need the client to link, regardless of lock state)
     client_name = props.get("cliente___nome_da_empresa", "")
     client_obj = None
     if client_name:
@@ -104,17 +124,22 @@ def _process_ticket(hs_client, ticket):
         policy = Policy(hubspot_ticket_id=str(ticket_id))
         db.session.add(policy)
 
-    # Update fields
-    if ev:
-        policy.ev_id = ev.id
-    if client_obj:
-        policy.client_id = client_obj.id
-    policy.segment = map_segment(props.get("cotar___segmentacao_pipo"))
+    locked = bool(getattr(policy, "is_locked", False))
+
+    # Lockable fields — only update if not locked
+    if not locked:
+        if ev:
+            policy.ev_id = ev.id
+        if client_obj:
+            policy.client_id = client_obj.id
+        policy.segment = map_segment(props.get("cotar___segmentacao_pipo"))
+        policy.closed_date = parse_date(props.get("closed_date"))
+
+    # Non-lockable fields — always update
     policy.benefit_type = map_benefit_type(props.get("apolice___beneficio"))
     policy.mrr_projected = parse_decimal(props.get("mrr___receita_mensal"))
-    policy.closed_date = parse_date(props.get("closed_date"))
 
-    # Fetch deal associations
+    # Fetch deal associations (non-lockable — always refresh)
     try:
         assoc = hs_client.get_associations("tickets", ticket_id, "deals")
         deal_ids = [r["toObjectId"] for r in assoc.get("results", [])]
@@ -123,7 +148,9 @@ def _process_ticket(hs_client, ticket):
             deal = hs_client.get_deal(deal_ids[0], DEAL_PROPERTIES)
             deal_props = deal.get("properties", {})
             policy.deal_stage = deal_props.get("dealstage")
-            policy.deploy_date = parse_date(deal_props.get("hs_v2_date_entered_8438574"))
+            if not locked:
+                # deploy_date from the deal is also considered lockable context
+                policy.deploy_date = parse_date(deal_props.get("hs_v2_date_entered_8438574"))
     except Exception as e:
         logger.warning(f"Deal association fetch failed for ticket {ticket_id}: {e}")
 
