@@ -9,6 +9,7 @@
             [app.ds.inputs :as inputs]
             [app.ds.tokens :as t]
             [app.views.revops.dashboard :as revops-shell]
+            [app.views.revops.policy-edit-modal :as edit-modal]
             [app.auth.subs]))
 
 (defn fmt-brl [v]
@@ -31,7 +32,7 @@
    {:value "M"  :label "M"}
    {:value "G"  :label "G"}])
 
-(def columns
+(defn build-columns [open-edit]
   [{:key :client_name      :label "Cliente"       :sortable true}
    {:key :hubspot_ticket_id :label "Ticket"       :sortable false :width "100px"}
    {:key :benefit_type     :label "Benefício"     :sortable true :width "90px"}
@@ -42,7 +43,12 @@
    {:key :installments_paid :label "Parcelas"     :sortable false :width "80px"
     :render (fn [row] (str (:installments_paid row) "/12"))}
    {:key :commission_status :label "Status"       :sortable true :width "120px"
-    :render (fn [row] [badge/status-badge {:status (:commission_status row)}])}])
+    :render (fn [row] [badge/status-badge {:status (:commission_status row)}])}
+   {:key :edit :label "" :sortable false :width "90px"
+    :render (fn [row]
+              [btn/button {:variant :secondary :size :sm
+                           :on-click #(open-edit row)}
+               "✏️ Editar"])}])
 
 (defn filters-bar [filters on-change]
   [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :flex-wrap "wrap" :margin-bottom "16px"}}
@@ -78,7 +84,13 @@
     "Limpar filtros"]])
 
 (defn policies-page []
-  (let [filters (r/atom {:status "" :segment "" :quarter "" :year "" :page 1})]
+  (let [filters (r/atom {:status "" :segment "" :quarter "" :year "" :page 1})
+        modal-open? (r/atom false)
+        selected-policy (r/atom nil)
+        open-edit (fn [row]
+                    (reset! selected-policy row)
+                    (reset! modal-open? true))
+        close-edit #(reset! modal-open? false)]
     (rf/dispatch [:revops/fetch-policies @filters])
     (fn []
       (let [policies @(rf/subscribe [:revops/policies])
@@ -104,11 +116,16 @@
           (if loading?
             [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
             [tbl/data-table
-             {:columns       columns
+             {:columns       (build-columns open-edit)
               :rows          (or policies [])
               :page          (:page meta)
               :total-pages   (:total_pages meta)
               :on-page-change (fn [p]
                                 (swap! filters assoc :page p)
                                 (fetch-fn))
-              :empty-message "Nenhuma apólice encontrada"}])]]))))
+              :empty-message "Nenhuma apólice encontrada"}])]
+
+         [edit-modal/policy-edit-modal
+          {:open? @modal-open?
+           :policy @selected-policy
+           :on-close close-edit}]]))))
