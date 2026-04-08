@@ -3,7 +3,6 @@ import pytest
 from datetime import date
 from decimal import Decimal
 
-from app import create_app
 from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, EvQuarterAchievement, Segment,
@@ -11,26 +10,21 @@ from app.models import (
 )
 
 
-@pytest.fixture
-def app_ctx():
-    app = create_app('test')
-    with app.app_context():
-        db.create_all()
-        # Seed minimal commission_pct_table — just M segment
-        for seg, mn, mx, pct in [
-            ('M', '0.0000', '0.4999', '0.05'),
-            ('M', '0.5000', '0.9999', '0.06'),
-            ('M', '1.0000', '99.9999', '0.08'),
-        ]:
-            db.session.add(CommissionPctTable(
-                version=1, segment=seg,
-                achievement_min=Decimal(mn), achievement_max=Decimal(mx),
-                commission_pct=Decimal(pct), valid_from=date.today(),
-            ))
-        db.session.flush()
-        yield
-        db.session.rollback()
-        db.drop_all()
+@pytest.fixture(autouse=True)
+def _seed_pct_table(db_session):
+    """Seed minimal commission_pct_table for M segment before each test."""
+    for seg, mn, mx, pct in [
+        ('M', '0.0000', '0.4999', '0.05'),
+        ('M', '0.5000', '0.9999', '0.06'),
+        ('M', '1.0000', '99.9999', '0.08'),
+    ]:
+        db.session.add(CommissionPctTable(
+            version=1, segment=seg,
+            achievement_min=Decimal(mn), achievement_max=Decimal(mx),
+            commission_pct=Decimal(pct), valid_from=date.today(),
+        ))
+    db.session.flush()
+    yield
 
 
 def _setup_basic_scenario():
@@ -96,7 +90,7 @@ def _setup_basic_scenario():
 # ── Happy path ────────────────────────────────────────────────
 
 
-def test_happy_path_matches_and_calculates_commission(app_ctx):
+def test_happy_path_matches_and_calculates_commission(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -118,7 +112,7 @@ def test_happy_path_matches_and_calculates_commission(app_ctx):
 # ── Vigência edge cases ───────────────────────────────────────
 
 
-def test_pre_vigencia_when_nf_before_first_payment(app_ctx):
+def test_pre_vigencia_when_nf_before_first_payment(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -136,7 +130,7 @@ def test_pre_vigencia_when_nf_before_first_payment(app_ctx):
     assert comm is None
 
 
-def test_expired_when_nf_after_window(app_ctx):
+def test_expired_when_nf_after_window(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -149,7 +143,7 @@ def test_expired_when_nf_after_window(app_ctx):
     assert nf.match_status == 'EXPIRED'
 
 
-def test_initial_installments_paid_shrinks_window(app_ctx):
+def test_initial_installments_paid_shrinks_window(db_session):
     """initial=10 shrinks the window to 12-10=2 months from first_payment_real."""
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
@@ -168,7 +162,7 @@ def test_initial_installments_paid_shrinks_window(app_ctx):
 # ── Unmatched / unsupported ───────────────────────────────────
 
 
-def test_unmatched_when_no_policy(app_ctx):
+def test_unmatched_when_no_policy(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev = User(email="ev@x", name="EV", role=UserRole.EV, active=True)
@@ -201,7 +195,7 @@ def test_unmatched_when_no_policy(app_ctx):
     assert nf.policy_id is None
 
 
-def test_produto_nao_suportado(app_ctx):
+def test_produto_nao_suportado(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -217,7 +211,7 @@ def test_produto_nao_suportado(app_ctx):
 # ── Idempotency / re-run ──────────────────────────────────────
 
 
-def test_recalc_is_idempotent(app_ctx):
+def test_recalc_is_idempotent(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -235,7 +229,7 @@ def test_recalc_is_idempotent(app_ctx):
     assert first == second
 
 
-def test_recalc_does_not_touch_locked_commissions(app_ctx):
+def test_recalc_does_not_touch_locked_commissions(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -258,7 +252,7 @@ def test_recalc_does_not_touch_locked_commissions(app_ctx):
     assert locked_after.total_actual == Decimal('99.00')
 
 
-def test_missing_achievement_raises_before_any_writes(app_ctx):
+def test_missing_achievement_raises_before_any_writes(db_session):
     from app.modules.commissions.calculator import (
         run_quarterly_appraisal, MissingAchievementsError,
     )
@@ -278,7 +272,7 @@ def test_missing_achievement_raises_before_any_writes(app_ctx):
 # ── Negative values (estornos) ────────────────────────────────
 
 
-def test_negative_nf_subtracts_from_commission(app_ctx):
+def test_negative_nf_subtracts_from_commission(db_session):
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
@@ -311,7 +305,7 @@ def test_negative_nf_subtracts_from_commission(app_ctx):
 # ── Snapshot uses gongo quarter, not apuração quarter ─────────
 
 
-def test_snapshot_uses_gongo_quarter_not_apuracao_quarter(app_ctx):
+def test_snapshot_uses_gongo_quarter_not_apuracao_quarter(db_session):
     """Policy gongado in Q4/2025 → apuração Q1/2026 must use Q4/2025 achievement."""
     from app.modules.commissions.calculator import run_quarterly_appraisal
 
@@ -341,7 +335,7 @@ def test_snapshot_uses_gongo_quarter_not_apuracao_quarter(app_ctx):
 # ── Multi-policy (same key, picks most recent in window) ──────
 
 
-def test_multi_policy_picks_most_recent_within_window(app_ctx):
+def test_multi_policy_picks_most_recent_within_window(db_session):
     """Two policies with same (cliente, operadora, produto). The NF
     should match the more recent one whose vigência covers the NF date."""
     from app.modules.commissions.calculator import run_quarterly_appraisal

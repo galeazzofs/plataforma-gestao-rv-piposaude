@@ -7,22 +7,11 @@ import pytest
 from datetime import date
 from decimal import Decimal
 
-from app import create_app
 from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, EvQuarterAchievement,
     Segment, BenefitType,
 )
-
-
-@pytest.fixture
-def app_ctx():
-    app = create_app('test')
-    with app.app_context():
-        db.create_all()
-        yield
-        db.session.rollback()
-        db.drop_all()
 
 
 def _ev(email):
@@ -61,7 +50,7 @@ def _ach(ev, q, y, pct):
     return a
 
 
-def test_validator_passes_when_all_gongo_quarters_have_achievement(app_ctx):
+def test_validator_passes_when_all_gongo_quarters_have_achievement(db_session):
     from app.modules.commissions.calculator import validate_achievements_for_appraisal
 
     ev = _ev("e1@x")
@@ -74,7 +63,7 @@ def test_validator_passes_when_all_gongo_quarters_have_achievement(app_ctx):
     assert missing == []
 
 
-def test_validator_returns_missing_for_uncovered_gongo_quarter(app_ctx):
+def test_validator_returns_missing_for_uncovered_gongo_quarter(db_session):
     from app.modules.commissions.calculator import validate_achievements_for_appraisal
 
     ev = _ev("e2@x")
@@ -88,7 +77,7 @@ def test_validator_returns_missing_for_uncovered_gongo_quarter(app_ctx):
     assert "Q4/2025" in missing[0]
 
 
-def test_validator_ignores_inactive_evs(app_ctx):
+def test_validator_ignores_inactive_evs(db_session):
     from app.modules.commissions.calculator import validate_achievements_for_appraisal
 
     inactive = _ev("inact@x")

@@ -1,17 +1,5 @@
-import pytest
-from app import create_app
 from app.extensions import db
 from app.models import User, UserRole, Policy, Client
-
-
-@pytest.fixture
-def app_ctx():
-    app = create_app('test')
-    with app.app_context():
-        db.create_all()
-        yield
-        db.session.rollback()
-        db.drop_all()
 
 
 def _make_user(email, role=UserRole.EV, active=True):
@@ -28,7 +16,7 @@ def _make_policy(ev, ticket_id):
     return p
 
 
-def test_returns_only_policies_of_active_evs(app_ctx):
+def test_returns_only_policies_of_active_evs(db_session):
     from app.modules.policies.filters import active_ev_policies_query
 
     active_ev = _make_user("active@x", role=UserRole.EV, active=True)
@@ -44,7 +32,7 @@ def test_returns_only_policies_of_active_evs(app_ctx):
     assert result[0].id == p_active.id
 
 
-def test_excludes_policies_with_null_ev(app_ctx):
+def test_excludes_policies_with_null_ev(db_session):
     from app.modules.policies.filters import active_ev_policies_query
 
     p = Policy(hubspot_ticket_id="T_NULL", ev_id=None)
