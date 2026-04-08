@@ -30,7 +30,7 @@
    {:http {:method     :post
            :url        ep/users
            :body       payload
-           :on-success [:revops/user-saved "Usuário criado com sucesso"]
+           :on-success [:revops/fetch-users]
            :on-failure [:revops/user-error]}}))
 
 (rf/reg-event-fx
@@ -39,7 +39,7 @@
    {:http {:method     :patch
            :url        (str ep/users "/" id)
            :body       payload
-           :on-success [:revops/user-saved "Usuário atualizado"]
+           :on-success [:revops/fetch-users]
            :on-failure [:revops/user-error]}}))
 
 (rf/reg-event-fx
@@ -47,20 +47,13 @@
  (fn [_ [_ id]]
    {:http {:method     :delete
            :url        (str ep/users "/" id)
-           :on-success [:revops/user-saved "Usuário removido"]
+           :on-success [:revops/fetch-users]
            :on-failure [:revops/user-error]}}))
 
-(rf/reg-event-fx
- :revops/user-saved
- (fn [_ [_ msg _response]]
-   {:dispatch-n [[:revops/fetch-users]
-                 [:ui/show-toast {:type :success :message msg}]]}))
-
-(rf/reg-event-fx
+(rf/reg-event-db
  :revops/user-error
- (fn [{:keys [db]} _]
-   {:db       (assoc-in db [:admin :users-loading?] false)
-    :dispatch [:ui/show-toast {:type :error :message "Erro ao processar usuario."}]}))
+ (fn [db _]
+   (assoc-in db [:ui :toast] {:type :error :message "Erro ao processar usuário."})))
 
 ;; ---- Teams ----
 
@@ -80,11 +73,9 @@
        (assoc-in [:admin :teams]          (:data response))
        (assoc-in [:admin :teams-loading?] false))))
 
-(rf/reg-event-fx
+(rf/reg-event-db
  :revops/teams-error
- (fn [{:keys [db]} _]
-   {:db       (assoc-in db [:admin :teams-loading?] false)
-    :dispatch [:ui/show-toast {:type :error :message "Erro ao processar time."}]}))
+ (fn [db _] (assoc-in db [:admin :teams-loading?] false)))
 
 (rf/reg-event-fx
  :revops/create-team
@@ -92,7 +83,7 @@
    {:http {:method     :post
            :url        ep/teams
            :body       payload
-           :on-success [:revops/team-saved "Time criado com sucesso"]
+           :on-success [:revops/fetch-teams]
            :on-failure [:revops/teams-error]}}))
 
 (rf/reg-event-fx
@@ -101,7 +92,7 @@
    {:http {:method     :patch
            :url        (str ep/teams "/" id)
            :body       payload
-           :on-success [:revops/team-saved "Time atualizado"]
+           :on-success [:revops/fetch-teams]
            :on-failure [:revops/teams-error]}}))
 
 (rf/reg-event-fx
@@ -109,14 +100,8 @@
  (fn [_ [_ id]]
    {:http {:method     :delete
            :url        (str ep/teams "/" id)
-           :on-success [:revops/team-saved "Time removido"]
+           :on-success [:revops/fetch-teams]
            :on-failure [:revops/teams-error]}}))
-
-(rf/reg-event-fx
- :revops/team-saved
- (fn [_ [_ msg _response]]
-   {:dispatch-n [[:revops/fetch-teams]
-                 [:ui/show-toast {:type :success :message msg}]]}))
 
 ;; ---- Goals ----
 
@@ -136,11 +121,9 @@
        (assoc-in [:goals :items]    (:data response))
        (assoc-in [:goals :loading?] false))))
 
-(rf/reg-event-fx
+(rf/reg-event-db
  :revops/goals-error
- (fn [{:keys [db]} _]
-   {:db       (assoc-in db [:goals :loading?] false)
-    :dispatch [:ui/show-toast {:type :error :message "Erro ao processar meta."}]}))
+ (fn [db _] (assoc-in db [:goals :loading?] false)))
 
 (rf/reg-event-fx
  :revops/update-goal
@@ -148,14 +131,8 @@
    {:http {:method     :post
            :url        ep/goals
            :body       payload
-           :on-success [:revops/goal-saved "Meta salva com sucesso"]
+           :on-success [:revops/fetch-goals]
            :on-failure [:revops/goals-error]}}))
-
-(rf/reg-event-fx
- :revops/goal-saved
- (fn [_ [_ msg _response]]
-   {:dispatch-n [[:revops/fetch-goals]
-                 [:ui/show-toast {:type :success :message msg}]]}))
 
 (rf/reg-event-fx
  :revops/import-goals
@@ -205,45 +182,45 @@
 
 (rf/reg-event-fx
  :revops/upload-financial
- (fn [{:keys [db]} [_ file]]
-   {:db   (assoc-in db [:admin :upload-loading?] true)
-    :http {:method     :post
-           :url        ep/financial-upload
-           :body       file
-           :on-success [:revops/upload-preview-loaded]
-           :on-failure [:revops/upload-error]}}))
+ (fn [{:keys [db]} [_ file quarter year]]
+   (let [fd (js/FormData.)]
+     (.append fd "file" file)
+     (.append fd "quarter" (str quarter))
+     (.append fd "year" (str year))
+     {:db   (-> db
+                (assoc-in [:admin :upload-loading?] true)
+                (assoc-in [:admin :upload-result] nil))
+      :http {:method     :post
+             :url        ep/financial-upload
+             :body       fd
+             :on-success [:revops/upload-success]
+             :on-failure [:revops/upload-error]}})))
 
-(rf/reg-event-db
- :revops/upload-preview-loaded
- (fn [db [_ response]]
-   (-> db
-       (assoc-in [:admin :upload-preview]  (get-in response [:data]))
-       (assoc-in [:admin :upload-loading?] false))))
+(rf/reg-event-fx
+ :revops/upload-success
+ (fn [{:keys [db]} [_ response]]
+   {:db (-> db
+            (assoc-in [:admin :upload-result] (:data response))
+            (assoc-in [:admin :upload-loading?] false))
+    :dispatch [:ui/show-toast
+               {:type :success
+                :message (str "Upload concluído: "
+                              (or (get-in response [:data :rows_persisted]) 0)
+                              " linhas persistidas.")}]}))
 
 (rf/reg-event-fx
  :revops/upload-error
- (fn [{:keys [db]} _]
-   {:db       (-> db (assoc-in [:admin :upload-loading?] false))
-    :dispatch [:ui/show-toast {:type :error :message "Erro ao processar arquivo."}]}))
-
-(rf/reg-event-fx
- :revops/confirm-financial-upload
- (fn [_ [_ upload-id]]
-   {:http {:method     :post
-           :url        (str "/financial/confirm/" upload-id)
-           :on-success [:revops/upload-confirmed]
-           :on-failure [:revops/upload-error]}}))
-
-(rf/reg-event-fx
- :revops/upload-confirmed
- (fn [{:keys [db]} _]
-   {:db       (assoc-in db [:admin :upload-preview] nil)
-    :dispatch [:ui/show-toast {:type :success :message "Upload confirmado com sucesso."}]}))
+ (fn [{:keys [db]} [_ resp]]
+   (let [err (or (get-in resp [:error :message]) "Erro ao processar arquivo")]
+     {:db (assoc-in db [:admin :upload-loading?] false)
+      :dispatch [:ui/show-toast {:type :error :message err}]})))
 
 (rf/reg-event-db
- :revops/upload-preview-cancel
+ :revops/upload-reset
  (fn [db _]
-   (assoc-in db [:admin :upload-preview] nil)))
+   (-> db
+       (assoc-in [:admin :upload-result] nil)
+       (assoc-in [:admin :upload-loading?] false))))
 
 ;; ---- Appraisal ----
 
@@ -263,11 +240,9 @@
        (assoc-in [:appraisal :list]     (:data response))
        (assoc-in [:appraisal :loading?] false))))
 
-(rf/reg-event-fx
+(rf/reg-event-db
  :revops/appraisals-error
- (fn [{:keys [db]} _]
-   {:db       (assoc-in db [:appraisal :loading?] false)
-    :dispatch [:ui/show-toast {:type :error :message "Erro na apuracao."}]}))
+ (fn [db _] (assoc-in db [:appraisal :loading?] false)))
 
 (rf/reg-event-fx
  :revops/create-appraisal
@@ -275,14 +250,8 @@
    {:http {:method     :post
            :url        (ep/appraisals)
            :body       payload
-           :on-success [:revops/appraisal-saved "Apuracao criada com sucesso"]
+           :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
-
-(rf/reg-event-fx
- :revops/appraisal-saved
- (fn [_ [_ msg _response]]
-   {:dispatch-n [[:revops/fetch-appraisals]
-                 [:ui/show-toast {:type :success :message msg}]]}))
 
 (rf/reg-event-fx
  :revops/run-appraisal
@@ -291,14 +260,39 @@
            :url        (str "/appraisals/" id "/transition")
            :body       {:to "CALCULATING"}
            :on-success [:revops/appraisal-calculated id]
-           :on-failure [:revops/appraisals-error]}}))
+           :on-failure [:revops/appraisal-calculate-error]}}))
 
 (rf/reg-event-fx
  :revops/appraisal-calculated
- (fn [_ [_ id _response]]
+ (fn [_ [_ id _resp]]
    {:dispatch-n [[:revops/fetch-appraisals]
                  [:navigate! [:revops/appraisal-review {:id id}]]
-                 [:ui/show-toast {:type :success :message "Cálculo concluído. Revise os valores antes de liberar."}]]}))
+                 [:ui/show-toast {:type :success
+                                  :message "Cálculo concluído. Revise os valores antes de liberar."}]]}))
+
+(rf/reg-event-fx
+ :revops/appraisal-calculate-error
+ (fn [_ [_ resp]]
+   (let [err (get-in resp [:error] {})
+         msg (cond
+               (= "MISSING_ACHIEVEMENTS" (:code err))
+               (str "Faltam atingimentos: " (clojure.string/join ", " (or (:missing err) [])))
+               :else (or (:message err) "Erro ao iniciar cálculo"))]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))
+
+(rf/reg-event-fx
+ :revops/recalculate-appraisal
+ (fn [_ [_ id]]
+   {:http {:method     :post
+           :url        (ep/appraisal-recalculate id)
+           :on-success [:revops/recalculated id]
+           :on-failure [:revops/appraisal-calculate-error]}}))
+
+(rf/reg-event-fx
+ :revops/recalculated
+ (fn [_ [_ id _resp]]
+   {:dispatch-n [[:revops/fetch-appraisal-detail id]
+                 [:ui/show-toast {:type :success :message "Recalculado!"}]]}))
 
 (rf/reg-event-fx
  :revops/release-to-validation
@@ -314,7 +308,8 @@
  (fn [_ _]
    {:dispatch-n [[:revops/fetch-appraisals]
                  [:navigate! :revops/appraisal]
-                 [:ui/show-toast {:type :success :message "Liberado para validação dos EVs."}]]}))
+                 [:ui/show-toast {:type :success
+                                  :message "Liberado para validação dos EVs."}]]}))
 
 (rf/reg-event-fx
  :revops/approve-appraisal-payment
@@ -324,6 +319,87 @@
            :body       {:to "LOCKED"}
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
+
+;; ---- Edit Policy (manual override) ----
+
+(rf/reg-event-fx
+ :revops/update-policy
+ (fn [_ [_ id payload]]
+   {:http {:method     :put
+           :url        (ep/policy-edit id)
+           :body       payload
+           :on-success [:revops/policy-updated]
+           :on-failure [:revops/policy-update-error]}}))
+
+(rf/reg-event-fx
+ :revops/policy-updated
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-policies]
+                 [:ui/show-toast {:type :success :message "Apólice atualizada"}]]}))
+
+(rf/reg-event-fx
+ :revops/policy-update-error
+ (fn [_ _]
+   {:dispatch [:ui/show-toast {:type :error :message "Erro ao atualizar apólice"}]}))
+
+;; ---- Achievements (per EV per quarter) ----
+
+(rf/reg-event-fx
+ :revops/fetch-achievements
+ (fn [{:keys [db]} [_ {:keys [quarter year]}]]
+   {:db   (assoc-in db [:admin :achievements-loading?] true)
+    :http {:method :get
+           :url (str ep/achievements "?quarter=" quarter "&year=" year)
+           :on-success [:revops/achievements-loaded]
+           :on-failure [:revops/achievements-error]}}))
+
+(rf/reg-event-db
+ :revops/achievements-loaded
+ (fn [db [_ resp]]
+   (-> db
+       (assoc-in [:admin :achievements] (:data resp))
+       (assoc-in [:admin :achievements-loading?] false))))
+
+(rf/reg-event-db
+ :revops/achievements-error
+ (fn [db _] (assoc-in db [:admin :achievements-loading?] false)))
+
+(rf/reg-event-fx
+ :revops/save-achievement
+ (fn [_ [_ payload]]
+   {:http {:method :post
+           :url ep/achievements
+           :body payload
+           :on-success [:revops/achievement-saved payload]
+           :on-failure [:revops/achievement-error]}}))
+
+(rf/reg-event-fx
+ :revops/achievement-saved
+ (fn [_ [_ payload _resp]]
+   {:dispatch-n [[:revops/fetch-achievements
+                  {:quarter (:quarter payload) :year (:year payload)}]
+                 [:ui/show-toast {:type :success :message "Atingimento salvo"}]]}))
+
+(rf/reg-event-fx
+ :revops/achievement-error
+ (fn [_ _]
+   {:dispatch [:ui/show-toast {:type :error :message "Erro ao salvar atingimento"}]}))
+
+(rf/reg-event-fx
+ :revops/auto-calc-achievements
+ (fn [_ [_ {:keys [quarter year] :as payload}]]
+   {:http {:method :post
+           :url ep/achievements-calculate
+           :body payload
+           :on-success [:revops/auto-calc-done quarter year]
+           :on-failure [:revops/achievement-error]}}))
+
+(rf/reg-event-fx
+ :revops/auto-calc-done
+ (fn [_ [_ quarter year _resp]]
+   {:dispatch-n [[:revops/fetch-achievements {:quarter quarter :year year}]
+                 [:ui/show-toast {:type :success
+                                  :message "Baseline calculado"}]]}))
 
 (rf/reg-event-fx
  :revops/fetch-appraisal-detail
@@ -363,11 +439,9 @@
        (assoc-in [:admin :contestations]         (:data response))
        (assoc-in [:admin :contestations-loading?] false))))
 
-(rf/reg-event-fx
+(rf/reg-event-db
  :revops/contestations-error
- (fn [{:keys [db]} _]
-   {:db       (assoc-in db [:admin :contestations-loading?] false)
-    :dispatch [:ui/show-toast {:type :error :message "Erro ao processar contestacao."}]}))
+ (fn [db _] (assoc-in db [:admin :contestations-loading?] false)))
 
 (rf/reg-event-fx
  :revops/resolve-contestation
@@ -375,14 +449,8 @@
    {:http {:method     :post
            :url        (str "/validations/" id "/resolve")
            :body       {:resolution resolution}
-           :on-success [:revops/contestation-resolved]
+           :on-success [:revops/fetch-contestations]
            :on-failure [:revops/contestations-error]}}))
-
-(rf/reg-event-fx
- :revops/contestation-resolved
- (fn [_ _]
-   {:dispatch-n [[:revops/fetch-contestations]
-                 [:ui/show-toast {:type :success :message "Contestacao resolvida."}]]}))
 
 ;; ---- Sync Status ----
 
@@ -411,14 +479,8 @@
  (fn [_ _]
    {:http {:method     :post
            :url        "/admin/sync-trigger"
-           :on-success [:revops/sync-triggered]
+           :on-success [:revops/fetch-sync-status]
            :on-failure [:revops/sync-status-error]}}))
-
-(rf/reg-event-fx
- :revops/sync-triggered
- (fn [_ _]
-   {:dispatch-n [[:revops/fetch-sync-status]
-                 [:ui/show-toast {:type :success :message "Sincronizacao iniciada."}]]}))
 
 ;; ---- Audit Log ----
 
@@ -475,14 +537,8 @@
    {:http {:method     :put
            :url        ep/settings
            :body       {:settings payload}
-           :on-success [:revops/settings-saved]
+           :on-success [:revops/fetch-settings]
            :on-failure [:revops/settings-error]}}))
-
-(rf/reg-event-fx
- :revops/settings-saved
- (fn [_ _]
-   {:dispatch-n [[:revops/fetch-settings]
-                 [:ui/show-toast {:type :success :message "Configuracoes salvas."}]]}))
 
 ;; ---- Policies (Admin view all) ----
 
@@ -511,25 +567,3 @@
 (rf/reg-event-db
  :revops/policies-error
  (fn [db _] (assoc-in db [:admin :policies-loading?] false)))
-
-(rf/reg-event-fx
- :revops/update-policy-installments
- (fn [{:keys [db]} [_ policy-id payload]]
-   {:http {:method     :patch
-           :url        (ep/policy-installments policy-id)
-           :body       payload
-           :on-success [:revops/policy-installments-updated]
-           :on-failure [:revops/policies-error]}}))
-
-(rf/reg-event-fx
- :revops/policy-installments-updated
- (fn [{:keys [db]} [_ response]]
-   (let [updated (:data response)
-         items   (get-in db [:admin :policies])]
-     {:db       (assoc-in db [:admin :policies]
-                           (mapv (fn [p]
-                                   (if (= (:id p) (:id updated))
-                                     updated
-                                     p))
-                                 items))
-      :dispatch [:ui/show-toast {:type :success :message "Parcelas atualizadas."}]})))

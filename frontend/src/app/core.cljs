@@ -48,7 +48,8 @@
             [app.views.revops.sync-status :as revops-sync-status]
             [app.views.revops.audit-log :as revops-audit-log]
             [app.views.revops.settings :as revops-settings]
-            [app.views.revops.policies :as revops-policies]))
+            [app.views.revops.policies :as revops-policies]
+            [app.views.revops.achievements :as revops-achievements]))
 
 ;; ---------------------------------------------------------------------------
 ;; Route-based view switching
@@ -88,6 +89,7 @@
         :revops/users            [revops-users/users-page]
         :revops/teams            [revops-teams/teams-page]
         :revops/goals            [revops-goals/goals-page]
+        :revops/achievements     [revops-achievements/achievements-page]
         :revops/commission-table [revops-commission-table/commission-table-page]
         :revops/financial        [revops-financial-upload/financial-upload-page]
         :revops/appraisal        [revops-appraisal/appraisal-page]

@@ -32,6 +32,7 @@
      ["/users"              {:name :revops/users            :role #{:ADMIN}}]
      ["/teams"              {:name :revops/teams            :role #{:ADMIN}}]
      ["/goals"              {:name :revops/goals            :role #{:ADMIN}}]
+     ["/achievements"       {:name :revops/achievements     :role #{:ADMIN}}]
      ["/commission-table"   {:name :revops/commission-table :role #{:ADMIN}}]
      ["/financial"          {:name :revops/financial        :role #{:ADMIN}}]
      ["/appraisal"          {:name :revops/appraisal        :role #{:ADMIN}}]

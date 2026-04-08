@@ -1,10 +1,14 @@
 from datetime import date
+from decimal import Decimal
 from app.modules.workflow.state_machine import (
     start_appraisal,
     transition_appraisal,
     InvalidTransitionError,
 )
-from app.models import Appraisal, AppraisalStatus, User, UserRole
+from app.models import (
+    Appraisal, AppraisalStatus, User, UserRole,
+    Policy, Client, Segment, BenefitType, Commission,
+)
 from app.extensions import db
 
 
@@ -60,3 +64,57 @@ def test_locked_appraisal_cannot_transition(db_session):
         assert False, "Should have raised"
     except InvalidTransitionError:
         pass
+
+
+def test_lock_marks_all_quarter_commissions_as_final(db_session):
+    """When transitioning APPROVED → LOCKED, all non-final commissions
+    for the apuração's (quarter, year) get is_final=True."""
+    admin = User(email="lock-admin@piposaude.com", name="Admin",
+                 role=UserRole.ADMIN, active=True)
+    db.session.add(admin)
+    db.session.flush()
+
+    ev = User(email="lock-ev@piposaude.com", name="EV",
+              role=UserRole.EV, active=True)
+    db.session.add(ev)
+    db.session.flush()
+
+    client = Client.find_or_create("LockClient")
+    db.session.flush()
+
+    policy = Policy(
+        hubspot_ticket_id="LOCK-T1",
+        ev_id=ev.id,
+        client_id=client.id,
+        segment=Segment.M,
+        benefit_type=BenefitType.SAUDE,
+        closed_date=date(2025, 12, 1),
+        first_payment_real=date(2026, 1, 1),
+    )
+    db.session.add(policy)
+    db.session.flush()
+
+    appraisal = Appraisal(
+        quarter=4, year=2026, status=AppraisalStatus.APPROVED,
+        created_by=admin.id,
+    )
+    db.session.add(appraisal)
+    db.session.flush()
+
+    comm = Commission(
+        policy_id=policy.id, ev_id=ev.id, quarter=4, year=2026,
+        segment="M", achievement_pct=Decimal("0.5"),
+        commission_pct=Decimal("0.06"), commission_pct_version=1,
+        monthly_actual=Decimal("100.00"), total_actual=Decimal("100.00"),
+        is_final=False,
+    )
+    db.session.add(comm)
+    db.session.flush()
+
+    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=admin.id)
+    db.session.flush()
+
+    db.session.refresh(comm)
+    assert comm.is_final is True
+    assert appraisal.status == AppraisalStatus.LOCKED
+    assert appraisal.locked_at is not None

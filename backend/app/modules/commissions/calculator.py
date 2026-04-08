@@ -1,294 +1,275 @@
+"""Quarterly commission calculator (v3 — replaces old run_quarterly_appraisal_v2).
+
+Match logic ported from the old React app's processCommissions:
+- Match NF row → Policy by (cliente_mae, operadora, produto) normalized
+- Vigência window = [first_payment_real, first_payment_real + (12 - initial_installments_paid) months]
+- Achievement % is taken from EvQuarterAchievement of the policy's GONGO quarter
+  (NOT the apuração quarter — snapshot per the old app)
+- Commission = nf_valor_liquido × matrix[segment][achievement_faixa]
+
+is_final is NEVER set here; only by transition_appraisal(LOCKED).
+"""
+from datetime import datetime, timezone
 from decimal import Decimal
-from collections import defaultdict
+
+from dateutil.relativedelta import relativedelta
+
 from app.extensions import db
 from app.models import (
-    Policy, Commission, Goal, CommissionPctTable,
-    Appraisal, FinancialImport, Perk, Client,
-    EvQuarterAchievement, CommissionStatus,
+    Policy,
+    Commission,
+    EvQuarterAchievement,
+    FinancialImport,
+    User,
 )
-from app.modules.commissions.achievement import calculate_achievement, get_quarter_date_range
+from app.modules.policies.filters import active_ev_policies_query
+from app.modules.financial.matcher import build_policy_index, normalize
 from app.modules.commissions.pct_lookup import lookup_commission_pct
 
 
-def get_ev_total_mrr_in_quarter(ev_id, quarter, year):
-    """Sum MRR of all gongos for an EV in a quarter."""
-    start, end = get_quarter_date_range(quarter, year)
-    policies = Policy.query.filter(
-        Policy.ev_id == ev_id,
-        Policy.closed_date >= start,
-        Policy.closed_date < end,
-    ).all()
-    return sum(p.mrr_for_commission or Decimal("0") for p in policies)
+# ── Errors ───────────────────────────────────────────────────────────
 
 
-def get_ev_goal(ev_id, quarter, year):
-    """Get EV's MRR target for a quarter."""
-    goal = Goal.query.filter_by(ev_id=ev_id, quarter=quarter, year=year).first()
-    return goal.mrr_target if goal else Decimal("0")
+class MissingAchievementsError(Exception):
+    def __init__(self, missing):
+        self.missing = missing
+        super().__init__(f"Missing achievements: {missing}")
 
 
-def get_ev_achievement(ev_id, quarter, year):
-    """Get the stored achievement for an EV in a specific quarter.
+# ── Pre-check ────────────────────────────────────────────────────────
 
-    Returns (achievement_pct, is_final) or (None, False) if not found.
+
+def validate_achievements_for_appraisal(quarter, year):
+    """Verify every (ev_id, gongo_q, gongo_y) needed by this apuração
+    has a stored achievement.
+
+    Returns list of human-readable strings for missing combinations.
+    Empty list = ok to proceed.
     """
-    ach = EvQuarterAchievement.query.filter_by(
-        ev_id=ev_id, quarter=quarter, year=year
-    ).first()
-    if ach and ach.achievement_pct is not None:
-        return ach.achievement_pct, ach.is_final
-    return None, False
+    policies = active_ev_policies_query().all()
 
-
-def calculate_and_save_quarter_achievements(quarter, year):
-    """Calculate and persist achievements for all EVs with gongos in a quarter.
-
-    Only updates non-final records.
-    Returns dict of {ev_id: EvQuarterAchievement}.
-    """
-    start, end = get_quarter_date_range(quarter, year)
-
-    # Get all policies gongoed in this quarter
-    policies = Policy.query.filter(
-        Policy.closed_date >= start,
-        Policy.closed_date < end,
-        Policy.commission_status != CommissionStatus.CANCELLED.value,
-    ).all()
-
-    # Group by EV
-    ev_policies = defaultdict(list)
+    needed = set()
     for p in policies:
-        if p.ev_id:
-            ev_policies[p.ev_id].append(p)
-
-    results = {}
-    for ev_id, policy_list in ev_policies.items():
-        total_mrr = sum(p.mrr_for_commission or Decimal("0") for p in policy_list)
-        target = get_ev_goal(ev_id, quarter, year)
-        achievement = calculate_achievement(total_mrr, target)
-
-        # Upsert (skip if already final)
-        ach = EvQuarterAchievement.query.filter_by(
-            ev_id=ev_id, quarter=quarter, year=year
-        ).first()
-
-        if ach and ach.is_final:
-            results[ev_id] = ach
+        if not p.closed_date or not p.ev_id:
             continue
+        gq = (p.closed_date.month - 1) // 3 + 1
+        needed.add((p.ev_id, gq, p.closed_date.year))
 
-        if ach is None:
-            ach = EvQuarterAchievement(ev_id=ev_id, quarter=quarter, year=year)
-            db.session.add(ach)
-
-        ach.total_mrr = total_mrr
-        ach.mrr_target = target
-        ach.achievement_pct = achievement
-
-        results[ev_id] = ach
-
-    db.session.flush()
-    return results
+    missing = []
+    for ev_id, gq, gy in sorted(needed, key=lambda t: (str(t[0]), t[2], t[1])):
+        ach = EvQuarterAchievement.query.filter_by(
+            ev_id=ev_id, quarter=gq, year=gy
+        ).first()
+        if ach is None or ach.achievement_pct is None:
+            user = db.session.get(User, ev_id)
+            label = user.name if user else str(ev_id)
+            missing.append(f"{label} → Q{gq}/{gy}")
+    return missing
 
 
-def calculate_projection_for_policy(policy, quarter, year):
-    """Calculate projected commission for a single policy.
+# ── Main entry ───────────────────────────────────────────────────────
 
-    Uses the MEDIUM faixa (50-99.9%) as estimate for projection.
-    """
-    mrr = policy.mrr_for_commission or Decimal("0")
 
-    # For projection, use medium faixa estimate
-    commission_pct, version = lookup_commission_pct(
-        policy.segment.value if policy.segment else "P",
-        Decimal("0.75"),  # Middle of medium faixa
-    )
-    if commission_pct is None:
-        commission_pct = Decimal("0")
-
-    monthly_estimated = (mrr * commission_pct).quantize(Decimal("0.01"))
-    total_estimated = (monthly_estimated * 12).quantize(Decimal("0.01"))
-
-    # Upsert commission record
-    commission = Commission.query.filter_by(
-        policy_id=policy.id, quarter=quarter, year=year
-    ).first()
-
-    if commission is None:
-        commission = Commission(
-            policy_id=policy.id,
-            ev_id=policy.ev_id,
-            quarter=quarter,
-            year=year,
-        )
-        db.session.add(commission)
-
-    if not commission.is_final:
-        commission.segment = policy.segment.value if policy.segment else None
-        commission.commission_pct = commission_pct
-        commission.commission_pct_version = version
-        commission.monthly_estimated = monthly_estimated
-        commission.total_estimated = total_estimated
-
-    db.session.flush()
-    return commission
+BENEFIT_MAP = {'saude': 'SAUDE', 'odonto': 'ODONTO', 'vida': 'VIDA'}
 
 
 def run_quarterly_appraisal(quarter, year):
-    """Legacy version — kept for backwards compatibility.
+    """Process all financial_imports for (quarter, year) and produce commissions.
 
-    Use run_quarterly_appraisal_v2() for the correct logic.
+    Pre-conditions:
+    - validate_achievements_for_appraisal(quarter, year) returns []
+    - financial_imports populated for this quarter
+
+    Side effects:
+    - Wipes Commissions for (quarter, year) where is_final=False
+    - Resets policy.installments_paid to baseline (initial + LOCKED count)
+    - Updates each NF's match_status and policy_id
+    - Creates/updates Commission rows (is_final=False)
+    - Increments policy.installments_paid as MATCHED NFs are processed
+
+    Raises:
+        MissingAchievementsError if pre-check fails (no writes happen).
     """
-    return run_quarterly_appraisal_v2(quarter, year)
+    # ── Pre-check ────────────────────────────────────────────
+    missing = validate_achievements_for_appraisal(quarter, year)
+    if missing:
+        raise MissingAchievementsError(missing)
 
-
-def run_quarterly_appraisal_v2(quarter, year):
-    """Run final commission calculation for a quarter (v2).
-
-    Two-phase process:
-    Phase 1: Calculate and save achievement for EVs with gongos in this quarter
-    Phase 2: Calculate commission on all policies that received NFs in this quarter,
-             using the achievement % from the quarter each policy was gongoed in.
-
-    Only considers policies with installments_paid < 12 (not yet settled).
-
-    Returns dict of {ev_id: {achievement_pct, total_mrr, target, nf_policies: [...]}}
-    """
-    results = {}
-
-    # ── Phase 1: Save achievements for this quarter's gongos ──────────
-    calculate_and_save_quarter_achievements(quarter, year)
-
-    # ── Phase 2: Calculate commission on NFs received in this quarter ─
-    # Get all NFs received in this quarter
-    nfs = FinancialImport.query.filter_by(quarter=quarter, year=year).all()
-
-    if not nfs:
-        return results
-
-    # Group NFs by policy
-    nf_by_policy = defaultdict(lambda: Decimal("0"))
-    for nf in nfs:
-        nf_by_policy[nf.policy_id] += (nf.nf_valor_liquido or Decimal("0"))
-
-    # Load all relevant policies
-    policy_ids = list(nf_by_policy.keys())
-    policies = Policy.query.filter(Policy.id.in_(policy_ids)).all()
-    policy_map = {p.id: p for p in policies}
-
-    # Group by EV for results
-    ev_policy_results = defaultdict(list)
-
-    for policy_id, nf_total in nf_by_policy.items():
-        policy = policy_map.get(policy_id)
-        if policy is None:
-            continue
-
-        # Skip settled or cancelled policies
-        if policy.commission_status in (CommissionStatus.SETTLED, CommissionStatus.CANCELLED):
-            continue
-
-        # Skip policies that have completed 12 installments
-        if (policy.installments_paid or 0) >= 12:
-            continue
-
-        # Get achievement from the quarter this policy was gongoed
-        gongo_q, gongo_y = policy.quarter_closed
-        if gongo_q is None:
-            continue
-
-        achievement, _ = get_ev_achievement(policy.ev_id, gongo_q, gongo_y)
-        if achievement is None:
-            # No achievement stored for that quarter — use 0 (lowest faixa)
-            achievement = Decimal("0")
-
-        # Lookup commission %
-        segment = policy.segment.value if policy.segment else "P"
-        commission_pct, version = lookup_commission_pct(segment, achievement)
-        if commission_pct is None:
-            commission_pct = Decimal("0")
-
-        # Subtract perks for this client in the appraisal quarter
-        perk_total = Decimal("0")
-        if policy.client_id:
-            perk_total = db.session.query(
-                db.func.coalesce(db.func.sum(Perk.amount), Decimal("0"))
-            ).filter(
-                Perk.client_id == policy.client_id,
-                Perk.quarter == quarter,
-                Perk.year == year,
-            ).scalar()
-
-        # Commission = (NF liquido - perks share) * commission_pct
-        # Perks are per-client, so distribute across policies of same client in this quarter
-        client_policy_count = 1
-        if policy.client_id and perk_total > 0:
-            client_policy_count = len([
-                pid for pid, p in policy_map.items()
-                if p.client_id == policy.client_id and pid in nf_by_policy
-            ])
-            if client_policy_count == 0:
-                client_policy_count = 1
-
-        perk_share = (perk_total / client_policy_count).quantize(Decimal("0.01"))
-        base = nf_total - perk_share
-        if base < 0:
-            base = Decimal("0")
-
-        commission_amount = (base * commission_pct).quantize(Decimal("0.01"))
-
-        # Upsert commission record
-        commission = Commission.query.filter_by(
-            policy_id=policy.id, quarter=quarter, year=year
-        ).first()
-        if commission is None:
-            commission = Commission(
-                policy_id=policy.id, ev_id=policy.ev_id,
-                quarter=quarter, year=year,
-            )
-            db.session.add(commission)
-
-        commission.segment = segment
-        commission.achievement_pct = achievement
-        commission.commission_pct = commission_pct
-        commission.commission_pct_version = version
-        commission.monthly_actual = commission_amount
-        commission.monthly_estimated = (
-            (policy.mrr_for_commission or Decimal("0")) * commission_pct
-        ).quantize(Decimal("0.01"))
-        commission.total_estimated = (commission.monthly_estimated * 12).quantize(Decimal("0.01"))
-        commission.total_actual = (commission_amount * 12).quantize(Decimal("0.01"))
-        commission.is_final = True
-
-        ev_policy_results[policy.ev_id].append({
-            "policy_id": str(policy.id),
-            "hubspot_ticket_id": policy.hubspot_ticket_id,
-            "client_name": policy.client.name if policy.client else None,
-            "segment": segment,
-            "gongo_quarter": f"Q{gongo_q}/{gongo_y}",
-            "achievement_pct": achievement,
-            "nf_total": nf_total,
-            "perk_share": perk_share,
-            "commission_pct": commission_pct,
-            "commission_amount": commission_amount,
-            "installments_paid": policy.installments_paid,
-        })
-
+    # ── 1. Wipe non-final commissions ────────────────────────
+    Commission.query.filter_by(
+        quarter=quarter, year=year, is_final=False
+    ).delete()
     db.session.flush()
 
-    # Build results summary
-    for ev_id, policy_list in ev_policy_results.items():
-        # Get this quarter's achievement for summary (may not exist if EV had no gongos)
-        ach_record = EvQuarterAchievement.query.filter_by(
-            ev_id=ev_id, quarter=quarter, year=year
+    # ── 2. Reset installments_paid to baseline ───────────────
+    # baseline = initial_installments_paid + count(NFs from LOCKED periods)
+    # Exclude policies that already have a LOCKED commission for (quarter, year)
+    # from the matching set — they are already finalized.
+    locked_policy_ids = {
+        pid for (pid,) in db.session.query(Commission.policy_id)
+        .filter(
+            Commission.quarter == quarter,
+            Commission.year == year,
+            Commission.is_final.is_(True),
+        )
+        .all()
+    }
+    policies = [
+        p for p in active_ev_policies_query().all()
+        if p.id not in locked_policy_ids
+    ]
+
+    locked_nf_count_rows = (
+        db.session.query(
+            FinancialImport.policy_id,
+            db.func.count(FinancialImport.id),
+        )
+        .join(Commission, Commission.policy_id == FinancialImport.policy_id)
+        .filter(
+            Commission.is_final.is_(True),
+            FinancialImport.match_status == 'MATCHED',
+        )
+        .group_by(FinancialImport.policy_id)
+        .all()
+    )
+    locked_nf_count = {pid: int(cnt) for pid, cnt in locked_nf_count_rows}
+
+    for p in policies:
+        p.installments_paid = (
+            (p.initial_installments_paid or 0) + locked_nf_count.get(p.id, 0)
+        )
+
+    # ── 3. Build matcher index ───────────────────────────────
+    policy_index = build_policy_index(policies)
+
+    # ── 4. Iterate financial_imports for this quarter ────────
+    nfs = FinancialImport.query.filter_by(
+        quarter=quarter, year=year, status_recebimento='RECEBIDO'
+    ).all()
+
+    for nf in nfs:
+        produto_n = normalize(nf.produto or '')
+        benefit = BENEFIT_MAP.get(produto_n)
+        if benefit is None:
+            nf.match_status = 'PRODUTO_NAO_SUPORTADO'
+            nf.policy_id = None
+            nf.matched_at = None
+            continue
+
+        key = (
+            normalize(nf.cliente_mae or ''),
+            normalize(nf.operadora or ''),
+            benefit,
+        )
+        candidates = policy_index.get(key, [])
+        if not candidates:
+            nf.match_status = 'UNMATCHED'
+            nf.policy_id = None
+            nf.matched_at = None
+            continue
+
+        # Pick most recent policy whose vigência window covers data_recebimento
+        matched = None
+        for policy in candidates:  # already sorted desc by closed_date
+            if not policy.first_payment_real:
+                continue
+            window_end = policy.first_payment_real + relativedelta(
+                months=12 - (policy.initial_installments_paid or 0)
+            )
+            if nf.data_recebimento is None:
+                continue
+            if nf.data_recebimento < policy.first_payment_real:
+                continue
+            if nf.data_recebimento > window_end:
+                continue
+            matched = policy
+            break
+
+        if matched is None:
+            # Has candidates but none in vigência — record reason
+            best = candidates[0]  # most recent
+            if (not best.first_payment_real
+                    or (nf.data_recebimento
+                        and nf.data_recebimento < best.first_payment_real)):
+                nf.match_status = 'PRE_VIGENCIA'
+            else:
+                nf.match_status = 'EXPIRED'
+            nf.policy_id = best.id
+            nf.matched_at = None
+            continue
+
+        # Lookup achievement from the gongo quarter (snapshot)
+        gongo_q = (matched.closed_date.month - 1) // 3 + 1
+        gongo_y = matched.closed_date.year
+        ach = EvQuarterAchievement.query.filter_by(
+            ev_id=matched.ev_id, quarter=gongo_q, year=gongo_y
         ).first()
+        achievement = ach.achievement_pct if ach else Decimal('0')
 
-        results[str(ev_id)] = {
-            "achievement_pct_q": ach_record.achievement_pct if ach_record else None,
-            "total_mrr_q": ach_record.total_mrr if ach_record else None,
-            "target_q": ach_record.mrr_target if ach_record else None,
-            "total_nf": sum(p["nf_total"] for p in policy_list),
-            "total_commission": sum(p["commission_amount"] for p in policy_list),
-            "nf_policies": policy_list,
+        segment_value = matched.segment.value if matched.segment else 'P'
+        commission_pct, version = lookup_commission_pct(segment_value, achievement)
+        if commission_pct is None:
+            commission_pct = Decimal('0')
+
+        commission_amount = (
+            Decimal(str(nf.nf_valor_liquido)) * commission_pct
+        ).quantize(Decimal('0.01'))
+
+        # Upsert commission (non-final, accumulating)
+        comm = Commission.query.filter_by(
+            policy_id=matched.id, quarter=quarter, year=year, is_final=False
+        ).first()
+        if comm is None:
+            comm = Commission(
+                policy_id=matched.id,
+                ev_id=matched.ev_id,
+                quarter=quarter,
+                year=year,
+                segment=segment_value,
+                achievement_pct=achievement,
+                commission_pct=commission_pct,
+                commission_pct_version=version,
+                monthly_actual=Decimal('0'),
+                total_actual=Decimal('0'),
+                is_final=False,
+            )
+            db.session.add(comm)
+        comm.monthly_actual = (comm.monthly_actual or Decimal('0')) + commission_amount
+        comm.total_actual = (comm.total_actual or Decimal('0')) + commission_amount
+
+        nf.policy_id = matched.id
+        nf.match_status = 'MATCHED'
+        nf.matched_at = datetime.now(timezone.utc)
+
+        # Increment counter (baseline was reset at the start of this fn)
+        matched.installments_paid = (matched.installments_paid or 0) + 1
+
+    db.session.flush()
+    return _build_summary(quarter, year)
+
+
+# ── Summary ──────────────────────────────────────────────────────────
+
+
+def _build_summary(quarter, year):
+    """Lightweight summary for the caller.
+    The rich ev_summary / drill-down lives in workflow.py serializer."""
+    return {
+        "totals": {
+            "matched_count": FinancialImport.query.filter_by(
+                quarter=quarter, year=year, match_status='MATCHED'
+            ).count(),
+            "unmatched_count": FinancialImport.query.filter_by(
+                quarter=quarter, year=year, match_status='UNMATCHED'
+            ).count(),
+            "expired_count": FinancialImport.query.filter_by(
+                quarter=quarter, year=year, match_status='EXPIRED'
+            ).count(),
+            "pre_vigencia_count": FinancialImport.query.filter_by(
+                quarter=quarter, year=year, match_status='PRE_VIGENCIA'
+            ).count(),
+            "produto_nao_suportado_count": FinancialImport.query.filter_by(
+                quarter=quarter, year=year, match_status='PRODUTO_NAO_SUPORTADO'
+            ).count(),
         }
-
-    return results
+    }

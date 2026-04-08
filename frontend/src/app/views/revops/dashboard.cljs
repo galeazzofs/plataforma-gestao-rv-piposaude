@@ -13,6 +13,7 @@
    {:key :revops/users            :label "Usuários"          :icon "👤" :route :revops/users}
    {:key :revops/teams            :label "Times"             :icon "👥" :route :revops/teams}
    {:key :revops/goals            :label "Metas"             :icon "🎯" :route :revops/goals}
+   {:key :revops/achievements     :label "Atingimento"       :icon "📈" :route :revops/achievements}
    {:key :revops/commission-table :label "Tabela %"          :icon "%" :route :revops/commission-table}
    {:key :revops/financial        :label "Upload Financeiro" :icon "📁" :route :revops/financial}
    {:key :revops/appraisal        :label "Apuração"          :icon "⚙️" :route :revops/appraisal}

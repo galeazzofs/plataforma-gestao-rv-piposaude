@@ -1,11 +1,39 @@
-from datetime import date
+from datetime import date, datetime
 from flask import Blueprint, jsonify, request, g
-from app.auth.decorators import require_auth
+from app.auth.decorators import require_auth, require_role
 from app.models import Policy, UserRole
-from app.api.middlewares import paginate_query
+from app.models.policy import Segment
+from app.api.middlewares import paginate_query, log_audit
+from app.modules.policies.filters import active_ev_policies_query
 from app.extensions import db
 
 policies_bp = Blueprint("policies", __name__, url_prefix="/api/v1/policies")
+
+
+EDITABLE_FIELDS = {
+    "ev_id",
+    "first_payment_real",
+    "closed_date",
+    "initial_installments_paid",
+    "segment",
+    "partner_operator",
+    "client_id",
+}
+
+
+def _coerce_field(field, value):
+    """Coerce a JSON value into the right Python type for the Policy column."""
+    if value is None:
+        return None
+    if field in ("first_payment_real", "closed_date"):
+        if isinstance(value, str):
+            return datetime.fromisoformat(value).date()
+        return value
+    if field == "segment":
+        return Segment(value)
+    if field == "initial_installments_paid":
+        return int(value)
+    return value
 
 
 @policies_bp.route("")
@@ -16,7 +44,8 @@ def list_policies():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    query = Policy.query
+    # Base query: only policies of active EVs (global filter)
+    query = active_ev_policies_query()
 
     # Role-based filtering
     if user.role in (UserRole.EV, UserRole.CN):
@@ -84,85 +113,54 @@ def get_policy(policy_id):
     return jsonify({"data": _serialize_policy(policy, detail=True)})
 
 
-@policies_bp.route("/<policy_id>/installments", methods=["PATCH"])
-@require_auth
-def update_installments(policy_id):
-    """Manually update installments_paid and first_payment_real for a policy.
-
-    Used by RevOps to set the correct state for policies that were already
-    in payment before the platform existed.
-    Body: {installments_paid: 8, first_payment_real: "2025-09-01", commission_status: "IN_PAYMENT"}
-    """
-    from app.models import CommissionStatus
-    from app.api.middlewares import log_audit
-
-    user = g.current_user
-    if user.role not in (UserRole.ADMIN, UserRole.GERENTE):
-        return jsonify({"error": {"code": "FORBIDDEN", "message": "Admin or Gerente required"}}), 403
-
+@policies_bp.route("/<policy_id>", methods=["PUT"])
+@require_role(UserRole.ADMIN)
+def update_policy(policy_id):
+    """Manual override of Policy fields. Sets is_locked=True so the HubSpot
+    sync will not clobber these fields on next run. Writes audit log entry."""
     policy = db.session.get(Policy, policy_id)
     if policy is None:
-        return jsonify({"error": {"code": "NOT_FOUND", "message": "Policy not found"}}), 404
+        return jsonify({
+            "error": {"code": "NOT_FOUND", "message": "Policy not found"}
+        }), 404
 
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+    data = request.get_json() or {}
+    old_values = {}
+    new_values = {}
 
-    old_values = {
-        "installments_paid": policy.installments_paid,
-        "initial_installments_paid": policy.initial_installments_paid,
-        "first_payment_real": policy.first_payment_real.isoformat() if policy.first_payment_real else None,
-        "commission_status": policy.commission_status.value,
-    }
-
-    if "initial_installments_paid" in data:
-        val = int(data["initial_installments_paid"])
-        if val < 0 or val > 12:
-            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "initial_installments_paid must be 0-12"}}), 400
-        policy.initial_installments_paid = val
-        # Se installments_paid for menor que o valor inicial, ajusta automaticamente
-        if policy.installments_paid < val:
-            policy.installments_paid = val
-
-    if "installments_paid" in data:
-        val = int(data["installments_paid"])
-        if val < 0 or val > 12:
-            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "installments_paid must be 0-12"}}), 400
-        if val < policy.initial_installments_paid:
-            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"installments_paid cannot be less than initial_installments_paid ({policy.initial_installments_paid})"}}), 400
-        policy.installments_paid = val
-
-    if "first_payment_real" in data:
-        if data["first_payment_real"]:
-            policy.first_payment_real = date.fromisoformat(data["first_payment_real"])
-        else:
-            policy.first_payment_real = None
-
-    if "commission_status" in data:
+    for field in EDITABLE_FIELDS:
+        if field not in data:
+            continue
         try:
-            policy.commission_status = CommissionStatus(data["commission_status"])
-        except ValueError:
-            valid = [s.value for s in CommissionStatus]
-            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Invalid status. Valid: {valid}"}}), 400
+            new_value = _coerce_field(field, data[field])
+        except (ValueError, TypeError) as e:
+            return jsonify({
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": f"Invalid value for {field}: {e}",
+                }
+            }), 400
+        old_value = getattr(policy, field, None)
+        if old_value != new_value:
+            old_values[field] = (
+                old_value.isoformat() if hasattr(old_value, "isoformat")
+                else (old_value.value if hasattr(old_value, "value")
+                      else str(old_value) if old_value is not None else None)
+            )
+            new_values[field] = (
+                new_value.isoformat() if hasattr(new_value, "isoformat")
+                else (new_value.value if hasattr(new_value, "value")
+                      else str(new_value) if new_value is not None else None)
+            )
+            setattr(policy, field, new_value)
 
-    # Auto-derive status from installments if not explicitly set
-    if "commission_status" not in data:
-        if policy.installments_paid >= 12:
-            policy.commission_status = CommissionStatus.SETTLED
-        elif policy.installments_paid > 0 and policy.commission_status == CommissionStatus.PROJECTED:
-            policy.commission_status = CommissionStatus.IN_PAYMENT
-
-    log_audit(
-        "policies", policy.id, "UPDATE",
-        old_values=old_values,
-        new_values={
-            "installments_paid": policy.installments_paid,
-            "initial_installments_paid": policy.initial_installments_paid,
-            "first_payment_real": policy.first_payment_real.isoformat() if policy.first_payment_real else None,
-            "commission_status": policy.commission_status.value,
-        },
-    )
-    db.session.commit()
+    if new_values:
+        policy.is_locked = True
+        log_audit(
+            "policies", policy.id, "UPDATE",
+            old_values=old_values, new_values=new_values,
+        )
+        db.session.commit()
 
     return jsonify({"data": _serialize_policy(policy, detail=True)})
 
@@ -180,7 +178,6 @@ def _serialize_policy(policy, detail=False):
         "mrr_for_commission": str(policy.mrr_for_commission) if policy.mrr_for_commission else None,
         "closed_date": policy.closed_date.isoformat() if policy.closed_date else None,
         "installments_paid": policy.installments_paid,
-        "initial_installments_paid": policy.initial_installments_paid,
         "commission_status": policy.commission_status.value,
     }
     if detail:

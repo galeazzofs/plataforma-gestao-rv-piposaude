@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from app.extensions import db
-from app.models import Appraisal, AppraisalStatus
+from app.models import Appraisal, AppraisalStatus, Commission
 from app.modules.workflow.transitions import VALID_TRANSITIONS
 
 
@@ -43,14 +43,20 @@ def transition_appraisal(appraisal, new_status, **kwargs):
 
     # Side effects
     if new_status == AppraisalStatus.CALCULATING:
-        from app.modules.commissions.calculator import run_quarterly_appraisal_v2
-        run_quarterly_appraisal_v2(appraisal.quarter, appraisal.year)
-        # Status stays in CALCULATING — RevOps must review the calculated
-        # values and explicitly release to VALIDATING via the review screen.
+        # Run the synchronous calculator. Status stays in CALCULATING —
+        # RevOps reviews and releases manually via "Liberar para Validação".
+        from app.modules.commissions.calculator import run_quarterly_appraisal
+        run_quarterly_appraisal(appraisal.quarter, appraisal.year)
 
     if new_status == AppraisalStatus.LOCKED:
         appraisal.locked_at = datetime.now(timezone.utc)
         appraisal.approved_by_finance = kwargs.get("approved_by")
+        # Mark all non-final commissions of this apuração as final
+        Commission.query.filter_by(
+            quarter=appraisal.quarter,
+            year=appraisal.year,
+            is_final=False,
+        ).update({"is_final": True}, synchronize_session=False)
 
     if new_status == AppraisalStatus.VALIDATING:
         deadline = kwargs.get("validation_deadline")
