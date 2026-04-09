@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone
 from app.extensions import db
-from app.models import User, Policy, Client
+from app.models import User, Policy, Client, PlatformSetting
 from app.models.client import normalize_client_name
 from app.modules.hubspot_sync.client import HubSpotClient
 from app.modules.hubspot_sync.mapper import (
@@ -21,15 +21,47 @@ DEAL_PROPERTIES = ["dealstage", "hs_v2_date_entered_8438574"]
 TICKET_IMPLANT_PROPERTIES = ["previsao_primeiro_pagamento", "mrr_pos_implantacao"]
 
 
+def _email_local(email):
+    """Return the local part of an email (before @)."""
+    return email.split("@")[0].lower() if email else ""
+
+
+def _build_ev_lookup(active_evs):
+    """Build a lookup from email local part → User for active EVs.
+
+    Handles domain mismatch (e.g. @piposaude.com in HubSpot vs
+    @piposaude.com.br in the platform).
+    """
+    return {_email_local(u.email): u for u in active_evs}
+
+
 def run_sync():
     """Main sync job: pull gongoed tickets from HubSpot, upsert into policies.
 
+    Only syncs tickets whose solicitante_demanda matches an active EV/CN
+    user in the platform (matched by email local part to handle domain
+    differences between HubSpot and the platform).
     Returns summary dict.
     """
     client = HubSpotClient()
     created = 0
     updated = 0
+    skipped = 0
     errors = []
+
+    # Pre-load active EV/CN users from our database
+    from app.models import UserRole
+    active_evs = User.query.filter(
+        User.role.in_([UserRole.EV, UserRole.CN]),
+        User.active.is_(True),
+    ).all()
+    ev_lookup = _build_ev_lookup(active_evs)
+    logger.info(f"Active EVs in platform: {len(ev_lookup)} — {list(ev_lookup.keys())}")
+
+    if not ev_lookup:
+        logger.warning("No active EVs found — nothing to sync")
+        return {"timestamp": datetime.now(timezone.utc).isoformat(),
+                "created": 0, "updated": 0, "errors": ["No active EVs in platform"], "error_count": 1}
 
     # Pre-load owner map (owner_id → email) for EV resolution
     try:
@@ -45,6 +77,7 @@ def run_sync():
     ]
 
     after = None
+    processed = 0
     while True:
         try:
             result = client.search_tickets(
@@ -58,12 +91,29 @@ def run_sync():
             break
 
         for ticket in result.get("results", []):
+            # Skip tickets not belonging to active EVs
+            props = ticket.get("properties", {})
+            owner_id_or_email = props.get("solicitante_demanda")
+            if owner_id_or_email:
+                resolved_email = owner_map.get(str(owner_id_or_email), owner_id_or_email)
+            else:
+                resolved_email = None
+
+            local = _email_local(resolved_email) if resolved_email else ""
+            if local not in ev_lookup:
+                skipped += 1
+                continue
+
             try:
-                was_created = _process_ticket(client, ticket, owner_map)
+                was_created = _process_ticket(client, ticket, owner_map, ev_lookup)
                 if was_created:
                     created += 1
                 else:
                     updated += 1
+                processed += 1
+                if processed % 50 == 0:
+                    db.session.commit()
+                    logger.info(f"Sync progress: {processed} tickets processed ({created} created, {updated} updated)")
             except Exception as e:
                 db.session.rollback()
                 ticket_id = ticket.get("id", "unknown")
@@ -79,18 +129,29 @@ def run_sync():
 
     db.session.commit()
 
+    logger.info(f"Sync finished: {created} created, {updated} updated, {skipped} skipped (not active EV)")
+
+    timestamp = datetime.now(timezone.utc).isoformat()
     summary = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": timestamp,
         "created": created,
         "updated": updated,
+        "skipped": skipped,
         "errors": errors,
         "error_count": len(errors),
     }
+
+    PlatformSetting.set("hubspot_last_sync", timestamp, user_id=None)
+    PlatformSetting.set("hubspot_last_sync_errors", errors, user_id=None)
+    PlatformSetting.set("hubspot_last_sync_created", created, user_id=None)
+    PlatformSetting.set("hubspot_last_sync_updated", updated, user_id=None)
+    db.session.commit()
+
     logger.info(f"HubSpot sync completed: {summary}")
     return summary
 
 
-def _process_ticket(hs_client, ticket, owner_map=None):
+def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None):
     """Process a single HubSpot ticket into a policy. Returns True if created.
 
     Respects Policy.is_locked: when set, lockable fields (ev_id, client_id,
@@ -99,16 +160,17 @@ def _process_ticket(hs_client, ticket, owner_map=None):
     benefit_type, deal_*) are always updated.
     """
     owner_map = owner_map or {}
+    ev_lookup = ev_lookup or {}
     props = ticket.get("properties", {})
     ticket_id = ticket["id"]
 
-    # Resolve EV: owner_id → email → user OR direct email fallback
+    # Resolve EV: solicitante_demanda → owner_id → email → local part → User
     owner_id_or_email = props.get("solicitante_demanda")
     if owner_id_or_email:
         ev_email = owner_map.get(str(owner_id_or_email), owner_id_or_email)
     else:
         ev_email = None
-    ev = User.query.filter_by(email=ev_email).first() if ev_email else None
+    ev = ev_lookup.get(_email_local(ev_email)) if ev_email else None
 
     # Upsert client (we need the client to link, regardless of lock state)
     client_name = props.get("cliente___nome_da_empresa", "")
@@ -149,8 +211,35 @@ def _process_ticket(hs_client, ticket, owner_map=None):
             deal_props = deal.get("properties", {})
             policy.deal_stage = deal_props.get("dealstage")
             if not locked:
-                # deploy_date from the deal is also considered lockable context
                 policy.deploy_date = parse_date(deal_props.get("hs_v2_date_entered_8438574"))
+
+            # Navigate deal → tickets to find implantation ticket (spec §3.5)
+            try:
+                ticket_assocs = hs_client.get_associations(
+                    "deals", deal_ids[0], "tickets"
+                )
+                assoc_ticket_ids = [
+                    str(r["toObjectId"])
+                    for r in ticket_assocs.get("results", [])
+                ]
+                implant_ids = [
+                    tid for tid in assoc_ticket_ids if tid != str(ticket_id)
+                ]
+                if implant_ids and not locked:
+                    implant = hs_client.get_ticket(
+                        implant_ids[0], TICKET_IMPLANT_PROPERTIES
+                    )
+                    impl_props = implant.get("properties", {})
+                    policy.first_payment_prev = parse_date(
+                        impl_props.get("previsao_primeiro_pagamento")
+                    )
+                    policy.mrr_post_deploy = parse_decimal(
+                        impl_props.get("mrr_pos_implantacao")
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Implant ticket fetch failed for ticket {ticket_id}: {e}"
+                )
     except Exception as e:
         logger.warning(f"Deal association fetch failed for ticket {ticket_id}: {e}")
 
