@@ -48,20 +48,17 @@ def list_commissions():
 @commissions_bp.route("/summary")
 @require_auth
 def commission_summary():
-    """Summary: saldo a receber, atingimento, projeção."""
+    """Summary: saldo a receber, atingimento, projecao (spec S7 + S9)."""
+    from app.modules.commissions.projection import compute_ev_balance
+
     user = g.current_user
     ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
 
     if not ev_id:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "ev_id required"}}), 400
 
-    # Total estimated balance (non-settled)
-    balance = db.session.query(
-        func.coalesce(func.sum(Commission.total_estimated), 0)
-    ).filter(
-        Commission.ev_id == ev_id,
-        Commission.is_final == False,  # noqa: E712
-    ).scalar()
+    # Live estimated balance from Policy data (spec S9 projection layer)
+    balance = compute_ev_balance(ev_id)
 
     # Current quarter achievement
     today = date.today()
@@ -72,7 +69,6 @@ def commission_summary():
         ev_id=ev_id, quarter=current_quarter, year=current_year
     ).first()
 
-    # TODO: Use db.extract for PostgreSQL — for SQLite compatibility use date range
     quarter_start_month = (current_quarter - 1) * 3 + 1
     quarter_end_month = current_quarter * 3
     start_date = date(current_year, quarter_start_month, 1)
@@ -107,35 +103,23 @@ def commission_summary():
 @commissions_bp.route("/projection")
 @require_auth
 def commission_projection():
-    """12-month projection of estimated receivables."""
+    """12-month projection of estimated receivables (spec S7)."""
+    from app.modules.commissions.projection import compute_ev_projection
+
     user = g.current_user
     ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
 
     if not ev_id:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "ev_id required"}}), 400
 
-    commissions = Commission.query.filter(
-        Commission.ev_id == ev_id,
-        Commission.is_final == False,  # noqa: E712
-    ).all()
+    months = compute_ev_projection(ev_id)
 
-    # Build monthly projection (simplified: spread evenly over remaining months)
-    today = date.today()
-    months = []
-    for i in range(12):
-        month = today.month + i
-        year = today.year + (month - 1) // 12
-        month = ((month - 1) % 12) + 1
-        total = sum(
-            c.monthly_estimated or Decimal("0")
-            for c in commissions
-        )
-        months.append({
-            "month": f"{year}-{month:02d}",
-            "projected": str(total),
-        })
-
-    return jsonify({"data": months})
+    return jsonify({
+        "data": [
+            {"month": m["month"], "projected": str(m["projected"])}
+            for m in months
+        ]
+    })
 
 
 def _serialize_commission(c):
