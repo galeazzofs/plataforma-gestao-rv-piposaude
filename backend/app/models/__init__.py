@@ -1,4 +1,4 @@
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, CnNivel, CnPorte
 from app.models.team import Team
 from app.models.client import Client
 from app.models.policy import Policy, BenefitType, Segment, CommissionStatus
@@ -13,9 +13,10 @@ from app.models.notification import Notification
 from app.models.platform_setting import PlatformSetting
 from app.models.audit_log import AuditLog
 from app.models.ev_quarter_achievement import EvQuarterAchievement
+from app.models.cn_monthly_goal import CnMonthlyGoal
 
 __all__ = [
-    "User", "UserRole",
+    "User", "UserRole", "CnNivel", "CnPorte",
     "Team",
     "Client",
     "Policy", "BenefitType", "Segment", "CommissionStatus",
@@ -30,4 +31,5 @@ __all__ = [
     "PlatformSetting",
     "AuditLog",
     "EvQuarterAchievement",
+    "CnMonthlyGoal",
 ]
