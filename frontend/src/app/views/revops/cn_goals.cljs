@@ -36,15 +36,13 @@
    {:http {:method     :put
            :url        ep/cn-goals
            :body       payload
-           :on-success [:revops/cn-goals-saved]
+           :on-success [:revops/cn-goals-saved (:month payload) (:year payload)]
            :on-failure [:revops/cn-goals-error]}}))
 
 (rf/reg-event-fx
  :revops/cn-goals-saved
- (fn [{:keys [db]} [_ _]]
-   {:dispatch [:revops/fetch-cn-goals
-               (get-in db [:admin :cn-goals-filter :month])
-               (get-in db [:admin :cn-goals-filter :year])]}))
+ (fn [_ [_ month year _response]]
+   {:dispatch [:revops/fetch-cn-goals month year]}))
 
 ;; ── Subs ─────────────────────────────────────────────────────────────────────
 

@@ -38,15 +38,13 @@
    {:http {:method     :post
            :url        ep/cn-appraisal
            :body       payload
-           :on-success [:revops/cn-appraisal-done]
+           :on-success [:revops/cn-appraisal-done (:month payload) (:year payload)]
            :on-failure [:revops/cn-appraisals-error]}}))
 
 (rf/reg-event-fx
  :revops/cn-appraisal-done
- (fn [{:keys [db]} _]
-   {:dispatch [:revops/fetch-cn-appraisals
-               (get-in db [:admin :cn-appraisal-filter :month])
-               (get-in db [:admin :cn-appraisal-filter :year])]}))
+ (fn [_ [_ month year _response]]
+   {:dispatch [:revops/fetch-cn-appraisals month year]}))
 
 (rf/reg-event-fx
  :revops/finalize-cn-appraisal
@@ -65,8 +63,8 @@
 ;; ── View ─────────────────────────────────────────────────────────────────────
 
 (defn page []
-  (let [filter-s (r/atom {:month "4" :year "2026"})
-        inputs   (r/atom {})]
+  (let [filter-s     (r/atom {:month "4" :year "2026"})
+        form-inputs  (r/atom {})]
     (fn []
       (let [items    @(rf/subscribe [:revops/cn-appraisals])
             loading? @(rf/subscribe [:revops/cn-appraisals-loading?])]
@@ -98,7 +96,7 @@
                                        :year   (:year @filter-s)
                                        :inputs (mapv (fn [[cn-id vals]]
                                                        (merge {:cn_id cn-id} vals))
-                                                     @inputs)}]))}
+                                                     @form-inputs)}]))}
            "Rodar Apuração"]
 
           [tbl/table

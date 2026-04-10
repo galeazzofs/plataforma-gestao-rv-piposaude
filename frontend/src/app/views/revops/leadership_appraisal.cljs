@@ -61,8 +61,8 @@
 (rf/reg-sub :revops/leadership-loading? (fn [db _] (get-in db [:admin :leadership-loading?])))
 
 (defn page []
-  (let [filter-s (r/atom {:quarter "1" :year "2026"})
-        inputs   (r/atom {})]
+  (let [filter-s    (r/atom {:quarter "1" :year "2026"})
+        form-inputs (r/atom {})]
     (fn []
       (let [preview  @(rf/subscribe [:revops/leadership-preview])
             results  @(rf/subscribe [:revops/leadership-appraisals])
@@ -95,16 +95,16 @@
                  (str "Meta MRR: R$ " meta_mrr " (auto)")]
                 [inputs/text-field
                  {:label "MRR Realizado"
-                  :value (get-in @inputs [gerente_id :realizado_mrr] "")
-                  :on-change #(swap! inputs assoc-in [gerente_id :realizado_mrr] %)}]
+                  :value (get-in @form-inputs [gerente_id :realizado_mrr] "")
+                  :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_mrr] %)}]
                 [inputs/text-field
                  {:label "Meta SQL" :type :number
-                  :value (get-in @inputs [gerente_id :meta_sql] "")
-                  :on-change #(swap! inputs assoc-in [gerente_id :meta_sql] %)}]
+                  :value (get-in @form-inputs [gerente_id :meta_sql] "")
+                  :on-change #(swap! form-inputs assoc-in [gerente_id :meta_sql] %)}]
                 [inputs/text-field
                  {:label "SQL Realizado" :type :number
-                  :value (get-in @inputs [gerente_id :realizado_sql] "")
-                  :on-change #(swap! inputs assoc-in [gerente_id :realizado_sql] %)}]])])
+                  :value (get-in @form-inputs [gerente_id :realizado_sql] "")
+                  :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_sql] %)}]])])
 
           (when (seq preview)
             [btn/button
@@ -116,7 +116,7 @@
                              :year    (:year @filter-s)
                              :inputs  (mapv (fn [[gid vals]]
                                               (merge {:gerente_id gid} vals))
-                                            @inputs)}]))}
+                                            @form-inputs)}]))}
              "Calcular Bônus"])
 
           (when (seq results)
