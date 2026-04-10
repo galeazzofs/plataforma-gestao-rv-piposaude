@@ -58,17 +58,20 @@ def _compute_meta_mrr(gerente: User, quarter: int, year: int) -> Decimal:
     if team is None:
         return Decimal("0")
 
-    ev_ids = [u.id for u in team.members if u.role == UserRole.EV and u.active]
+    ev_ids = [
+        u.id for u in User.query.filter_by(
+            team_id=team.id, role=UserRole.EV, active=True
+        ).all()
+    ]
     if not ev_ids:
         return Decimal("0")
 
-    total = Decimal("0")
-    for ev_id in ev_ids:
-        goal = Goal.query.filter_by(
-            ev_id=ev_id, quarter=quarter, year=year
-        ).first()
-        if goal:
-            total += Decimal(str(goal.mrr_target))
+    goals = Goal.query.filter(
+        Goal.ev_id.in_(ev_ids),
+        Goal.quarter == quarter,
+        Goal.year == year,
+    ).all()
+    total = sum((Decimal(str(g.mrr_target)) for g in goals), Decimal("0"))
 
     return (total * Decimal("0.90")).quantize(Decimal("0.01"))
 
@@ -82,7 +85,7 @@ def run_leadership_appraisal(
     Skips GERENTEs already is_final=True for this quarter.
     """
     final_ids = {
-        row.gerente_id
+        str(row.gerente_id)
         for row in GerenteQuarterAppraisal.query.filter_by(
             quarter=quarter, year=year, is_final=True
         ).all()
@@ -91,7 +94,7 @@ def run_leadership_appraisal(
     created = 0
     for item in inputs:
         gerente_id = item["gerente_id"]
-        if gerente_id in {str(fid) for fid in final_ids}:
+        if gerente_id in final_ids:  # gerente_id is already str from item["gerente_id"]
             continue
 
         gerente = db.session.get(User, gerente_id)
