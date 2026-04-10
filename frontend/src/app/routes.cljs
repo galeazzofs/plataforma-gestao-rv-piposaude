@@ -15,6 +15,11 @@
      ["/history"    {:name :ev/history    :role #{:EV :CN :ADMIN}}]
      ["/validation" {:name :ev/validation :role #{:EV :CN :ADMIN}}]]
 
+    ;; CN
+    ["/cn"
+     ["/simulator"  {:name :cn/simulator  :role #{:CN :ADMIN}}]
+     ["/dashboard"  {:name :cn/dashboard  :role #{:CN :ADMIN}}]]
+
     ;; Gerente
     ["/gerente"
      ["/dashboard"    {:name :gerente/dashboard  :role #{:GERENTE :ADMIN}}]
@@ -37,6 +42,10 @@
      ["/financial"          {:name :revops/financial        :role #{:ADMIN}}]
      ["/appraisal"          {:name :revops/appraisal        :role #{:ADMIN}}]
      ["/appraisal/:id/review" {:name :revops/appraisal-review :role #{:ADMIN}}]
+     ["/cn-goals"           {:name :revops/cn-goals        :role #{:ADMIN}}]
+     ["/cn-appraisal"       {:name :revops/cn-appraisal    :role #{:ADMIN}}]
+     ["/ev-bonus"           {:name :revops/ev-bonus        :role #{:ADMIN}}]
+     ["/leadership"         {:name :revops/leadership      :role #{:ADMIN}}]
      ["/contestations"      {:name :revops/contestations    :role #{:ADMIN}}]
      ["/sync"               {:name :revops/sync-status      :role #{:ADMIN}}]
      ["/audit"              {:name :revops/audit-log        :role #{:ADMIN}}]

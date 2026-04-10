@@ -49,7 +49,15 @@
             [app.views.revops.audit-log :as revops-audit-log]
             [app.views.revops.settings :as revops-settings]
             [app.views.revops.policies :as revops-policies]
-            [app.views.revops.achievements :as revops-achievements]))
+            [app.views.revops.achievements :as revops-achievements]
+            ;; CN views — new commission features
+            [app.views.cn.simulator :as cn-simulator]
+            [app.views.cn.dashboard :as cn-dashboard]
+            ;; RevOps commission views — new commission features
+            [app.views.revops.cn-goals :as revops-cn-goals]
+            [app.views.revops.cn-appraisal :as revops-cn-appraisal]
+            [app.views.revops.ev-bonus :as revops-ev-bonus]
+            [app.views.revops.leadership-appraisal :as revops-leadership]))
 
 ;; ---------------------------------------------------------------------------
 ;; Route-based view switching
@@ -98,6 +106,16 @@
         :revops/sync-status      [revops-sync-status/sync-status-page]
         :revops/audit-log        [revops-audit-log/audit-log-page]
         :revops/settings         [revops-settings/settings-page]
+
+        ;; CN views
+        :cn/simulator   [cn-simulator/page]
+        :cn/dashboard   [cn-dashboard/page]
+
+        ;; RevOps commission views
+        :revops/cn-goals      [revops-cn-goals/page]
+        :revops/cn-appraisal  [revops-cn-appraisal/page]
+        :revops/ev-bonus      [revops-ev-bonus/page]
+        :revops/leadership    [revops-leadership/page]
 
         ;; Fallback — 404
         [not-found-view/page]))))
