@@ -36,8 +36,9 @@ class User(db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
     refresh_token = db.Column(db.String(500), nullable=True)
     slack_user_id = db.Column(db.String(50), nullable=True)
-    nivel = db.Column(db.Enum(CnNivel, name="cn_nivel"), nullable=True)
-    porte = db.Column(db.Enum(CnPorte, name="cn_porte"), nullable=True)
+    # CN-specific profile fields
+    nivel = db.Column(db.Enum("CN1", "CN2", "CN3", name="cn_nivel"), nullable=True)
+    porte = db.Column(db.Enum("M", "G+", name="cn_porte"), nullable=True)
     salario_base = db.Column(db.Numeric(12, 2), nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
