@@ -25,6 +25,8 @@ class EvQuarterAchievement(db.Model):
     mrr_target = db.Column(db.Numeric(12, 2), nullable=True)
     achievement_pct = db.Column(db.Numeric(8, 4), nullable=True)
     is_final = db.Column(db.Boolean, default=False, nullable=False)
+    bonus_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    salario_base_snapshot = db.Column(db.Numeric(12, 2), nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

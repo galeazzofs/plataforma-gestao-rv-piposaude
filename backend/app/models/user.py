@@ -13,6 +13,17 @@ class UserRole(str, enum.Enum):
     CN = "CN"
 
 
+class CnNivel(str, enum.Enum):
+    CN1 = "CN1"
+    CN2 = "CN2"
+    CN3 = "CN3"
+
+
+class CnPorte(str, enum.Enum):
+    M = "M"
+    G_PLUS = "G+"
+
+
 class User(db.Model):
     __tablename__ = "users"
 
@@ -25,6 +36,10 @@ class User(db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
     refresh_token = db.Column(db.String(500), nullable=True)
     slack_user_id = db.Column(db.String(50), nullable=True)
+    # CN-specific profile fields
+    nivel = db.Column(db.Enum("CN1", "CN2", "CN3", name="cn_nivel"), nullable=True)
+    porte = db.Column(db.Enum("M", "G+", name="cn_porte"), nullable=True)
+    salario_base = db.Column(db.Numeric(12, 2), nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
