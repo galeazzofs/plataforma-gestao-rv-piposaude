@@ -6,6 +6,9 @@ from app.modules.commissions.ev_bonus import run_ev_quarterly_bonus
 
 ev_bonus_bp = Blueprint("ev_bonus", __name__, url_prefix="/api/v1/commissions/ev")
 
+# NOTE: EV bonus finalization (locking is_final=True) is out of scope for this branch.
+# The EvQuarterAchievement.is_final flag is set externally via the quarterly close flow.
+
 
 @ev_bonus_bp.route("/bonus", methods=["POST"])
 @require_auth

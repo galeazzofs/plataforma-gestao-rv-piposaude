@@ -192,6 +192,7 @@ def _serialize_appraisal(a):
     return {
         "id": str(a.id),
         "cn_id": str(a.cn_id),
+        "cn_name": a.cn.name if a.cn else None,
         "month": a.month,
         "year": a.year,
         "sao_realizado": str(a.sao_realizado),

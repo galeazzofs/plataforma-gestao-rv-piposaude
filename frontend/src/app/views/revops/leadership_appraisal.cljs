@@ -123,7 +123,7 @@
             [:div {:style {:margin-top "24px"}}
              [tbl/table
               {:loading? loading?
-               :columns  [{:key :gerente_id   :label "Gerente"}
+               :columns  [{:key :gerente_name  :label "Gerente"}
                           {:key :meta_mrr     :label "Meta MRR"}
                           {:key :pct_mrr      :label "% MRR"}
                           {:key :pct_sql      :label "% SQL"}

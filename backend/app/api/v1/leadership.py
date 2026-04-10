@@ -95,6 +95,7 @@ def _serialize(a):
     return {
         "id": str(a.id),
         "gerente_id": str(a.gerente_id),
+        "gerente_name": a.gerente.name if a.gerente else None,
         "quarter": a.quarter,
         "year": a.year,
         "meta_mrr": str(a.meta_mrr) if a.meta_mrr is not None else None,

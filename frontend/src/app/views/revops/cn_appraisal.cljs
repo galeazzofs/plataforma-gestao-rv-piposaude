@@ -101,7 +101,7 @@
 
           [tbl/table
            {:loading? loading?
-            :columns  [{:key :cn_id          :label "CN"}
+            :columns  [{:key :cn_name         :label "CN"}
                        {:key :score_final     :label "Score"}
                        {:key :multiplicador   :label "Mult."}
                        {:key :commission_amount :label "Comissão (R$)"}
