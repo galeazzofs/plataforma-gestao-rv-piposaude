@@ -34,11 +34,21 @@ def run_appraisal():
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     body = request.get_json()
-    quarter = int(body["quarter"])
-    year = int(body["year"])
-    inputs = body["inputs"]  # [{gerente_id, meta_sql, realizado_mrr, realizado_sql}]
-    result = run_leadership_appraisal(quarter, year, inputs)
-    db.session.commit()
+    if not body:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+    try:
+        quarter = int(body["quarter"])
+        year = int(body["year"])
+        inputs = body["inputs"]
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
+
+    try:
+        result = run_leadership_appraisal(quarter, year, inputs)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
     return jsonify({"data": result})
 
 
@@ -87,13 +97,13 @@ def _serialize(a):
         "gerente_id": str(a.gerente_id),
         "quarter": a.quarter,
         "year": a.year,
-        "meta_mrr": str(a.meta_mrr),
+        "meta_mrr": str(a.meta_mrr) if a.meta_mrr is not None else None,
         "meta_sql": a.meta_sql,
-        "realizado_mrr": str(a.realizado_mrr),
+        "realizado_mrr": str(a.realizado_mrr) if a.realizado_mrr is not None else None,
         "realizado_sql": a.realizado_sql,
-        "pct_mrr": str(a.pct_mrr),
-        "pct_sql": str(a.pct_sql),
-        "multiplicador": str(a.multiplicador),
-        "bonus_amount": str(a.bonus_amount),
+        "pct_mrr": str(a.pct_mrr) if a.pct_mrr is not None else None,
+        "pct_sql": str(a.pct_sql) if a.pct_sql is not None else None,
+        "multiplicador": str(a.multiplicador) if a.multiplicador is not None else None,
+        "bonus_amount": str(a.bonus_amount) if a.bonus_amount is not None else None,
         "is_final": a.is_final,
     }

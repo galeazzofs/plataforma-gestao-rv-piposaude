@@ -15,10 +15,20 @@ def run_bonus():
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     body = request.get_json()
-    quarter = int(body["quarter"])
-    year = int(body["year"])
-    result = run_ev_quarterly_bonus(quarter, year)
-    db.session.commit()
+    if not body:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+    try:
+        quarter = int(body["quarter"])
+        year = int(body["year"])
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
+
+    try:
+        result = run_ev_quarterly_bonus(quarter, year)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
     return jsonify({"data": result})
 
 
@@ -49,8 +59,8 @@ def _serialize(a):
         "ev_id": str(a.ev_id),
         "quarter": a.quarter,
         "year": a.year,
-        "achievement_pct": str(a.achievement_pct) if a.achievement_pct else None,
+        "achievement_pct": str(a.achievement_pct) if a.achievement_pct is not None else None,
         "bonus_amount": str(a.bonus_amount) if a.bonus_amount is not None else None,
-        "salario_base_snapshot": str(a.salario_base_snapshot) if a.salario_base_snapshot else None,
+        "salario_base_snapshot": str(a.salario_base_snapshot) if a.salario_base_snapshot is not None else None,
         "is_final": a.is_final,
     }

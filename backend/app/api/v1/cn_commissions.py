@@ -46,21 +46,29 @@ def upsert_cn_goals():
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     body = request.get_json()
-    month = int(body["month"])
-    year = int(body["year"])
-    items = body["items"]  # [{cn_id, sao_target, vidas_target}]
+    if not body:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+    try:
+        month = int(body["month"])
+        year = int(body["year"])
+        items = body["items"]
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
 
-    for item in items:
-        goal = CnMonthlyGoal.query.filter_by(
-            cn_id=item["cn_id"], month=month, year=year
-        ).first()
-        if goal is None:
-            goal = CnMonthlyGoal(cn_id=item["cn_id"], month=month, year=year)
-            db.session.add(goal)
-        goal.sao_target = Decimal(str(item["sao_target"]))
-        goal.vidas_target = Decimal(str(item["vidas_target"]))
-
-    db.session.commit()
+    try:
+        for item in items:
+            goal = CnMonthlyGoal.query.filter_by(
+                cn_id=item["cn_id"], month=month, year=year
+            ).first()
+            if goal is None:
+                goal = CnMonthlyGoal(cn_id=item["cn_id"], month=month, year=year)
+                db.session.add(goal)
+            goal.sao_target = Decimal(str(item["sao_target"]))
+            goal.vidas_target = Decimal(str(item["vidas_target"]))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
     return jsonify({"data": {"updated": len(items)}}), 200
 
 
@@ -74,16 +82,25 @@ def run_cn_appraisal():
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     body = request.get_json()
-    month = int(body["month"])
-    year = int(body["year"])
-    inputs = body.get("inputs", [])  # [{cn_id, sao_realizado, vidas_realizado}]
+    if not body:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
+    try:
+        month = int(body["month"])
+        year = int(body["year"])
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
+    inputs = body.get("inputs", [])
 
     try:
         result = run_cn_monthly_appraisal_with_inputs(month, year, inputs)
         db.session.commit()
         return jsonify({"data": result})
     except MissingGoalsError as e:
+        db.session.rollback()
         return jsonify({"error": {"code": "MISSING_GOALS", "missing": e.missing}}), 422
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
 
 
 @cn_commissions_bp.route("/appraisal")
@@ -136,6 +153,8 @@ def simulate_cn_endpoint():
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     body = request.get_json()
+    if not body:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
 
     # CN can only simulate with their own nivel
     if user.role == UserRole.CN:
@@ -143,13 +162,16 @@ def simulate_cn_endpoint():
     else:
         nivel = body.get("nivel", "CN1")
 
-    result = simulate_cn(
-        nivel=nivel,
-        sao_meta=Decimal(str(body["sao_meta"])),
-        sao_realizado=Decimal(str(body["sao_realizado"])),
-        vidas_meta=Decimal(str(body["vidas_meta"])),
-        vidas_realizado=Decimal(str(body["vidas_realizado"])),
-    )
+    try:
+        result = simulate_cn(
+            nivel=nivel,
+            sao_meta=Decimal(str(body["sao_meta"])),
+            sao_realizado=Decimal(str(body["sao_realizado"])),
+            vidas_meta=Decimal(str(body["vidas_meta"])),
+            vidas_realizado=Decimal(str(body["vidas_realizado"])),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
     return jsonify({"data": result})
 
 
