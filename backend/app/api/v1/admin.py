@@ -343,6 +343,7 @@ def bulk_update_settings():
     result = {}
     for key, value in data["settings"].items():
         setting = PlatformSetting.set(key, value, user_id=user.id)
+        db.session.flush()  # ensure setting.id is populated before log_audit
         log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": value})
         result[key] = value
 
