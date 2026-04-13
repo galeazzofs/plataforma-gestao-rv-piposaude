@@ -349,6 +349,20 @@
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
 
+(rf/reg-event-fx
+ :revops/delete-appraisal
+ (fn [_ [_ id]]
+   {:http {:method     :delete
+           :url        (ep/appraisal-detail id)
+           :on-success [:revops/appraisal-deleted]
+           :on-failure [:revops/appraisals-error]}}))
+
+(rf/reg-event-fx
+ :revops/appraisal-deleted
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-appraisals]
+                 [:ui/show-toast {:type :success :message "Apuração deletada."}]]}))
+
 ;; ---- Edit Policy (manual override) ----
 
 (rf/reg-event-fx
@@ -492,12 +506,20 @@
            :on-success [:revops/sync-status-loaded]
            :on-failure [:revops/sync-status-error]}}))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  :revops/sync-status-loaded
- (fn [db [_ response]]
-   (-> db
-       (assoc-in [:admin :sync-status]   (get-in response [:data]))
-       (assoc-in [:admin :sync-loading?] false))))
+ (fn [{:keys [db]} [_ response]]
+   (let [data    (get-in response [:data])
+         running (:running data)
+         new-db  (-> db
+                     (assoc-in [:admin :sync-status] data)
+                     (assoc-in [:admin :sync-loading?] false))]
+     (if running
+       ;; Sync still running — poll again in 3 seconds
+       {:db             new-db
+        :dispatch-later [{:ms 3000 :dispatch [:revops/fetch-sync-status]}]}
+       ;; Sync finished — stop polling
+       {:db new-db}))))
 
 (rf/reg-event-db
  :revops/sync-status-error
@@ -505,11 +527,18 @@
 
 (rf/reg-event-fx
  :revops/trigger-sync
- (fn [_ _]
-   {:http {:method     :post
+ (fn [{:keys [db]} _]
+   {:db   (assoc-in db [:admin :sync-loading?] true)
+    :http {:method     :post
            :url        "/admin/sync-trigger"
-           :on-success [:revops/fetch-sync-status]
+           :on-success [:revops/sync-triggered]
            :on-failure [:revops/sync-status-error]}}))
+
+(rf/reg-event-fx
+ :revops/sync-triggered
+ (fn [_ _]
+   ;; Trigger succeeded — start polling for status
+   {:dispatch-later [{:ms 1000 :dispatch [:revops/fetch-sync-status]}]}))
 
 ;; ---- Audit Log ----
 

@@ -13,6 +13,7 @@
   (fn []
     (let [status   @(rf/subscribe [:revops/sync-status])
           loading? @(rf/subscribe [:revops/sync-loading?])
+          running? (:running status)
           user     @(rf/subscribe [:auth/current-user])
           route    @(rf/subscribe [:current-route-name])]
       [layout/page-shell
@@ -24,16 +25,27 @@
         :header-actions
         [btn/button
          {:variant  :primary
-          :loading  loading?
+          :loading  (or loading? running?)
+          :disabled running?
           :on-click #(rf/dispatch [:revops/trigger-sync])}
-         "Sincronizar Agora"]}
+         (if running? "Sincronizando..." "Sincronizar Agora")]}
 
        [cards/card {}
-        (if loading?
+        (if (and loading? (nil? status))
           [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
           (if (nil? status)
             [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Nenhum dado de sync disponível"]
             [:div {:style {:display "flex" :flex-direction "column" :gap "20px"}}
+
+             ;; Running banner
+             (when running?
+               [:div {:style {:padding "12px 16px" :background "#FFF7ED" :border "1px solid #FDBA74"
+                              :border-radius (:md t/border-radius) :display "flex" :align-items "center" :gap "8px"}}
+                [:div {:style {:width "8px" :height "8px" :border-radius "50%" :background "#F97316"
+                               :animation "pulse 1.5s ease-in-out infinite"}}]
+                [:span {:style {:font-size (:sm t/font-sizes) :color "#9A3412" :font-weight (:medium t/font-weights)}}
+                 "Sincronização em andamento... Os dados serão atualizados automaticamente ao concluir."]])
+
              ;; Last sync info
              [:div {:style {:display "grid" :grid-template-columns "1fr 1fr 1fr" :gap "16px"}}
               [:div
@@ -50,7 +62,10 @@
                [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :text-transform "uppercase"}}
                 "Status"]
                [:div {:style {:margin-top "4px"}}
-                [badge/badge {:variant (if (= (:status status) "OK") :success :error)}
+                [badge/badge {:variant (case (:status status)
+                                         "OK"      :success
+                                         "RUNNING" :warning
+                                         :error)}
                  (or (:status status) "—")]]]]
 
              ;; Counts breakdown
