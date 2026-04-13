@@ -100,6 +100,20 @@ def run_sync():
         return {"timestamp": datetime.now(timezone.utc).isoformat(),
                 "created": 0, "updated": 0, "errors": ["No active EVs in platform"], "error_count": 1}
 
+    # Load manual owner ID mapping for users fully deleted from HubSpot
+    # Format: {"hubspot_owner_id": "platform_user_email"}
+    raw_owner_map_setting = PlatformSetting.get("hubspot_owner_map") or {}
+    ev_override_lookup = {}  # owner_id_str → User
+    for oid, email in raw_owner_map_setting.items():
+        local = _email_local(email)
+        u = ev_lookup.get(local)
+        if u:
+            ev_override_lookup[str(oid)] = u
+        else:
+            logger.warning(f"hubspot_owner_map: {oid}→{email!r} doesn't match any active EV")
+    if ev_override_lookup:
+        logger.info(f"Manual owner overrides loaded: {list(ev_override_lookup.keys())}")
+
     # Pre-load owner map (owner_id → {email, name}) for EV resolution
     try:
         owner_map = client.get_all_owners()
@@ -138,7 +152,9 @@ def run_sync():
             if local in ev_lookup:
                 pass  # matched by email
             elif normalized_name and normalized_name in ev_name_lookup:
-                pass  # matched by name (strips HubSpot deactivation suffixes before comparing)
+                pass  # matched by normalized name (strips deactivation suffixes)
+            elif str(owner_id_or_email) in ev_override_lookup:
+                pass  # matched by manual hubspot_owner_map setting
             else:
                 skipped += 1
                 logger.debug(
@@ -148,7 +164,9 @@ def run_sync():
                 continue
 
             try:
-                was_created = _process_ticket(client, ticket, owner_map, ev_lookup, ev_name_lookup)
+                was_created = _process_ticket(
+                    client, ticket, owner_map, ev_lookup, ev_name_lookup, ev_override_lookup
+                )
                 if was_created:
                     created += 1
                 else:
@@ -194,7 +212,7 @@ def run_sync():
     return summary
 
 
-def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None, ev_name_lookup=None):
+def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None, ev_name_lookup=None, ev_override_lookup=None):
     """Process a single HubSpot ticket into a policy. Returns True if created.
 
     Respects Policy.is_locked: when set, lockable fields (ev_id, client_id,
@@ -205,15 +223,18 @@ def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None, ev_name_l
     owner_map = owner_map or {}
     ev_lookup = ev_lookup or {}
     ev_name_lookup = ev_name_lookup or {}
+    ev_override_lookup = ev_override_lookup or {}
     props = ticket.get("properties", {})
     ticket_id = ticket["id"]
 
-    # Resolve EV: solicitante_demanda → owner_id → email/name → User
+    # Resolve EV: solicitante_demanda → owner_id → email/name/override → User
     owner_id_or_email = props.get("solicitante_demanda")
     ev_email, ev_owner_name = _resolve_owner_info(owner_map, owner_id_or_email)
     ev = ev_lookup.get(_email_local(ev_email)) if ev_email else None
     if ev is None and ev_owner_name:
         ev = ev_name_lookup.get(_normalize_owner_name(ev_owner_name))
+    if ev is None and owner_id_or_email:
+        ev = ev_override_lookup.get(str(owner_id_or_email))
 
     # Upsert client (we need the client to link, regardless of lock state)
     client_name = props.get("cliente___nome_da_empresa", "")
