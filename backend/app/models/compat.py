@@ -50,6 +50,8 @@ class JSONType(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return value
+        if dialect.name == "postgresql":
+            return value  # JSONB already deserializes
         if isinstance(value, str):
             return json.loads(value)
         return value

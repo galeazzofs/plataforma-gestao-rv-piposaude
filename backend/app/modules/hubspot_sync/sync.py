@@ -13,10 +13,13 @@ logger = logging.getLogger(__name__)
 TICKET_PROPERTIES = [
     "solicitante_demanda", "cotar___segmentacao_pipo",
     "mrr___receita_mensal", "closed_date",
-    "apolice___beneficio", "cliente___nome_da_empresa",
+    "apolice___beneficio", "parceiro",
+    "cliente___nome_da_empresa",
 ]
 
-DEAL_PROPERTIES = ["dealstage", "hs_v2_date_entered_8438574"]
+DEAL_PROPERTIES = ["dealstage", "data_onboarding", "pipeline", "apolice___beneficio"]
+
+APOLICES_PIPELINE = "2453678"
 
 TICKET_IMPLANT_PROPERTIES = ["previsao_primeiro_pagamento", "mrr_pos_implantacao"]
 
@@ -196,27 +199,51 @@ def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None):
             policy.client_id = client_obj.id
         policy.segment = map_segment(props.get("cotar___segmentacao_pipo"))
         policy.closed_date = parse_date(props.get("closed_date"))
+        partner = props.get("parceiro")
+        if partner:
+            policy.partner_operator = partner.strip()
 
     # Non-lockable fields — always update
-    policy.benefit_type = map_benefit_type(props.get("apolice___beneficio"))
+    ticket_benefit = map_benefit_type(props.get("apolice___beneficio"))
+    policy.benefit_type = ticket_benefit  # may be overridden by deal below
     policy.mrr_projected = parse_decimal(props.get("mrr___receita_mensal"))
 
     # Fetch deal associations (non-lockable — always refresh)
+    # A ticket may be associated with deals in multiple pipelines;
+    # we prefer the deal in the Apólices pipeline for deploy_date.
     try:
         assoc = hs_client.get_associations("tickets", ticket_id, "deals")
         deal_ids = [r["toObjectId"] for r in assoc.get("results", [])]
         if deal_ids:
-            policy.deal_id = str(deal_ids[0])
-            deal = hs_client.get_deal(deal_ids[0], DEAL_PROPERTIES)
-            deal_props = deal.get("properties", {})
+            # Find the deal in the Apólices pipeline; fall back to first deal
+            chosen_deal_id = deal_ids[0]
+            deal_props = {}
+            for did in deal_ids:
+                d = hs_client.get_deal(did, DEAL_PROPERTIES)
+                d_props = d.get("properties", {})
+                if d_props.get("pipeline") == APOLICES_PIPELINE:
+                    chosen_deal_id = did
+                    deal_props = d_props
+                    break
+                if not deal_props:
+                    # Keep first deal as fallback
+                    chosen_deal_id = did
+                    deal_props = d_props
+
+            policy.deal_id = str(chosen_deal_id)
             policy.deal_stage = deal_props.get("dealstage")
             if not locked:
-                policy.deploy_date = parse_date(deal_props.get("hs_v2_date_entered_8438574"))
+                policy.deploy_date = parse_date(deal_props.get("data_onboarding"))
+            # Use deal's benefit type as fallback when ticket has none
+            if not ticket_benefit:
+                deal_benefit = map_benefit_type(deal_props.get("apolice___beneficio"))
+                if deal_benefit:
+                    policy.benefit_type = deal_benefit
 
             # Navigate deal → tickets to find implantation ticket (spec §3.5)
             try:
                 ticket_assocs = hs_client.get_associations(
-                    "deals", deal_ids[0], "tickets"
+                    "deals", chosen_deal_id, "tickets"
                 )
                 assoc_ticket_ids = [
                     str(r["toObjectId"])

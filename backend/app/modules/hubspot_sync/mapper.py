@@ -12,7 +12,7 @@ TICKET_COTACAO_MAP = {
 
 DEAL_MAP = {
     "dealstage": "deal_stage",
-    "hs_v2_date_entered_8438574": "deploy_date",
+    "data_onboarding": "deploy_date",
 }
 
 TICKET_IMPLANT_MAP = {
@@ -34,6 +34,7 @@ SEGMENT_MAP = {
 BENEFIT_MAP = {
     "saude": "SAUDE",
     "saúde": "SAUDE",
+    "saúde e odonto": "SAUDE",
     "odonto": "ODONTO",
     "odontológico": "ODONTO",
     "odontologico": "ODONTO",

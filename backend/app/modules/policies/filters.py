@@ -19,3 +19,15 @@ def active_ev_policies_query():
         .join(User, Policy.ev_id == User.id)
         .filter(User.role == UserRole.EV, User.active.is_(True))
     )
+
+
+def all_ev_policies_query():
+    """Base query returning policies for ALL EVs (active and inactive).
+
+    Used by ADMIN/FINANCE views that need the complete picture.
+    """
+    return (
+        db.session.query(Policy)
+        .join(User, Policy.ev_id == User.id)
+        .filter(User.role.in_([UserRole.EV, UserRole.CN]))
+    )

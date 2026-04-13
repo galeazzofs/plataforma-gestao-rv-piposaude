@@ -4,7 +4,7 @@ from app.auth.decorators import require_auth, require_role
 from app.models import Policy, UserRole
 from app.models.policy import Segment
 from app.api.middlewares import paginate_query, log_audit
-from app.modules.policies.filters import active_ev_policies_query
+from app.modules.policies.filters import active_ev_policies_query, all_ev_policies_query
 from app.extensions import db
 
 policies_bp = Blueprint("policies", __name__, url_prefix="/api/v1/policies")
@@ -44,19 +44,17 @@ def list_policies():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    # Base query: only policies of active EVs (global filter)
-    query = active_ev_policies_query()
-
     # Role-based filtering
-    if user.role in (UserRole.EV, UserRole.CN):
-        query = query.filter(Policy.ev_id == user.id)
+    if user.role in (UserRole.ADMIN, UserRole.FINANCE):
+        query = all_ev_policies_query()
+    elif user.role in (UserRole.EV, UserRole.CN):
+        query = active_ev_policies_query().filter(Policy.ev_id == user.id)
     elif user.role == UserRole.GERENTE:
         from app.models import User
         team_member_ids = [
             u.id for u in User.query.filter_by(team_id=user.team_id, active=True).all()
         ]
-        query = query.filter(Policy.ev_id.in_(team_member_ids))
-    # ADMIN and FINANCE see all
+        query = active_ev_policies_query().filter(Policy.ev_id.in_(team_member_ids))
 
     # Optional filters
     ev_id = request.args.get("ev_id")

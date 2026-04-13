@@ -40,7 +40,7 @@ def seed():
             role=UserRole.ADMIN,
         )
         fernando = User(
-            email="fernando.galeazzo@piposaude.com",
+            email="fernando.galeazzo@piposaude.com.br",
             name="Fernando Galeazzo",
             role=UserRole.ADMIN,
         )
@@ -218,7 +218,7 @@ def seed():
         print("\nSeed complete!")
         print(f"\nAdmin users:")
         print(f"  - Eric Valoz (eric.valoz@piposaude.com) — ADMIN")
-        print(f"  - Fernando Galeazzo (fernando.galeazzo@piposaude.com) — ADMIN")
+        print(f"  - Fernando Galeazzo (fernando.galeazzo@piposaude.com.br) — ADMIN")
         print(f"\nOther users:")
         print(f"  - Frederico Lofredo — FINANCE")
         print(f"  - Felipe Valença — GERENTE (Vendas 1)")
