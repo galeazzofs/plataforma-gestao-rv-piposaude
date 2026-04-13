@@ -58,14 +58,24 @@ def run(csv_path, dry_run=False):
         operadora = (row.get('Operadora')        or '').strip()
         produto   = (row.get('Produto')          or '').strip()
         inicio_raw = (row.get('Inicio_Vigencia') or '').strip()
-        meses_pagos = int((row.get('Meses_Pagos') or '0').strip() or '0')
+        try:
+            meses_pagos = int((row.get('Meses_Pagos') or '0').strip() or '0')
+        except ValueError:
+            print(f'[MISS]  {cliente} | {operadora} | {produto} → Meses_Pagos invalido: {row.get("Meses_Pagos")!r}')
+            missed += 1
+            continue
 
         if meses_pagos == 0 and not inicio_raw:
             print(f'[SKIP]  {cliente} | {operadora} | {produto} → Meses_Pagos=0, sem data')
             skipped += 1
             continue
 
-        first_payment = _parse_date(inicio_raw) if inicio_raw else _infer_first_payment(meses_pagos)
+        try:
+            first_payment = _parse_date(inicio_raw) if inicio_raw else _infer_first_payment(meses_pagos)
+        except ValueError:
+            print(f'[MISS]  {cliente} | {operadora} | {produto} → data invalida: {inicio_raw!r}')
+            missed += 1
+            continue
 
         benefit = _map_benefit(produto)
         if benefit is None:
