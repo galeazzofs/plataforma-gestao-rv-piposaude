@@ -45,30 +45,28 @@ class MissingAchievementsError(Exception):
 
 
 def validate_achievements_for_appraisal(quarter, year):
-    """Verify every (ev_id, gongo_q, gongo_y) needed by this apuracao
-    has a stored achievement.
+    """Verify every EV with active policies has an achievement for the
+    appraisal quarter being calculated.
+
+    Historical achievements (for the policy's gongo quarter) are optional
+    and default to 0% in the calculator.
 
     Returns list of human-readable strings for missing combinations.
     Empty list = ok to proceed.
     """
     policies = active_ev_policies_query().all()
 
-    needed = set()
-    for p in policies:
-        if not p.closed_date or not p.ev_id:
-            continue
-        gq = (p.closed_date.month - 1) // 3 + 1
-        needed.add((p.ev_id, gq, p.closed_date.year))
+    ev_ids = {p.ev_id for p in policies if p.ev_id}
 
     missing = []
-    for ev_id, gq, gy in sorted(needed, key=lambda t: (str(t[0]), t[2], t[1])):
+    for ev_id in sorted(ev_ids, key=str):
         ach = EvQuarterAchievement.query.filter_by(
-            ev_id=ev_id, quarter=gq, year=gy
+            ev_id=ev_id, quarter=quarter, year=year
         ).first()
         if ach is None or ach.achievement_pct is None:
             user = db.session.get(User, ev_id)
             label = user.name if user else str(ev_id)
-            missing.append(f"{label} \u2192 Q{gq}/{gy}")
+            missing.append(f"{label} \u2192 Q{quarter}/{year}")
     return missing
 
 
@@ -170,7 +168,9 @@ def run_quarterly_appraisal(quarter, year):
         matched = None
         for policy in candidates:
             if not policy.first_payment_real:
-                continue
+                if nf.data_recebimento is None:
+                    continue
+                policy.first_payment_real = nf.data_recebimento
             window_end = policy.first_payment_real + relativedelta(
                 months=12 - (policy.initial_installments_paid or 0)
             )
