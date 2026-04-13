@@ -11,11 +11,11 @@ from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, Segment, BenefitType,
 )
-from app.modules.hubspot_sync.sync import _process_ticket
+from app.modules.hubspot_sync.sync import _process_ticket, _build_ev_lookup, _build_ev_name_lookup, _normalize_owner_name
 
 
-def _ev(email):
-    u = User(email=email, name=email, role=UserRole.EV, active=True)
+def _ev(email, name=None):
+    u = User(email=email, name=name or email, role=UserRole.EV, active=True)
     db.session.add(u)
     db.session.flush()
     return u
@@ -30,6 +30,8 @@ def test_sync_preserves_locked_fields(db_session):
     old_client = Client.find_or_create("OldClient")
     new_client_name = "NewClient"
     db.session.flush()
+
+    ev_lookup = _build_ev_lookup([old_ev, new_ev])
 
     policy = Policy(
         hubspot_ticket_id="LOCK-T1",
@@ -59,7 +61,7 @@ def test_sync_preserves_locked_fields(db_session):
     mock_client = MagicMock()
     mock_client.get_associations.return_value = {"results": []}
 
-    _process_ticket(mock_client, ticket, {})
+    _process_ticket(mock_client, ticket, {}, ev_lookup)
     db.session.flush()
     db.session.refresh(policy)
 
@@ -75,6 +77,8 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     ev1 = _ev("unlocked-ev1@x")
     ev2 = _ev("unlocked-ev2@x")
     db.session.flush()
+
+    ev_lookup = _build_ev_lookup([ev1, ev2])
 
     policy = Policy(
         hubspot_ticket_id="UNLOCK-T1",
@@ -102,7 +106,7 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     mock_client = MagicMock()
     mock_client.get_associations.return_value = {"results": []}
 
-    _process_ticket(mock_client, ticket, {})
+    _process_ticket(mock_client, ticket, {}, ev_lookup)
     db.session.flush()
     db.session.refresh(policy)
 
@@ -116,6 +120,8 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     old_ev = _ev("mrr-ev@x")
     old_client = Client.find_or_create("MrrClient")
     db.session.flush()
+
+    ev_lookup = _build_ev_lookup([old_ev])
 
     policy = Policy(
         hubspot_ticket_id="MRR-T1",
@@ -143,7 +149,7 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     mock_client = MagicMock()
     mock_client.get_associations.return_value = {"results": []}
 
-    _process_ticket(mock_client, ticket, {})
+    _process_ticket(mock_client, ticket, {}, ev_lookup)
     db.session.flush()
     db.session.refresh(policy)
 
@@ -152,3 +158,88 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     assert policy.mrr_projected == Decimal("9999")
     # Lockable: preserved
     assert policy.closed_date == date(2025, 6, 1)
+
+
+def test_sync_matches_ev_by_name_fallback(db_session):
+    """When email local-part doesn't match, the EV is resolved by full name."""
+    # EV registered in platform with one email domain...
+    ev = _ev("luciana.rodrigues@piposaude.com.br", name="Luciana Rodrigues")
+    db.session.flush()
+
+    ev_lookup = _build_ev_lookup([ev])
+    ev_name_lookup = _build_ev_name_lookup([ev])
+
+    policy = Policy(hubspot_ticket_id="NAME-T1")
+    db.session.add(policy)
+    db.session.flush()
+
+    # ...but HubSpot stores a different email domain, so local-part won't match
+    # if solicitante_demanda resolves to "luciana.rodrigues@outraempresa.com"
+    # Here we simulate that by passing an owner_map where the ID maps to a
+    # different email, but the name matches.
+    owner_map = {
+        "99": {"email": "luciana.rodrigues@outraempresa.com", "name": "Luciana Rodrigues"},
+    }
+
+    ticket = {
+        "id": "NAME-T1",
+        "properties": {
+            "solicitante_demanda": "99",
+            "cliente___nome_da_empresa": "Cliente Teste",
+            "mrr___receita_mensal": "3000",
+        },
+    }
+
+    mock_client = MagicMock()
+    mock_client.get_associations.return_value = {"results": []}
+
+    _process_ticket(mock_client, ticket, owner_map, ev_lookup, ev_name_lookup)
+    db.session.flush()
+    db.session.refresh(policy)
+
+    assert policy.ev_id == ev.id
+
+
+def test_sync_matches_ev_with_deactivation_suffix(db_session):
+    """HubSpot appends '(usuario desativado/removido)' to deactivated owner names.
+    The name-based fallback must still resolve to the platform EV after stripping the suffix."""
+    ev = _ev("karina.gomes@piposaude.com.br", name="Karina Gomes")
+    db.session.flush()
+
+    ev_lookup = _build_ev_lookup([ev])
+    ev_name_lookup = _build_ev_name_lookup([ev])
+
+    policy = Policy(hubspot_ticket_id="DEACT-T1")
+    db.session.add(policy)
+    db.session.flush()
+
+    # HubSpot returns the owner name with a deactivation suffix; email is empty
+    owner_map = {
+        "77": {"email": None, "name": "Karina Gomes (usuario desativado/removido)"},
+    }
+
+    ticket = {
+        "id": "DEACT-T1",
+        "properties": {
+            "solicitante_demanda": "77",
+            "cliente___nome_da_empresa": "Cliente X",
+            "mrr___receita_mensal": "2000",
+        },
+    }
+
+    mock_client = MagicMock()
+    mock_client.get_associations.return_value = {"results": []}
+
+    _process_ticket(mock_client, ticket, owner_map, ev_lookup, ev_name_lookup)
+    db.session.flush()
+    db.session.refresh(policy)
+
+    assert policy.ev_id == ev.id
+
+
+def test_normalize_owner_name_strips_suffix():
+    assert _normalize_owner_name("Karina Gomes (usuario desativado/removido)") == "karina gomes"
+    assert _normalize_owner_name("Bruno Fernandes") == "bruno fernandes"
+    assert _normalize_owner_name("Milena Vançan (deactivated)") == "milena vançan"
+    assert _normalize_owner_name(None) == ""
+    assert _normalize_owner_name("") == ""

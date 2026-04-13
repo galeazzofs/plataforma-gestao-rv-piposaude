@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timezone
 from app.extensions import db
 from app.models import User, Policy, Client, PlatformSetting
@@ -29,6 +30,17 @@ def _email_local(email):
     return email.split("@")[0].lower() if email else ""
 
 
+def _normalize_owner_name(name):
+    """Normalize a HubSpot owner name for matching.
+
+    HubSpot appends suffixes like "(usuario desativado/removido)" to deactivated
+    user names. Strip any trailing parenthetical before comparing to platform names.
+    """
+    if not name:
+        return ""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", name).strip().lower()
+
+
 def _build_ev_lookup(active_evs):
     """Build a lookup from email local part → User for active EVs.
 
@@ -36,6 +48,27 @@ def _build_ev_lookup(active_evs):
     @piposaude.com.br in the platform).
     """
     return {_email_local(u.email): u for u in active_evs}
+
+
+def _build_ev_name_lookup(active_evs):
+    """Build a lookup from normalized full name → User for active EVs.
+
+    Used as fallback when email local-part matching fails.
+    """
+    return {u.name.strip().lower(): u for u in active_evs}
+
+
+def _resolve_owner_info(owner_map, owner_id_or_email):
+    """Extract email and name from owner_map entry, with fallback.
+
+    owner_map values are {email, name} dicts from get_all_owners().
+    If the key isn't found, treat owner_id_or_email as an email directly.
+    """
+    info = owner_map.get(str(owner_id_or_email)) if owner_id_or_email else None
+    if info:
+        return info.get("email"), info.get("name") or ""
+    # Fallback: the field may already contain an email
+    return owner_id_or_email, ""
 
 
 def run_sync():
@@ -59,6 +92,7 @@ def run_sync():
         User.active.is_(True),
     ).all()
     ev_lookup = _build_ev_lookup(active_evs)
+    ev_name_lookup = _build_ev_name_lookup(active_evs)
     logger.info(f"Active EVs in platform: {len(ev_lookup)} — {list(ev_lookup.keys())}")
 
     if not ev_lookup:
@@ -66,7 +100,7 @@ def run_sync():
         return {"timestamp": datetime.now(timezone.utc).isoformat(),
                 "created": 0, "updated": 0, "errors": ["No active EVs in platform"], "error_count": 1}
 
-    # Pre-load owner map (owner_id → email) for EV resolution
+    # Pre-load owner map (owner_id → {email, name}) for EV resolution
     try:
         owner_map = client.get_all_owners()
         logger.info(f"Loaded {len(owner_map)} HubSpot owners")
@@ -97,18 +131,24 @@ def run_sync():
             # Skip tickets not belonging to active EVs
             props = ticket.get("properties", {})
             owner_id_or_email = props.get("solicitante_demanda")
-            if owner_id_or_email:
-                resolved_email = owner_map.get(str(owner_id_or_email), owner_id_or_email)
-            else:
-                resolved_email = None
+            resolved_email, resolved_name = _resolve_owner_info(owner_map, owner_id_or_email)
 
             local = _email_local(resolved_email) if resolved_email else ""
-            if local not in ev_lookup:
+            normalized_name = _normalize_owner_name(resolved_name)
+            if local in ev_lookup:
+                pass  # matched by email
+            elif normalized_name and normalized_name in ev_name_lookup:
+                pass  # matched by name (strips HubSpot deactivation suffixes before comparing)
+            else:
                 skipped += 1
+                logger.debug(
+                    f"Skipped ticket {ticket.get('id')}: no EV match for "
+                    f"owner={owner_id_or_email!r} email={resolved_email!r} name={resolved_name!r}"
+                )
                 continue
 
             try:
-                was_created = _process_ticket(client, ticket, owner_map, ev_lookup)
+                was_created = _process_ticket(client, ticket, owner_map, ev_lookup, ev_name_lookup)
                 if was_created:
                     created += 1
                 else:
@@ -154,7 +194,7 @@ def run_sync():
     return summary
 
 
-def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None):
+def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None, ev_name_lookup=None):
     """Process a single HubSpot ticket into a policy. Returns True if created.
 
     Respects Policy.is_locked: when set, lockable fields (ev_id, client_id,
@@ -164,16 +204,16 @@ def _process_ticket(hs_client, ticket, owner_map=None, ev_lookup=None):
     """
     owner_map = owner_map or {}
     ev_lookup = ev_lookup or {}
+    ev_name_lookup = ev_name_lookup or {}
     props = ticket.get("properties", {})
     ticket_id = ticket["id"]
 
-    # Resolve EV: solicitante_demanda → owner_id → email → local part → User
+    # Resolve EV: solicitante_demanda → owner_id → email/name → User
     owner_id_or_email = props.get("solicitante_demanda")
-    if owner_id_or_email:
-        ev_email = owner_map.get(str(owner_id_or_email), owner_id_or_email)
-    else:
-        ev_email = None
+    ev_email, ev_owner_name = _resolve_owner_info(owner_map, owner_id_or_email)
     ev = ev_lookup.get(_email_local(ev_email)) if ev_email else None
+    if ev is None and ev_owner_name:
+        ev = ev_name_lookup.get(_normalize_owner_name(ev_owner_name))
 
     # Upsert client (we need the client to link, regardless of lock state)
     client_name = props.get("cliente___nome_da_empresa", "")

@@ -117,6 +117,7 @@
                     (reset! modal-open? true))
         close-edit #(reset! modal-open? false)]
     (rf/dispatch [:revops/fetch-policies @filters])
+    (rf/dispatch [:revops/fetch-users])
     (fn []
       (let [policies @(rf/subscribe [:revops/policies])
             meta     @(rf/subscribe [:revops/policies-meta])

@@ -127,6 +127,12 @@
    (get-in db [:admin :policies-loading?])))
 
 (rf/reg-sub
+ :revops/ev-users
+ :<- [:revops/users]
+ (fn [users _]
+   (filterv #(= (:role %) "EV") (or users []))))
+
+(rf/reg-sub
  :revops/achievements
  (fn [db _]
    (get-in db [:admin :achievements])))
