@@ -35,7 +35,7 @@ class TestSyncImplantTicket:
         MockClient.return_value = mock_client
 
         mock_client.get_all_owners.return_value = {
-            "12345": ev.email,
+            "12345": {"email": ev.email, "name": ev.name},
         }
 
         ticket_id = "impl-test-999"
@@ -99,7 +99,7 @@ class TestSyncImplantTicket:
         MockClient.return_value = mock_client
 
         mock_client.get_all_owners.return_value = {
-            "12345": ev.email,
+            "12345": {"email": ev.email, "name": ev.name},
         }
 
         ticket_id = "impl-test-no-implant-999"

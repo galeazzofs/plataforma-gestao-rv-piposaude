@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 from app.modules.workflow.state_machine import (
     start_appraisal,
     transition_appraisal,
@@ -29,7 +30,10 @@ def test_transition_draft_to_calculating(db_session):
     db_session.flush()
 
     appraisal = start_appraisal(quarter=1, year=2026, created_by=admin.id)
-    transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    # Mock the calculator: this test is about the transition itself, not
+    # about running a full apuracao (calculator is exercised in test_calculator_v2)
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     assert appraisal.status == AppraisalStatus.CALCULATING
 
 
@@ -53,7 +57,10 @@ def test_locked_appraisal_cannot_transition(db_session):
     db_session.flush()
 
     appraisal = start_appraisal(quarter=3, year=2026, created_by=admin.id)
-    transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    # Mock the calculator: this test is about transition validation, not about
+    # running a real apuracao.
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
     transition_appraisal(appraisal, AppraisalStatus.REVIEWING)
     transition_appraisal(appraisal, AppraisalStatus.APPROVED)

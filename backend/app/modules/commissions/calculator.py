@@ -45,28 +45,35 @@ class MissingAchievementsError(Exception):
 
 
 def validate_achievements_for_appraisal(quarter, year):
-    """Verify every EV with active policies has an achievement for the
-    appraisal quarter being calculated.
+    """Verify every (ev_id, gongo_quarter, gongo_year) tuple needed by this
+    apuracao has a stored achievement.
 
-    Historical achievements (for the policy's gongo quarter) are optional
-    and default to 0% in the calculator.
+    Each policy uses the achievement_pct from the EV's GONGO quarter (when
+    the sale closed) as a snapshot — not the appraisal quarter. So we need
+    one achievement per (ev_id, gongo_q, gongo_y) combination across all
+    active policies.
 
     Returns list of human-readable strings for missing combinations.
     Empty list = ok to proceed.
     """
     policies = active_ev_policies_query().all()
 
-    ev_ids = {p.ev_id for p in policies if p.ev_id}
+    needed = set()
+    for p in policies:
+        if not p.closed_date or not p.ev_id:
+            continue
+        gq = (p.closed_date.month - 1) // 3 + 1
+        needed.add((p.ev_id, gq, p.closed_date.year))
 
     missing = []
-    for ev_id in sorted(ev_ids, key=str):
+    for ev_id, gq, gy in sorted(needed, key=lambda t: (str(t[0]), t[2], t[1])):
         ach = EvQuarterAchievement.query.filter_by(
-            ev_id=ev_id, quarter=quarter, year=year
+            ev_id=ev_id, quarter=gq, year=gy
         ).first()
         if ach is None or ach.achievement_pct is None:
             user = db.session.get(User, ev_id)
             label = user.name if user else str(ev_id)
-            missing.append(f"{label} \u2192 Q{quarter}/{year}")
+            missing.append(f"{label} \u2192 Q{gq}/{gy}")
     return missing
 
 
