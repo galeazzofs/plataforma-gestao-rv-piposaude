@@ -240,6 +240,7 @@ def test_sync_matches_ev_with_deactivation_suffix(db_session):
 def test_normalize_owner_name_strips_suffix():
     assert _normalize_owner_name("Karina Gomes (usuario desativado/removido)") == "karina gomes"
     assert _normalize_owner_name("Bruno Fernandes") == "bruno fernandes"
-    assert _normalize_owner_name("Milena Vançan (deactivated)") == "milena vançan"
+    # Accents are stripped (M4 fix): HubSpot/platform names may differ by accents
+    assert _normalize_owner_name("Milena Vançan (deactivated)") == "milena vancan"
     assert _normalize_owner_name(None) == ""
     assert _normalize_owner_name("") == ""

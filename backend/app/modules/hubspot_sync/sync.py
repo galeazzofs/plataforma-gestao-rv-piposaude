@@ -30,6 +30,15 @@ def _email_local(email):
     return email.split("@")[0].lower() if email else ""
 
 
+def _strip_accents(s):
+    """NFD-decompose and drop combining marks."""
+    import unicodedata
+    if not s:
+        return ""
+    decomp = unicodedata.normalize("NFD", str(s).strip().lower())
+    return "".join(c for c in decomp if unicodedata.category(c) != "Mn")
+
+
 def _normalize_owner_name(name):
     """Normalize a HubSpot owner name for matching.
 
@@ -38,7 +47,8 @@ def _normalize_owner_name(name):
     """
     if not name:
         return ""
-    return re.sub(r"\s*\([^)]*\)\s*$", "", name).strip().lower()
+    stripped = re.sub(r"\s*\([^)]*\)\s*$", "", name)
+    return _strip_accents(stripped)
 
 
 def _build_ev_lookup(active_evs):
@@ -55,7 +65,7 @@ def _build_ev_name_lookup(active_evs):
 
     Used as fallback when email local-part matching fails.
     """
-    return {u.name.strip().lower(): u for u in active_evs}
+    return {_strip_accents(u.name): u for u in active_evs}
 
 
 def _resolve_owner_info(owner_map, owner_id_or_email):
@@ -93,7 +103,7 @@ def run_sync():
     ).all()
     ev_lookup = _build_ev_lookup(active_evs)
     ev_name_lookup = _build_ev_name_lookup(active_evs)
-    logger.info(f"Active EVs in platform: {len(ev_lookup)} — {list(ev_lookup.keys())}")
+    logger.info(f"Active EVs in platform: {len(ev_lookup)}")
 
     if not ev_lookup:
         logger.warning("No active EVs found — nothing to sync")
@@ -206,6 +216,7 @@ def run_sync():
     PlatformSetting.set("hubspot_last_sync_errors", errors, user_id=None)
     PlatformSetting.set("hubspot_last_sync_created", created, user_id=None)
     PlatformSetting.set("hubspot_last_sync_updated", updated, user_id=None)
+    PlatformSetting.set("hubspot_last_sync_skipped", skipped, user_id=None)
     db.session.commit()
 
     logger.info(f"HubSpot sync completed: {summary}")

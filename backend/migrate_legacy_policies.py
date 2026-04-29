@@ -29,7 +29,11 @@ def _normalize(s):
 
 
 def _parse_date(s):
-    day, month, year = s.strip().split('/')
+    """Parse DD/MM/YYYY. Raises ValueError on bad format."""
+    parts = s.strip().split('/')
+    if len(parts) != 3:
+        raise ValueError(f"Expected DD/MM/YYYY, got {s!r}")
+    day, month, year = parts
     return date(int(year), int(month), int(day))
 
 
@@ -83,7 +87,30 @@ def run(csv_path, dry_run=False):
             missed += 1
             continue
 
-        client = Client.query.filter_by(name_normalized=_normalize(cliente)).first()
+        norm_cliente = _normalize(cliente)
+        client = Client.query.filter_by(name_normalized=norm_cliente).first()
+        if client is None:
+            # Partial match: do the DB-side direction with escaped wildcards,
+            # then filter the reverse direction in Python to avoid SQL
+            # wildcard injection via db.literal(user_string).contains(...).
+            safe = norm_cliente.replace('\\', '\\\\').replace('%', r'\%').replace('_', r'\_')
+            db_candidates = Client.query.filter(
+                Client.name_normalized.like(f'%{safe}%', escape='\\')
+            ).all()
+            # Reverse direction: DB name contained in CSV name (Python-side, safe).
+            extra = [
+                c for c in Client.query.all()
+                if _normalize(c.name) and _normalize(c.name) in norm_cliente
+                and c not in db_candidates
+            ]
+            candidates = db_candidates + extra
+            if len(candidates) == 1:
+                client = candidates[0]
+                print(f'[PARTIAL]  {cliente} → matched to "{client.name}"')
+            elif len(candidates) > 1:
+                print(f'[MISS]  {cliente} → múltiplos matches parciais: {[c.name for c in candidates]}')
+                missed += 1
+                continue
         if client is None:
             print(f'[MISS]  {cliente} → cliente não encontrado no banco')
             missed += 1
@@ -103,6 +130,12 @@ def run(csv_path, dry_run=False):
 
         if policy.is_locked:
             print(f'[SKIP]  {cliente} | {operadora} | {produto} → policy is_locked=True')
+            skipped += 1
+            continue
+
+        # Idempotency: skip if this baseline was already migrated
+        if (policy.initial_installments_paid or 0) > 0 and policy.first_payment_real:
+            print(f'[SKIP]  {cliente} | {operadora} | {produto} → baseline já migrado')
             skipped += 1
             continue
 

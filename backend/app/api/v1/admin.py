@@ -8,6 +8,18 @@ from app.extensions import db
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/v1/admin")
 
+# Allowlist of platform_settings keys writable via the admin API.
+# Anything not in this set is rejected with 400. Adding a new key here is
+# an explicit decision because settings can change runtime behavior
+# (HubSpot owner mapping, sync intervals, default targets, etc.).
+WRITABLE_SETTINGS = {
+    "hubspot_owner_map",
+    "hubspot_sync_interval_minutes",
+    "default_quarterly_target",
+    "default_commission_table_version",
+    "perk_match_strict",
+}
+
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -415,10 +427,12 @@ def sync_status():
     sync_errors = PlatformSetting.get("hubspot_last_sync_errors", [])
     sync_created = PlatformSetting.get("hubspot_last_sync_created", 0)
     sync_updated = PlatformSetting.get("hubspot_last_sync_updated", 0)
+    sync_skipped = PlatformSetting.get("hubspot_last_sync_skipped", 0)
     running = PlatformSetting.get("hubspot_sync_running", False)
 
     created = sync_created if isinstance(sync_created, int) else 0
     updated = sync_updated if isinstance(sync_updated, int) else 0
+    skipped = sync_skipped if isinstance(sync_skipped, int) else 0
     error_list = sync_errors if isinstance(sync_errors, list) else []
 
     if running:
@@ -434,7 +448,7 @@ def sync_status():
             "records_synced": created + updated,
             "running": bool(running),
             "status": display_status,
-            "counts": {"created": created, "updated": updated},
+            "counts": {"created": created, "updated": updated, "skipped": skipped},
             "errors": error_list,
         }
     })
