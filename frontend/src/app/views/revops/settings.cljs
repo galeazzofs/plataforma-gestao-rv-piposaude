@@ -74,18 +74,24 @@
 (defn settings-page []
   (r/with-let [local-settings (r/atom nil)
                owner-map-rows (r/atom [])
+               settings-sub   (rf/subscribe [:revops/settings])
+               ;; r/track! runs the body whenever the sub changes, OUTSIDE the
+               ;; render cycle. Avoids the Reagent anti-pattern of calling
+               ;; reset! during render (which triggers re-render of subscribers).
+               init-track     (r/track!
+                               (fn []
+                                 (let [s @settings-sub]
+                                   (when (and s (nil? @local-settings))
+                                     (reset! local-settings s)
+                                     (reset! owner-map-rows
+                                             (map->rows (:hubspot_owner_map s)))))))
                _              (do (rf/dispatch [:revops/fetch-settings])
                                   (rf/dispatch [:revops/fetch-users]))]
-    (let [settings @(rf/subscribe [:revops/settings])
+    (let [settings @settings-sub
           loading? @(rf/subscribe [:revops/settings-loading?])
           ev-users @(rf/subscribe [:revops/ev-users])
           user     @(rf/subscribe [:auth/current-user])
           route    @(rf/subscribe [:current-route-name])]
-
-      ;; Sync local state once settings are loaded (one-time init)
-      (when (and settings (nil? @local-settings))
-        (reset! local-settings settings)
-        (reset! owner-map-rows (map->rows (:hubspot_owner_map settings))))
 
       (let [form (or @local-settings settings {})]
 

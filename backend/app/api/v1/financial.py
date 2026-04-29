@@ -13,6 +13,11 @@ from app.auth.decorators import require_auth, require_role
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
 from app.models import ImportBatch, UserRole
+from app.modules.financial.parser import parse_financial_xlsx, ParseError
+from app.modules.financial.perk_parser import parse_perk_xlsx, PerkParseError
+from app.modules.financial.processor import (
+    persist_financial_rows, persist_perk_rows, UploadBlockedError,
+)
 
 financial_bp = Blueprint("financial", __name__, url_prefix="/api/v1/financial")
 
@@ -97,11 +102,6 @@ def upload_financial():
     file.save(path)
 
     try:
-        from app.modules.financial.parser import parse_financial_xlsx, ParseError
-        from app.modules.financial.processor import (
-            persist_financial_rows, UploadBlockedError,
-        )
-
         try:
             parsed = parse_financial_xlsx(path, quarter, year)
         except ParseError as e:
@@ -186,11 +186,6 @@ def upload_perks():
     file.save(path)
 
     try:
-        from app.modules.financial.perk_parser import parse_perk_xlsx, PerkParseError
-        from app.modules.financial.processor import (
-            persist_perk_rows, UploadBlockedError,
-        )
-
         try:
             parsed = parse_perk_xlsx(path, quarter, year)
         except PerkParseError as e:

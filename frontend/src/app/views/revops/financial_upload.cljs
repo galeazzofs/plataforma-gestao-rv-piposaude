@@ -18,7 +18,7 @@
                       :background t/beige-100
                       :border-radius (:md t/border-radius)
                       :align-items "flex-start"}}
-        [:span {:style {:font-size "20px"}} "ℹ️"]
+        [:span {:style {:font-size "20px"}} [:span {:aria-hidden "true"} "ℹ️"]]
         [:div {:style {:flex 1}}
          [:p {:style {:color t/text-primary :margin "0 0 8px 0"
                       :font-size (:sm t/font-sizes)
@@ -137,7 +137,7 @@
                       :background t/beige-100
                       :border-radius (:md t/border-radius)
                       :align-items "flex-start"}}
-        [:span {:style {:font-size "20px"}} "ℹ️"]
+        [:span {:style {:font-size "20px"}} [:span {:aria-hidden "true"} "ℹ️"]]
         [:div {:style {:flex 1}}
          [:p {:style {:color t/text-primary :margin "0 0 8px 0"
                       :font-size (:sm t/font-sizes)
@@ -259,7 +259,7 @@
           loading?
           [:div {:style {:padding "48px" :text-align "center"
                          :color t/text-secondary}}
-           [:div {:style {:font-size "32px" :margin-bottom "12px"}} "⚙️"]
+           [:div {:style {:font-size "32px" :margin-bottom "12px"}} [:span {:aria-hidden "true"} "⚙️"]]
            "Processando arquivo..."]
 
           result
@@ -275,7 +275,7 @@
            perk-loading?
            [:div {:style {:padding "48px" :text-align "center"
                           :color t/text-secondary}}
-            [:div {:style {:font-size "32px" :margin-bottom "12px"}} "⚙️"]
+            [:div {:style {:font-size "32px" :margin-bottom "12px"}} [:span {:aria-hidden "true"} "⚙️"]]
             "Processando subsídios..."]
 
            perk-result

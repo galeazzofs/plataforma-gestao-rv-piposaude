@@ -34,7 +34,7 @@ def refresh():
         return jsonify({"error": {"code": "UNAUTHORIZED", "message": str(e)}}), 401
     if payload.get("type") != "refresh":
         return jsonify({"error": {"code": "UNAUTHORIZED", "message": "Invalid token type"}}), 401
-    user = User.query.get(payload["sub"])
+    user = db.session.get(User, payload["sub"])
     if user is None or not user.active:
         return jsonify({"error": {"code": "UNAUTHORIZED", "message": "User not found"}}), 401
     if user.refresh_token != refresh_token:
@@ -43,12 +43,27 @@ def refresh():
     return jsonify({"data": {"access_token": access_token}})
 
 
+def _dev_login_enabled():
+    """Dev-only endpoints (dev-login, dev-users) require BOTH DEBUG=True AND
+    an explicit DEV_LOGIN_ENABLED=true env var. DEBUG defaults to True in
+    DevConfig — relying on it alone means a misconfigured stag/prod with
+    FLASK_ENV=dev would expose unauthenticated user enumeration.
+    """
+    import os
+    from flask import current_app
+    return (
+        current_app.config.get("DEBUG")
+        and os.environ.get("DEV_LOGIN_ENABLED", "").lower() in ("1", "true", "yes")
+    )
+
+
 @auth_bp.route("/dev-login", methods=["POST"])
 def dev_login():
-    """Dev-only login by email. Bypasses Google OAuth for local testing."""
-    from flask import current_app
-    if not current_app.config.get("DEBUG"):
-        return jsonify({"error": {"code": "FORBIDDEN", "message": "Dev login only available in debug mode"}}), 403
+    """Dev-only login by email. Bypasses Google OAuth for local testing.
+    Gated behind both DEBUG and DEV_LOGIN_ENABLED env var.
+    """
+    if not _dev_login_enabled():
+        return jsonify({"error": {"code": "FORBIDDEN", "message": "Dev login disabled"}}), 403
 
     email = request.json.get("email")
     if not email:
@@ -85,9 +100,10 @@ def dev_login():
 
 @auth_bp.route("/dev-users")
 def dev_users():
-    """Dev-only: list available users for dev-login picker."""
-    from flask import current_app
-    if not current_app.config.get("DEBUG"):
+    """Dev-only: list available users for dev-login picker.
+    Gated behind both DEBUG and DEV_LOGIN_ENABLED env var.
+    """
+    if not _dev_login_enabled():
         return jsonify({"error": {"code": "FORBIDDEN", "message": "Dev only"}}), 403
 
     users = User.query.filter_by(active=True).all()

@@ -384,16 +384,35 @@ def update_setting(key):
 @admin_bp.route("/sync-trigger", methods=["POST"])
 @require_role(UserRole.ADMIN)
 def sync_trigger():
-    """Manually trigger a HubSpot sync (runs in background thread)."""
+    """Manually trigger a HubSpot sync (runs in background thread).
+
+    Uses an atomic UPDATE + rowcount check to avoid the TOCTOU race that
+    a separate read-then-write would have (two simultaneous POSTs could
+    both observe `running=False` and spawn parallel sync threads).
+    """
     import threading
     from flask import current_app
 
-    # Prevent concurrent syncs
-    running = PlatformSetting.get("hubspot_sync_running", False)
-    if running:
-        return jsonify({"data": {"status": "already_running"}}), 409
-
-    PlatformSetting.set("hubspot_sync_running", True, user_id=None)
+    # Atomic "claim the lock" — set running=True only if currently false-or-missing.
+    # PlatformSetting stores values as JSON, so "false"/"true" are the JSON forms.
+    from sqlalchemy import text
+    result = db.session.execute(
+        text("""
+            UPDATE platform_settings
+               SET value = 'true'
+             WHERE key = 'hubspot_sync_running'
+               AND value IN ('false', 'null')
+        """)
+    )
+    if result.rowcount == 0:
+        # No row updated — either lock is already held, OR the row doesn't exist.
+        # Check current state to distinguish.
+        current = PlatformSetting.get("hubspot_sync_running", False)
+        if current:
+            db.session.rollback()
+            return jsonify({"data": {"status": "already_running"}}), 409
+        # Row missing — create it atomically.
+        PlatformSetting.set("hubspot_sync_running", True, user_id=None)
     db.session.commit()
 
     app = current_app._get_current_object()
