@@ -43,6 +43,7 @@
 (def commission-table        "/admin/commission-table")
 (def commission-table-import "/admin/commission-table/import")
 (def financial-upload "/financial/upload")
+(def perk-upload "/financial/upload-perks")
 (def settings "/admin/settings")
 (def sync-status    "/admin/sync-status")
 (def sync-trigger   "/admin/sync-trigger")

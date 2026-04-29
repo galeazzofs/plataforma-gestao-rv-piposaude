@@ -1,13 +1,20 @@
 from datetime import date, datetime
+from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth, require_role
 from app.models import Policy, UserRole
 from app.models.policy import Segment
 from app.api.middlewares import paginate_query, log_audit
-from app.modules.policies.filters import active_ev_policies_query
+from app.modules.policies.filters import active_ev_policies_query, all_ev_policies_query
+from app.modules.commissions.status import update_policy_statuses
 from app.extensions import db
 
 policies_bp = Blueprint("policies", __name__, url_prefix="/api/v1/policies")
+
+# Reference month: the last apuração before the platform launched.
+# Used ONLY for legacy migration scenarios. A modern apuração that
+# needs a date should always pass it explicitly.
+LAST_APPRAISAL_DATE = date(2025, 12, 1)
 
 
 EDITABLE_FIELDS = {
@@ -44,19 +51,21 @@ def list_policies():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    # Base query: only policies of active EVs (global filter)
-    query = active_ev_policies_query()
-
     # Role-based filtering
-    if user.role in (UserRole.EV, UserRole.CN):
-        query = query.filter(Policy.ev_id == user.id)
+    if user.role in (UserRole.ADMIN, UserRole.FINANCE):
+        query = all_ev_policies_query()
+    elif user.role in (UserRole.EV, UserRole.CN):
+        query = active_ev_policies_query().filter(Policy.ev_id == user.id)
     elif user.role == UserRole.GERENTE:
         from app.models import User
         team_member_ids = [
             u.id for u in User.query.filter_by(team_id=user.team_id, active=True).all()
         ]
-        query = query.filter(Policy.ev_id.in_(team_member_ids))
-    # ADMIN and FINANCE see all
+        query = active_ev_policies_query().filter(Policy.ev_id.in_(team_member_ids))
+    else:
+        return jsonify({
+            "error": {"code": "FORBIDDEN", "message": "Role not permitted"}
+        }), 403
 
     # Optional filters
     ev_id = request.args.get("ev_id")
@@ -67,18 +76,34 @@ def list_policies():
     if client_id:
         query = query.filter(Policy.client_id == client_id)
 
-    # TODO: quarter/year filtering requires PostgreSQL extract — use date range instead
-    quarter = request.args.get("quarter", type=int)
+    # Quarter/year filtering — supports single quarter (e.g. "2") or range (e.g. "1-4")
+    quarter_raw = request.args.get("quarter", "").strip()
     year = request.args.get("year", type=int)
-    if quarter and year:
-        # Build date range for the quarter
-        quarter_start_month = (quarter - 1) * 3 + 1
-        quarter_end_month = quarter * 3
-        start_date = date(year, quarter_start_month, 1)
-        if quarter_end_month == 12:
+    if year:
+        q_start, q_end = 1, 4  # default: full year
+        if quarter_raw:
+            if "-" in quarter_raw:
+                parts = quarter_raw.split("-")
+                try:
+                    q_start, q_end = int(parts[0]), int(parts[1])
+                except (ValueError, IndexError):
+                    q_start, q_end = 1, 4
+            else:
+                try:
+                    q_start = q_end = int(quarter_raw)
+                except ValueError:
+                    q_start, q_end = 1, 4
+        q_start = max(1, min(4, q_start))
+        q_end = max(1, min(4, q_end))
+        if q_start > q_end:
+            q_start, q_end = q_end, q_start  # accept reversed input gracefully
+        start_month = (q_start - 1) * 3 + 1
+        end_month = q_end * 3
+        start_date = date(year, start_month, 1)
+        if end_month == 12:
             end_date = date(year + 1, 1, 1)
         else:
-            end_date = date(year, quarter_end_month + 1, 1)
+            end_date = date(year, end_month + 1, 1)
         query = query.filter(
             Policy.closed_date >= start_date,
             Policy.closed_date < end_date,
@@ -156,6 +181,30 @@ def update_policy(policy_id):
 
     if new_values:
         policy.is_locked = True
+
+        # Infer first_payment_real ONLY for legacy policies (closed before
+        # the platform launched). A modern apuração that needs this date
+        # should pass it explicitly to avoid silent date errors.
+        if "initial_installments_paid" in new_values and "first_payment_real" not in data:
+            meses = policy.initial_installments_paid or 0
+            is_legacy = (
+                policy.closed_date is not None
+                and policy.closed_date < LAST_APPRAISAL_DATE
+            )
+            if meses > 0 and not policy.first_payment_real and is_legacy:
+                policy.first_payment_real = (
+                    LAST_APPRAISAL_DATE - relativedelta(months=meses - 1)
+                )
+
+        # Only RAISE installments_paid if the new baseline is higher than the
+        # running counter. The calculator increments installments_paid each
+        # apuração — clobbering on every PUT erases that progress.
+        if "initial_installments_paid" in new_values or "first_payment_real" in new_values:
+            new_baseline = policy.initial_installments_paid or 0
+            if new_baseline > (policy.installments_paid or 0):
+                policy.installments_paid = new_baseline
+            update_policy_statuses([policy])
+
         log_audit(
             "policies", policy.id, "UPDATE",
             old_values=old_values, new_values=new_values,
@@ -183,6 +232,7 @@ def _serialize_policy(policy, detail=False):
         "first_payment_prev": policy.first_payment_prev.isoformat() if policy.first_payment_prev else None,
         "deal_stage": policy.deal_stage,
         "installments_paid": policy.installments_paid,
+        "initial_installments_paid": policy.initial_installments_paid,
         "commission_status": policy.commission_status.value,
     }
     if detail:

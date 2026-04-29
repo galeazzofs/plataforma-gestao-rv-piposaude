@@ -251,6 +251,50 @@
        (assoc-in [:admin :upload-result] nil)
        (assoc-in [:admin :upload-loading?] false))))
 
+;; ---- Perk/subsidy upload ----
+
+(rf/reg-event-fx
+ :revops/upload-perks
+ (fn [{:keys [db]} [_ file quarter year]]
+   (let [fd (js/FormData.)]
+     (.append fd "file" file)
+     (.append fd "quarter" (str quarter))
+     (.append fd "year" (str year))
+     {:db   (-> db
+                (assoc-in [:admin :perk-upload-loading?] true)
+                (assoc-in [:admin :perk-upload-result] nil))
+      :http {:method     :post
+             :url        ep/perk-upload
+             :body       fd
+             :on-success [:revops/perk-upload-success]
+             :on-failure [:revops/perk-upload-error]}})))
+
+(rf/reg-event-fx
+ :revops/perk-upload-success
+ (fn [{:keys [db]} [_ response]]
+   {:db (-> db
+            (assoc-in [:admin :perk-upload-result] (:data response))
+            (assoc-in [:admin :perk-upload-loading?] false))
+    :dispatch [:ui/show-toast
+               {:type :success
+                :message (str "Upload de subsídios concluído: "
+                              (get-in response [:data :matched]) " matched, "
+                              (get-in response [:data :missed]) " missed.")}]}))
+
+(rf/reg-event-fx
+ :revops/perk-upload-error
+ (fn [{:keys [db]} [_ resp]]
+   (let [err (or (get-in resp [:error :message]) "Erro ao processar arquivo de subsídios")]
+     {:db (assoc-in db [:admin :perk-upload-loading?] false)
+      :dispatch [:ui/show-toast {:type :error :message err}]})))
+
+(rf/reg-event-db
+ :revops/perk-upload-reset
+ (fn [db _]
+   (-> db
+       (assoc-in [:admin :perk-upload-result] nil)
+       (assoc-in [:admin :perk-upload-loading?] false))))
+
 ;; ---- Appraisal ----
 
 (rf/reg-event-fx
@@ -349,6 +393,20 @@
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
 
+(rf/reg-event-fx
+ :revops/delete-appraisal
+ (fn [_ [_ id]]
+   {:http {:method     :delete
+           :url        (ep/appraisal-detail id)
+           :on-success [:revops/appraisal-deleted]
+           :on-failure [:revops/appraisals-error]}}))
+
+(rf/reg-event-fx
+ :revops/appraisal-deleted
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-appraisals]
+                 [:ui/show-toast {:type :success :message "Apuração deletada."}]]}))
+
 ;; ---- Edit Policy (manual override) ----
 
 (rf/reg-event-fx
@@ -362,8 +420,8 @@
 
 (rf/reg-event-fx
  :revops/policy-updated
- (fn [_ _]
-   {:dispatch-n [[:revops/fetch-policies]
+ (fn [{:keys [db]} _]
+   {:dispatch-n [[:revops/fetch-policies (get-in db [:admin :policies-filters])]
                  [:ui/show-toast {:type :success :message "Apólice atualizada"}]]}))
 
 (rf/reg-event-fx
@@ -492,12 +550,20 @@
            :on-success [:revops/sync-status-loaded]
            :on-failure [:revops/sync-status-error]}}))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  :revops/sync-status-loaded
- (fn [db [_ response]]
-   (-> db
-       (assoc-in [:admin :sync-status]   (get-in response [:data]))
-       (assoc-in [:admin :sync-loading?] false))))
+ (fn [{:keys [db]} [_ response]]
+   (let [data    (get-in response [:data])
+         running (:running data)
+         new-db  (-> db
+                     (assoc-in [:admin :sync-status] data)
+                     (assoc-in [:admin :sync-loading?] false))]
+     (if running
+       ;; Sync still running — poll again in 3 seconds
+       {:db             new-db
+        :dispatch-later [{:ms 3000 :dispatch [:revops/fetch-sync-status]}]}
+       ;; Sync finished — stop polling
+       {:db new-db}))))
 
 (rf/reg-event-db
  :revops/sync-status-error
@@ -505,11 +571,18 @@
 
 (rf/reg-event-fx
  :revops/trigger-sync
- (fn [_ _]
-   {:http {:method     :post
+ (fn [{:keys [db]} _]
+   {:db   (assoc-in db [:admin :sync-loading?] true)
+    :http {:method     :post
            :url        "/admin/sync-trigger"
-           :on-success [:revops/fetch-sync-status]
+           :on-success [:revops/sync-triggered]
            :on-failure [:revops/sync-status-error]}}))
+
+(rf/reg-event-fx
+ :revops/sync-triggered
+ (fn [_ _]
+   ;; Trigger succeeded — start polling for status
+   {:dispatch-later [{:ms 1000 :dispatch [:revops/fetch-sync-status]}]}))
 
 ;; ---- Audit Log ----
 
@@ -574,7 +647,9 @@
 (rf/reg-event-fx
  :revops/fetch-policies
  (fn [{:keys [db]} [_ params]]
-   {:db   (assoc-in db [:admin :policies-loading?] true)
+   {:db   (-> db
+               (assoc-in [:admin :policies-loading?] true)
+               (assoc-in [:admin :policies-filters] params))
     :http {:method     :get
            :url        (str ep/policies
                             "?" (clojure.string/join "&"

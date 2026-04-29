@@ -15,6 +15,7 @@ from app.modules.workflow.state_machine import (
     transition_appraisal,
     InvalidTransitionError,
 )
+from app.modules.commissions.calculator import MissingAchievementsError
 
 workflow_bp = Blueprint("workflow", __name__, url_prefix="/api/v1/appraisals")
 
@@ -64,6 +65,12 @@ def create_appraisal():
 
     if not quarter or not year:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year required"}}), 400
+
+    try:
+        quarter = int(quarter)
+        year = int(year)
+    except (ValueError, TypeError):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year must be integers"}}), 400
 
     user = g.current_user
 
@@ -120,8 +127,51 @@ def transition(appraisal_id):
     except InvalidTransitionError as e:
         db.session.rollback()
         return jsonify({"error": {"code": "INVALID_TRANSITION", "message": str(e)}}), 422
+    except MissingAchievementsError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "MISSING_ACHIEVEMENTS", "message": str(e), "missing": e.missing}}), 422
 
     return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+
+
+@workflow_bp.route("/<appraisal_id>", methods=["DELETE"])
+@require_role(UserRole.ADMIN)
+def delete_appraisal(appraisal_id):
+    """Delete an appraisal and its associated commissions / NF matches.
+
+    Only allowed when status is NOT LOCKED.
+    """
+    appraisal = db.session.get(Appraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
+
+    if appraisal.status == AppraisalStatus.LOCKED:
+        return jsonify({
+            "error": {"code": "CONFLICT", "message": "Não é possível deletar apuração LOCKED"},
+        }), 409
+
+    quarter, year = appraisal.quarter, appraisal.year
+
+    # Delete non-final commissions for this quarter
+    Commission.query.filter_by(quarter=quarter, year=year, is_final=False).delete()
+
+    # Reset NF match status back to UNMATCHED
+    FinancialImport.query.filter(
+        FinancialImport.quarter == quarter,
+        FinancialImport.year == year,
+    ).update({
+        FinancialImport.match_status: 'UNMATCHED',
+        FinancialImport.policy_id: None,
+        FinancialImport.matched_at: None,
+    })
+
+    log_audit("appraisals", appraisal.id, "DELETE",
+              old_values={"quarter": quarter, "year": year, "status": appraisal.status.value})
+
+    db.session.delete(appraisal)
+    db.session.commit()
+
+    return jsonify({"data": {"deleted": True}}), 200
 
 
 @workflow_bp.route("/<appraisal_id>/recalculate", methods=["POST"])

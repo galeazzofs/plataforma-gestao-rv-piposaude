@@ -1,9 +1,16 @@
 import os
 
 
+def _split_csv(value):
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 class Config:
     """Base configuration."""
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
+    # SECRET_KEY has no fallback in non-test envs — see DevConfig/TestConfig
+    SECRET_KEY = os.environ.get("SECRET_KEY")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", "postgresql+psycopg://localhost:5432/comissoes_dev"
@@ -21,14 +28,25 @@ class Config:
     SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
     DEFAULT_PAGE_SIZE = 20
     MAX_PAGE_SIZE = 100
+    # Reject uploads larger than 10 MB (defense-in-depth vs zip-bomb / DoS).
+    MAX_CONTENT_LENGTH = 10 * 1024 * 1024
+    # CORS origins — must be explicit per env. No wildcard fallback.
+    CORS_ORIGINS = _split_csv(os.environ.get("CORS_ORIGINS"))
 
 
 class DevConfig(Config):
     DEBUG = True
+    # Allow a fallback ONLY in dev so a fresh clone runs out of the box.
+    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
+    CORS_ORIGINS = _split_csv(os.environ.get("CORS_ORIGINS")) or [
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ]
 
 
 class TestConfig(Config):
     TESTING = True
+    SECRET_KEY = "test-secret-key"
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "TEST_DATABASE_URL", "sqlite:///test.db"
     )

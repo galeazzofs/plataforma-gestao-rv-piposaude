@@ -33,19 +33,61 @@
                      :border-radius (:full t/border-radius)
                      :transition t/transition-fast}}]]]])
 
-(defn settings-page []
-  (rf/dispatch [:revops/fetch-settings])
-  (let [local-settings (r/atom nil)]
-    (fn []
-      (let [settings @(rf/subscribe [:revops/settings])
-            loading? @(rf/subscribe [:revops/settings-loading?])
-            user     @(rf/subscribe [:auth/current-user])
-            route    @(rf/subscribe [:current-route-name])
-            form     (or @local-settings settings {})]
+(defn- map->rows [m]
+  (mapv (fn [[k v]] {:owner-id (if (keyword? k) (name k) (str k))
+                     :ev-email (str v)})
+        (or m {})))
 
-        ;; Sync local state once loaded
-        (when (and settings (nil? @local-settings))
-          (reset! local-settings settings))
+(defn- rows->map [rows]
+  (into {} (keep (fn [{:keys [owner-id ev-email]}]
+                   (when (and (seq owner-id) (seq ev-email))
+                     [owner-id ev-email]))
+                 rows)))
+
+(defn owner-map-editor [rows ev-users on-change]
+  [:div
+   (for [[idx row] (map-indexed vector @rows)]
+     ^{:key idx}
+     [:div {:style {:display "flex" :gap "8px" :align-items "flex-end" :margin-bottom "8px"}}
+      [inputs/input
+       {:label (when (zero? idx) "HubSpot Owner ID")
+        :placeholder "ex: 158520480"
+        :value (:owner-id row)
+        :on-change #(do (swap! rows assoc-in [idx :owner-id] %)
+                        (on-change))}]
+      [inputs/select
+       {:label (when (zero? idx) "EV na Plataforma")
+        :value (:ev-email row)
+        :options (into [{:value "" :label "— Selecionar EV —"}]
+                       (map (fn [u] {:value (:email u) :label (:name u)}) ev-users))
+        :on-change #(do (swap! rows assoc-in [idx :ev-email] %)
+                        (on-change))}]
+      [btn/button {:variant :ghost :size :sm
+                   :on-click #(do (swap! rows (fn [r] (vec (keep-indexed (fn [i v] (when (not= i idx) v)) r))))
+                                  (on-change))}
+       "✕"]])
+   [btn/button {:variant :secondary :size :sm
+                :on-click #(do (swap! rows conj {:owner-id "" :ev-email ""})
+                               (on-change))}
+    "+ Adicionar mapeamento"]])
+
+(defn settings-page []
+  (r/with-let [local-settings (r/atom nil)
+               owner-map-rows (r/atom [])
+               _              (do (rf/dispatch [:revops/fetch-settings])
+                                  (rf/dispatch [:revops/fetch-users]))]
+    (let [settings @(rf/subscribe [:revops/settings])
+          loading? @(rf/subscribe [:revops/settings-loading?])
+          ev-users @(rf/subscribe [:revops/ev-users])
+          user     @(rf/subscribe [:auth/current-user])
+          route    @(rf/subscribe [:current-route-name])]
+
+      ;; Sync local state once settings are loaded (one-time init)
+      (when (and settings (nil? @local-settings))
+        (reset! local-settings settings)
+        (reset! owner-map-rows (map->rows (:hubspot_owner_map settings))))
+
+      (let [form (or @local-settings settings {})]
 
         [layout/page-shell
          {:sidebar-items revops-shell/sidebar-items
@@ -56,7 +98,9 @@
           :header-actions
           [btn/button {:variant  :primary
                        :loading  loading?
-                       :on-click #(rf/dispatch [:revops/save-settings @local-settings])}
+                       :on-click #(rf/dispatch [:revops/save-settings
+                                                (assoc @local-settings
+                                                       :hubspot_owner_map (rows->map @owner-map-rows))])}
            "Salvar Configurações"]}
 
          [cards/card {}
@@ -96,4 +140,12 @@
               {:label       "Notificar RevOps em erros de sync"
                :description "Alerta quando a sincronização com HubSpot falhar"
                :value       (:notify_revops_sync_error form)
-               :on-change   #(swap! local-settings assoc :notify_revops_sync_error %)}]])]]))))
+               :on-change   #(swap! local-settings assoc :notify_revops_sync_error %)}]
+
+             ;; HubSpot Owner Mapping section
+             [:h4 {:style {:font-size (:base t/font-sizes) :font-weight (:semibold t/font-weights)
+                            :margin "32px 0 4px"}} "Mapeamento de Proprietários HubSpot"]
+             [:p {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :margin "0 0 16px"}}
+              "Use isto para mapear IDs de proprietários removidos do HubSpot aos EVs da plataforma. "
+              "O ID do proprietário está visível na URL do perfil do usuário no HubSpot ou nos logs de sync."]
+             [owner-map-editor owner-map-rows ev-users (fn [] nil)]])]]))))

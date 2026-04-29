@@ -12,6 +12,7 @@ decides later which rows are MATCHED / UNMATCHED / PRODUTO_NAO_SUPORTADO / etc.
 """
 import unicodedata
 from datetime import datetime, date
+from decimal import Decimal, InvalidOperation
 from openpyxl import load_workbook
 
 
@@ -136,6 +137,7 @@ def parse_financial_xlsx(filepath, target_quarter, target_year):
         'descartadas_status': 0,
         'descartadas_periodo': 0,
         'descartadas_vazias': 0,
+        'descartadas_tipo_receita': 0,
         'persistidas': 0,
     }
 
@@ -170,17 +172,30 @@ def parse_financial_xlsx(filepath, target_quarter, target_year):
             stats['descartadas_periodo'] += 1
             continue
 
+        # Only keep Comissão and Agenciamento revenue types (skip Premiação etc.)
+        tipo = _normalize_header(cell(r, 'tipo_receita') or '')
+        if tipo and tipo not in ('comissao', 'agenciamento'):
+            stats['descartadas_tipo_receita'] += 1
+            continue
+
         # ALWAYS derive YYYY-MM from data_recebimento. The XLSX's
         # "Mês Recebimento" column is unreliable (sometimes a full English
         # month name like "September" which doesn't fit varchar(7), sometimes
         # YYYY-MM, sometimes a date). Trust data_recebimento instead.
         mes_rec = data_rec.strftime("%Y-%m")
 
+        # NF values are money — Decimal preserves cents, float doesn't.
+        try:
+            valor_liquido = Decimal(str(nf_liq))
+        except (InvalidOperation, ValueError, TypeError):
+            stats['descartadas_vazias'] += 1
+            continue
+
         rows.append({
             'cliente_mae': str(cliente_mae).strip(),
             'operadora': str(cell(r, 'operadora') or '').strip(),
             'produto': str(cell(r, 'produto') or '').strip(),
-            'nf_valor_liquido': float(nf_liq),
+            'nf_valor_liquido': valor_liquido,
             'data_recebimento': data_rec,
             'mes_recebimento': mes_rec,
             'tipo_receita': (str(cell(r, 'tipo_receita') or '').strip() or None),

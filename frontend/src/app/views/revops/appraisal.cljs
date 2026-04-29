@@ -54,37 +54,58 @@
                           :background (if (< idx current-idx) t/success-default t/border-default)}}])])
       steps)]))
 
+(defn- delete-btn [id]
+  [btn/button {:variant  :danger :size :sm
+               :on-click (fn [e]
+                           (.stopPropagation e)
+                           (when (js/confirm "Tem certeza? Isso vai apagar a apuração e resetar todos os matches de NFs.")
+                             (rf/dispatch [:revops/delete-appraisal id])))}
+   "Deletar"])
+
 (defn step-actions [appraisal]
   (let [status (:status appraisal)
         id     (:id appraisal)]
-    [:div {:style {:display "flex" :gap "6px"}}
+    [:div {:style {:display "flex" :gap "6px" :align-items "center"}}
      (case status
        "DRAFT"
-       [btn/button {:variant  :primary :size :sm
-                    :on-click #(rf/dispatch [:revops/run-appraisal id])}
-        "▶ Iniciar Cálculo"]
+       [:<>
+        [btn/button {:variant  :primary :size :sm
+                     :on-click #(rf/dispatch [:revops/run-appraisal id])}
+         "Iniciar Calculo"]
+        [delete-btn id]]
 
        "CALCULATING"
-       [btn/button {:variant  :primary :size :sm
-                    :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
-        "📋 Revisar Cálculo"]
+       [:<>
+        [btn/button {:variant  :primary :size :sm
+                     :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
+         "Revisar Calculo"]
+        [delete-btn id]]
 
        "REVIEWING"
-       [btn/button {:variant  :primary :size :sm
-                    :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
-        "Revisar Valores"]
+       [:<>
+        [btn/button {:variant  :primary :size :sm
+                     :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
+         "Revisar Valores"]
+        [delete-btn id]]
 
        "VALIDATING"
-       [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)
-                       :display "flex" :align-items "center" :gap "4px"}}
-        "👁 Aguardando EVs"]
+       [:<>
+        [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)
+                        :display "flex" :align-items "center" :gap "4px"}}
+         "Aguardando EVs"]
+        [delete-btn id]]
 
        "APPROVED"
-       [btn/button {:variant  :primary :size :sm
-                    :on-click #(rf/dispatch [:revops/approve-appraisal-payment id])}
-        "💰 Liberar Pagamento"]
+       [:<>
+        [btn/button {:variant  :primary :size :sm
+                     :on-click #(rf/dispatch [:revops/approve-appraisal-payment id])}
+         "Liberar Pagamento"]
+        [delete-btn id]]
 
-       nil)]))
+       "LOCKED"
+       nil
+
+       [delete-btn id])]))
 
 (def appraisal-columns
   [{:key :period :label "Período" :sortable false :width "100px"

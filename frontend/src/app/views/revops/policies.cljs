@@ -67,6 +67,10 @@
     :render (fn [row] (fmt-date (:deploy_date row)))}
    {:key :first_payment_prev :label "Prev. 1º Pag." :sortable false :width "110px"
     :render (fn [row] (fmt-date (:first_payment_prev row)))}
+   {:key :installments_paid :label "Meses"        :sortable true :width "90px"
+    :render (fn [row]
+              (let [paid (or (:installments_paid row) 0)]
+                (str paid "/12")))}
    {:key :commission_status :label "Status"       :sortable true :width "130px"
     :render (fn [row] [badge/status-badge {:status (:commission_status row)}])}
    {:key :edit :label "" :sortable false :width "90px"
@@ -76,40 +80,52 @@
                "✏️ Editar"])}])
 
 (defn filters-bar [filters on-change]
-  [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :flex-wrap "wrap" :margin-bottom "16px"}}
-   [:div {:style {:width "200px"}}
-    [inputs/select {:label "Status"
-                    :value (or (:status @filters) "")
-                    :options status-filter-options
-                    :on-change #(do (swap! filters assoc :status %)
-                                    (on-change))}]]
-   [:div {:style {:width "120px"}}
-    [inputs/select {:label "Segmento"
-                    :value (or (:segment @filters) "")
-                    :options segment-filter-options
-                    :on-change #(do (swap! filters assoc :segment %)
-                                    (on-change))}]]
-   [:div {:style {:width "100px"}}
-    [inputs/input {:label "Trimestre"
-                   :type "number"
-                   :placeholder "1-4"
-                   :value (or (:quarter @filters) "")
-                   :on-change #(do (swap! filters assoc :quarter %)
-                                    (on-change))}]]
-   [:div {:style {:width "100px"}}
-    [inputs/input {:label "Ano"
-                   :type "number"
-                   :placeholder "2026"
-                   :value (or (:year @filters) "")
-                   :on-change #(do (swap! filters assoc :year %)
-                                    (on-change))}]]
-   [btn/button {:variant :ghost :size :sm
-                :on-click #(do (reset! filters {:status "" :segment "" :quarter "" :year "" :page 1})
-                               (on-change))}
-    "Limpar filtros"]])
+  (let [users @(rf/subscribe [:revops/users])
+        ev-options (into [{:value "" :label "Todos"}]
+                         (->> users
+                              (filter #(= (:role %) "EV"))
+                              (sort-by :name)
+                              (map #(hash-map :value (:id %) :label (:name %)))))]
+    [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :flex-wrap "wrap" :margin-bottom "16px"}}
+     [:div {:style {:width "200px"}}
+      [inputs/select {:label "EV"
+                      :value (or (:ev_id @filters) "")
+                      :options ev-options
+                      :on-change #(do (swap! filters assoc :ev_id %)
+                                      (on-change))}]]
+     [:div {:style {:width "200px"}}
+      [inputs/select {:label "Status"
+                      :value (or (:status @filters) "")
+                      :options status-filter-options
+                      :on-change #(do (swap! filters assoc :status %)
+                                      (on-change))}]]
+     [:div {:style {:width "120px"}}
+      [inputs/select {:label "Segmento"
+                      :value (or (:segment @filters) "")
+                      :options segment-filter-options
+                      :on-change #(do (swap! filters assoc :segment %)
+                                      (on-change))}]]
+     [:div {:style {:width "100px"}}
+      [inputs/input {:label "Trimestre"
+                     :type "number"
+                     :placeholder "1-4"
+                     :value (or (:quarter @filters) "")
+                     :on-change #(do (swap! filters assoc :quarter %)
+                                      (on-change))}]]
+     [:div {:style {:width "100px"}}
+      [inputs/input {:label "Ano"
+                     :type "number"
+                     :placeholder "2026"
+                     :value (or (:year @filters) "")
+                     :on-change #(do (swap! filters assoc :year %)
+                                      (on-change))}]]
+     [btn/button {:variant :ghost :size :sm
+                  :on-click #(do (reset! filters {:status "" :segment "" :quarter "" :year "" :ev_id "" :page 1})
+                                 (on-change))}
+      "Limpar filtros"]]))
 
 (defn policies-page []
-  (let [filters (r/atom {:status "" :segment "" :quarter "" :year "" :page 1})
+  (let [filters (r/atom {:status "" :segment "" :quarter "" :year "" :ev_id "" :page 1})
         modal-open? (r/atom false)
         selected-policy (r/atom nil)
         open-edit (fn [row]
@@ -117,6 +133,7 @@
                     (reset! modal-open? true))
         close-edit #(reset! modal-open? false)]
     (rf/dispatch [:revops/fetch-policies @filters])
+    (rf/dispatch [:revops/fetch-users])
     (fn []
       (let [policies @(rf/subscribe [:revops/policies])
             meta     @(rf/subscribe [:revops/policies-meta])
@@ -128,7 +145,8 @@
                                         (update :status (fn [v] (when-not (= v "") v)))
                                         (update :segment (fn [v] (when-not (= v "") v)))
                                         (update :quarter (fn [v] (when-not (= v "") v)))
-                                        (update :year (fn [v] (when-not (= v "") v))))])]
+                                        (update :year (fn [v] (when-not (= v "") v)))
+                                        (update :ev_id (fn [v] (when-not (= v "") v))))])]
         [layout/page-shell
          {:sidebar-items revops-shell/sidebar-items
           :current-route route

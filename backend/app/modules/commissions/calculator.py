@@ -45,8 +45,13 @@ class MissingAchievementsError(Exception):
 
 
 def validate_achievements_for_appraisal(quarter, year):
-    """Verify every (ev_id, gongo_q, gongo_y) needed by this apuracao
-    has a stored achievement.
+    """Verify every (ev_id, gongo_quarter, gongo_year) tuple needed by this
+    apuracao has a stored achievement.
+
+    Each policy uses the achievement_pct from the EV's GONGO quarter (when
+    the sale closed) as a snapshot — not the appraisal quarter. So we need
+    one achievement per (ev_id, gongo_q, gongo_y) combination across all
+    active policies.
 
     Returns list of human-readable strings for missing combinations.
     Empty list = ok to proceed.
@@ -170,7 +175,9 @@ def run_quarterly_appraisal(quarter, year):
         matched = None
         for policy in candidates:
             if not policy.first_payment_real:
-                continue
+                if nf.data_recebimento is None:
+                    continue
+                policy.first_payment_real = nf.data_recebimento
             window_end = policy.first_payment_real + relativedelta(
                 months=12 - (policy.initial_installments_paid or 0)
             )

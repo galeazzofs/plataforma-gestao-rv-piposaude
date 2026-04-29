@@ -1,10 +1,24 @@
+from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_role, require_auth
 from app.models.user import User, UserRole
+from app.models import PlatformSetting
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/v1/admin")
+
+# Allowlist of platform_settings keys writable via the admin API.
+# Anything not in this set is rejected with 400. Adding a new key here is
+# an explicit decision because settings can change runtime behavior
+# (HubSpot owner mapping, sync intervals, default targets, etc.).
+WRITABLE_SETTINGS = {
+    "hubspot_owner_map",
+    "hubspot_sync_interval_minutes",
+    "default_quarterly_target",
+    "default_commission_table_version",
+    "perk_match_strict",
+}
 
 
 # ── Users ──────────────────────────────────────────────────────────────────────
@@ -341,6 +355,7 @@ def bulk_update_settings():
     result = {}
     for key, value in data["settings"].items():
         setting = PlatformSetting.set(key, value, user_id=user.id)
+        db.session.flush()  # ensure setting.id is populated before log_audit
         log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": value})
         result[key] = value
 
@@ -369,31 +384,72 @@ def update_setting(key):
 @admin_bp.route("/sync-trigger", methods=["POST"])
 @require_role(UserRole.ADMIN)
 def sync_trigger():
-    """Manually trigger a HubSpot sync."""
-    try:
-        from app.modules.hubspot_sync.sync import run_sync
-        result = run_sync()
-        return jsonify({"data": {"status": "triggered", "result": result}})
-    except Exception as e:
-        return jsonify({"error": {"code": "SYNC_ERROR", "message": str(e)}}), 500
+    """Manually trigger a HubSpot sync (runs in background thread)."""
+    import threading
+    from flask import current_app
+
+    # Prevent concurrent syncs
+    running = PlatformSetting.get("hubspot_sync_running", False)
+    if running:
+        return jsonify({"data": {"status": "already_running"}}), 409
+
+    PlatformSetting.set("hubspot_sync_running", True, user_id=None)
+    db.session.commit()
+
+    app = current_app._get_current_object()
+
+    def _bg_sync():
+        with app.app_context():
+            try:
+                from app.modules.hubspot_sync.sync import run_sync
+                run_sync()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Background sync failed: {e}")
+                PlatformSetting.set("hubspot_last_sync", datetime.now(timezone.utc).isoformat(), user_id=None)
+                PlatformSetting.set("hubspot_last_sync_errors", [str(e)], user_id=None)
+                PlatformSetting.set("hubspot_last_sync_created", 0, user_id=None)
+                PlatformSetting.set("hubspot_last_sync_updated", 0, user_id=None)
+                db.session.commit()
+            finally:
+                PlatformSetting.set("hubspot_sync_running", False, user_id=None)
+                db.session.commit()
+
+    threading.Thread(target=_bg_sync, daemon=True).start()
+    return jsonify({"data": {"status": "triggered"}})
 
 
 @admin_bp.route("/sync-status")
 @require_role(UserRole.ADMIN)
 def sync_status():
     """Return HubSpot sync status from platform settings."""
-    from app.models import PlatformSetting
     last_sync = PlatformSetting.get("hubspot_last_sync")
-    sync_errors = PlatformSetting.get("hubspot_last_sync_errors", 0)
+    sync_errors = PlatformSetting.get("hubspot_last_sync_errors", [])
     sync_created = PlatformSetting.get("hubspot_last_sync_created", 0)
     sync_updated = PlatformSetting.get("hubspot_last_sync_updated", 0)
+    sync_skipped = PlatformSetting.get("hubspot_last_sync_skipped", 0)
+    running = PlatformSetting.get("hubspot_sync_running", False)
+
+    created = sync_created if isinstance(sync_created, int) else 0
+    updated = sync_updated if isinstance(sync_updated, int) else 0
+    skipped = sync_skipped if isinstance(sync_skipped, int) else 0
+    error_list = sync_errors if isinstance(sync_errors, list) else []
+
+    if running:
+        display_status = "RUNNING"
+    elif error_list:
+        display_status = "ERRORS"
+    else:
+        display_status = "OK"
 
     return jsonify({
         "data": {
             "last_sync": last_sync,
-            "errors": sync_errors,
-            "created": sync_created,
-            "updated": sync_updated,
+            "records_synced": created + updated,
+            "running": bool(running),
+            "status": display_status,
+            "counts": {"created": created, "updated": updated, "skipped": skipped},
+            "errors": error_list,
         }
     })
 
@@ -442,23 +498,45 @@ def audit_log():
 @admin_bp.route("/ev-achievements")
 @require_role(UserRole.ADMIN)
 def list_ev_achievements():
-    """List EV quarterly achievements. Filter by quarter/year."""
-    from app.models import EvQuarterAchievement, User
+    """List all active EVs with their quarterly achievements (if any)."""
+    from app.models import EvQuarterAchievement, User, Goal
     quarter = request.args.get("quarter", type=int)
     year = request.args.get("year", type=int)
 
-    query = EvQuarterAchievement.query
-    if quarter:
-        query = query.filter(EvQuarterAchievement.quarter == quarter)
-    if year:
-        query = query.filter(EvQuarterAchievement.year == year)
+    # Get all active users with EV role
+    evs = User.query.filter_by(role=UserRole.EV, active=True).order_by(User.name).all()
 
-    query = query.order_by(EvQuarterAchievement.year.desc(), EvQuarterAchievement.quarter.desc())
-    rows = query.all()
+    # Build achievement lookup keyed by ev_id
+    ach_map = {}
+    if quarter and year:
+        rows = EvQuarterAchievement.query.filter_by(quarter=quarter, year=year).all()
+        ach_map = {a.ev_id: a for a in rows}
 
-    return jsonify({
-        "data": [_serialize_achievement(a) for a in rows],
-    })
+    # Build goal lookup for MRR targets
+    goal_map = {}
+    if quarter and year:
+        goals = Goal.query.filter_by(quarter=quarter, year=year).all()
+        goal_map = {gl.ev_id: gl for gl in goals}
+
+    data = []
+    for ev in evs:
+        ach = ach_map.get(ev.id)
+        goal = goal_map.get(ev.id)
+        data.append({
+            "id": str(ach.id) if ach else None,
+            "ev_id": str(ev.id),
+            "ev_name": ev.name,
+            "quarter": quarter,
+            "year": year,
+            "total_mrr": str(ach.total_mrr) if ach and ach.total_mrr else None,
+            "mrr_target": str(goal.mrr_target) if goal and goal.mrr_target else (
+                str(ach.mrr_target) if ach and ach.mrr_target else None
+            ),
+            "achievement_pct": str(ach.achievement_pct) if ach and ach.achievement_pct else None,
+            "is_final": ach.is_final if ach else False,
+        })
+
+    return jsonify({"data": data})
 
 
 @admin_bp.route("/ev-achievements", methods=["POST"])
@@ -504,6 +582,7 @@ def upsert_ev_achievement():
     if "achievement_pct" not in data and ach.total_mrr is not None and ach.mrr_target:
         ach.achievement_pct = (ach.total_mrr / ach.mrr_target).quantize(Decimal("0.0001"))
 
+    db.session.flush()
     log_audit("ev_quarter_achievements", ach.id, "UPSERT", new_values=data)
     db.session.commit()
 
