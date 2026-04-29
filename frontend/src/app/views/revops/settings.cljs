@@ -34,7 +34,9 @@
                      :transition t/transition-fast}}]]]])
 
 (defn- map->rows [m]
-  (mapv (fn [[k v]] {:owner-id (str k) :ev-email (str v)}) (or m {})))
+  (mapv (fn [[k v]] {:owner-id (if (keyword? k) (name k) (str k))
+                     :ev-email (str v)})
+        (or m {})))
 
 (defn- rows->map [rows]
   (into {} (keep (fn [{:keys [owner-id ev-email]}]
@@ -70,22 +72,22 @@
     "+ Adicionar mapeamento"]])
 
 (defn settings-page []
-  (rf/dispatch [:revops/fetch-settings])
-  (rf/dispatch [:revops/fetch-users])
-  (let [local-settings (r/atom nil)
-        owner-map-rows (r/atom [])]
-    (fn []
-      (let [settings @(rf/subscribe [:revops/settings])
-            loading? @(rf/subscribe [:revops/settings-loading?])
-            ev-users @(rf/subscribe [:revops/ev-users])
-            user     @(rf/subscribe [:auth/current-user])
-            route    @(rf/subscribe [:current-route-name])
-            form     (or @local-settings settings {})]
+  (r/with-let [local-settings (r/atom nil)
+               owner-map-rows (r/atom [])
+               _              (do (rf/dispatch [:revops/fetch-settings])
+                                  (rf/dispatch [:revops/fetch-users]))]
+    (let [settings @(rf/subscribe [:revops/settings])
+          loading? @(rf/subscribe [:revops/settings-loading?])
+          ev-users @(rf/subscribe [:revops/ev-users])
+          user     @(rf/subscribe [:auth/current-user])
+          route    @(rf/subscribe [:current-route-name])]
 
-        ;; Sync local state once loaded
-        (when (and settings (nil? @local-settings))
-          (reset! local-settings settings)
-          (reset! owner-map-rows (map->rows (:hubspot_owner_map settings))))
+      ;; Sync local state once settings are loaded (one-time init)
+      (when (and settings (nil? @local-settings))
+        (reset! local-settings settings)
+        (reset! owner-map-rows (map->rows (:hubspot_owner_map settings))))
+
+      (let [form (or @local-settings settings {})]
 
         [layout/page-shell
          {:sidebar-items revops-shell/sidebar-items

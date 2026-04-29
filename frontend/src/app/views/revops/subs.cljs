@@ -62,6 +62,16 @@
    (get-in db [:admin :upload-loading?])))
 
 (rf/reg-sub
+ :revops/perk-upload-result
+ (fn [db _]
+   (get-in db [:admin :perk-upload-result])))
+
+(rf/reg-sub
+ :revops/perk-upload-loading?
+ (fn [db _]
+   (get-in db [:admin :perk-upload-loading?])))
+
+(rf/reg-sub
  :revops/appraisals
  (fn [db _]
    (get-in db [:appraisal :list])))

@@ -42,6 +42,6 @@
    :admin {:users []
            :teams []
            :commission-table {:current-version nil :rows []}
-           :settings {}
+           :settings nil
            :sync-status nil
            :audit-log {:items [] :meta nil}}})
