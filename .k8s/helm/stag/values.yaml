@@ -16,6 +16,7 @@ nodeToRun: pipo-core-arm64
 
 env:
   FLASK_ENV: stag
+  CORS_ORIGINS: "https://comissoes-stag.piposaude.com"
 
 secrets:
   DATABASE_URL: STAG_DATABASE_URL

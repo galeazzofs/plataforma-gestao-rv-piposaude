@@ -15,7 +15,8 @@ resources:
 nodeToRun: pipo-core-arm64
 
 env:
-  FLASK_ENV: production
+  FLASK_ENV: prod
+  CORS_ORIGINS: "https://comissoes.piposaude.com"
 
 secrets:
   DATABASE_URL: PROD_DATABASE_URL
