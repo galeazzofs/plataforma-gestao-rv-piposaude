@@ -9,7 +9,7 @@ class Team(db.Model):
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     name = db.Column(db.String(255), nullable=False)
-    leader_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=True)
+    leader_id = db.Column(GUID, db.ForeignKey("users.id", use_alter=True, name="fk_teams_leader_id"), nullable=True)
     slack_channel_id = db.Column(db.String(50), nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -38,5 +38,6 @@ def decode_token(token):
         return payload
     except jwt.ExpiredSignatureError:
         raise InvalidTokenError("Token expired")
-    except jwt.InvalidTokenError as e:
-        raise InvalidTokenError(f"Invalid token: {e}")
+    except jwt.InvalidTokenError:
+        # Don't leak PyJWT internal error details to the HTTP response
+        raise InvalidTokenError("Invalid token")

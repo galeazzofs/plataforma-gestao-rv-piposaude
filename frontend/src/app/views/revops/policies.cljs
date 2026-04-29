@@ -77,7 +77,7 @@
     :render (fn [row]
               [btn/button {:variant :secondary :size :sm
                            :on-click #(open-edit row)}
-               "✏️ Editar"])}])
+               [:<> [:span {:aria-hidden "true"} "✏️ "] "Editar"]])}])
 
 (defn filters-bar [filters on-change]
   (let [users @(rf/subscribe [:revops/users])
