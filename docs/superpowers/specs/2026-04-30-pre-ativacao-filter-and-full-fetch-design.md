@@ -1,7 +1,7 @@
 # Filtro de Pré-ativação + sync full-fetch com delete-by-absence
 
 **Data:** 2026-04-30
-**Status:** Draft (aguardando review)
+**Status:** ⚠️ SUPERSEDED — não implementado. Substituído por [`2026-04-30-ticket-anchored-sync-redesign-design.md`](./2026-04-30-ticket-anchored-sync-redesign-design.md), que incorpora pré-ativação + full-fetch + delete-by-absence dentro de uma cardinalidade nova (1 row por ticket em vez de 1 por apólice).
 **Escopo:** Backend — módulo `app.modules.hubspot_sync`
 
 ## Objetivo

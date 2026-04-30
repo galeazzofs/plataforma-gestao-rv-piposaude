@@ -343,16 +343,6 @@ def list_settings():
     })
 
 
-def _invalidate_sync_cursor_if_needed(key):
-    """Reset the incremental sync cursor when a setting that affects EV
-    resolution changes — otherwise tickets previously skipped (e.g. for
-    a deleted owner) won't be re-fetched on the next sync.
-    """
-    from app.models import PlatformSetting
-    if key == "hubspot_owner_map":
-        PlatformSetting.set("hubspot_sync_last_success_at", None, user_id=None)
-
-
 @admin_bp.route("/settings", methods=["PUT"])
 @require_role(UserRole.ADMIN)
 def bulk_update_settings():
@@ -367,7 +357,6 @@ def bulk_update_settings():
         setting = PlatformSetting.set(key, value, user_id=user.id)
         db.session.flush()  # ensure setting.id is populated before log_audit
         log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": value})
-        _invalidate_sync_cursor_if_needed(key)
         result[key] = value
 
     db.session.commit()
@@ -386,7 +375,6 @@ def update_setting(key):
     setting = PlatformSetting.set(key, data["value"], user_id=user.id)
     db.session.flush()  # ensure setting.id is populated before log_audit
     log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": data["value"]})
-    _invalidate_sync_cursor_if_needed(key)
     db.session.commit()
 
     return jsonify({"data": {"key": key, "value": data["value"]}})
@@ -460,11 +448,13 @@ def sync_status():
     sync_created = PlatformSetting.get("hubspot_last_sync_created", 0)
     sync_updated = PlatformSetting.get("hubspot_last_sync_updated", 0)
     sync_skipped = PlatformSetting.get("hubspot_last_sync_skipped", 0)
+    sync_skipped_breakdown = PlatformSetting.get("hubspot_last_sync_skipped_breakdown", {})
     running = PlatformSetting.get("hubspot_sync_running", False)
 
     created = sync_created if isinstance(sync_created, int) else 0
     updated = sync_updated if isinstance(sync_updated, int) else 0
     skipped = sync_skipped if isinstance(sync_skipped, int) else 0
+    skipped_breakdown = sync_skipped_breakdown if isinstance(sync_skipped_breakdown, dict) else {}
     error_list = sync_errors if isinstance(sync_errors, list) else []
 
     if running:
@@ -480,7 +470,12 @@ def sync_status():
             "records_synced": created + updated,
             "running": bool(running),
             "status": display_status,
-            "counts": {"created": created, "updated": updated, "skipped": skipped},
+            "counts": {
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+                "skipped_breakdown": skipped_breakdown,
+            },
             "errors": error_list,
         }
     })

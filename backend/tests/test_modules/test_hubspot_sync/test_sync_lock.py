@@ -2,7 +2,8 @@
 
 When is_locked=True, fields ev_id, closed_date, segment, and client_id
 must NOT be overwritten by the sync. Non-lockable fields like mrr_projected,
-partner_operator, numero_apolice, and benefit_type are still updated.
+partner_operator, numero_apolice, hubspot_apolice_id, and benefit_type are
+still updated.
 
 EV resolution cascade (when ev_lookup/ev_name_lookup are provided):
   email local part → normalized owner name → manual owner_id override.
@@ -27,25 +28,29 @@ def _ev(email, name=None):
     return u
 
 
-def _apolice(apolice_id, beneficio="Odonto", parceiro="OpA"):
+def _apolice(apolice_id, parceiro="OpA"):
+    """Apólice deal payload — benefit lives on the ticket now, not here."""
     return {
         "id": apolice_id,
         "properties": {
-            "apolice___beneficio": beneficio,
             "numero_apolice": f"AP-{apolice_id}",
             "parceiro": parceiro,
         },
     }
 
 
+def _default_deal(closedate="2026-01-15T00:00:00Z", deal_id="D-DEFAULT"):
+    return {"id": deal_id, "properties": {"closedate": closedate}}
+
+
 def _ticket_props(ev_email, client_name, segment="G", mrr="5000",
-                  closed="2026-01-15T00:00:00Z"):
+                  beneficio="Saúde"):
     return {
         "solicitante_demanda": ev_email,
         "cliente___nome_da_empresa": client_name,
         "cotar___segmentacao_pipo": segment,
         "mrr___receita_mensal": mrr,
-        "closed_date": closed,
+        "beneficio_a_ser_cotado": beneficio,
         "hs_pipeline": "651307",
         "hs_pipeline_stage": "11947921",
     }
@@ -53,7 +58,7 @@ def _ticket_props(ev_email, client_name, segment="G", mrr="5000",
 
 def test_sync_preserves_locked_fields(db_session):
     """A locked policy keeps its ev_id, closed_date, segment, and client_id
-    intact when the sync re-processes its apolice with different values."""
+    intact when the sync re-processes its ticket with different values."""
     old_ev = _ev("old-ev@x")
     new_ev = _ev("new-ev@x")
     old_client = Client.find_or_create("OldClient")
@@ -72,11 +77,14 @@ def test_sync_preserves_locked_fields(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    apolice = _apolice("LOCK-A1", beneficio="Odonto")
+    apolice = _apolice("LOCK-A1")
+    deal = _default_deal(closedate="2026-01-15T00:00:00Z")
+    # benefit comes from the ticket — set it here so the non-lockable
+    # benefit_type update in _upsert_policy resolves to ODONTO
     ticket = _ticket_props(ev_email="new-ev@x", client_name="NewClient",
-                           segment="G", closed="2026-01-15T00:00:00Z")
+                           segment="G", beneficio="Odonto")
 
-    _upsert_policy(apolice, ticket, {}, ticket_id="LOCK-T1")
+    _upsert_policy("LOCK-T1", ticket, apolice, deal, {})
     db.session.flush()
     db.session.refresh(policy)
 
@@ -97,7 +105,7 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     policy = Policy(
         hubspot_apolice_id="UNLOCK-A1",
         hubspot_ticket_id="UNLOCK-T1",
-        ev_id=ev2.id,  # will be re-resolved
+        ev_id=ev2.id,
         segment=Segment.M,
         benefit_type=BenefitType.SAUDE,
         closed_date=date(2025, 6, 1),
@@ -106,11 +114,11 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    apolice = _apolice("UNLOCK-A1", beneficio="Odonto")
-    ticket = _ticket_props(ev_email="unlocked-ev2@x", client_name="SomeClient",
-                           segment="G", closed="2026-01-15T00:00:00Z")
+    apolice = _apolice("UNLOCK-A1")
+    deal = _default_deal(closedate="2026-01-15T00:00:00Z")
+    ticket = _ticket_props(ev_email="unlocked-ev2@x", client_name="SomeClient", segment="G")
 
-    _upsert_policy(apolice, ticket, {}, ticket_id="UNLOCK-T1")
+    _upsert_policy("UNLOCK-T1", ticket, apolice, deal, {})
     db.session.flush()
     db.session.refresh(policy)
 
@@ -138,11 +146,11 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    apolice = _apolice("MRR-A1", beneficio="Saúde", parceiro="NewPartner")
-    ticket = _ticket_props(ev_email="mrr-ev@x", client_name="MrrClient",
-                           mrr="9999", closed="2026-02-01T00:00:00Z")
+    apolice = _apolice("MRR-A1", parceiro="NewPartner")
+    deal = _default_deal(closedate="2026-02-01T00:00:00Z")
+    ticket = _ticket_props(ev_email="mrr-ev@x", client_name="MrrClient", mrr="9999")
 
-    _upsert_policy(apolice, ticket, {}, ticket_id="MRR-T1")
+    _upsert_policy("MRR-T1", ticket, apolice, deal, {})
     db.session.flush()
     db.session.refresh(policy)
 
@@ -161,22 +169,20 @@ def test_sync_matches_ev_by_name_fallback(db_session):
     ev_lookup = _build_ev_lookup([ev])
     ev_name_lookup = _build_ev_name_lookup([ev])
 
-    # owner_id "99" maps to a different email (no email-local match), but the
-    # name "Luciana Rodrigues" matches the platform EV.
     owner_map = {
         "99": {"email": "luciana.rodrigues@outraempresa.com", "name": "Luciana Rodrigues"},
     }
 
-    apolice = _apolice("NAME-A1", beneficio="Saúde")
-    ticket = _ticket_props(ev_email="99", client_name="Cliente Teste",
-                           mrr="3000", closed="2026-01-15T00:00:00Z")
+    apolice = _apolice("NAME-A1")
+    deal = _default_deal(closedate="2026-01-15T00:00:00Z")
+    ticket = _ticket_props(ev_email="99", client_name="Cliente Teste", mrr="3000")
 
     _upsert_policy(
-        apolice, ticket, owner_map, ticket_id="NAME-T1",
+        "NAME-T1", ticket, apolice, deal, owner_map,
         ev_lookup=ev_lookup, ev_name_lookup=ev_name_lookup,
     )
     db.session.flush()
-    policy = Policy.query.filter_by(hubspot_apolice_id="NAME-A1").one()
+    policy = Policy.query.filter_by(hubspot_ticket_id="NAME-T1").one()
     assert policy.ev_id == ev.id
 
 
@@ -189,45 +195,47 @@ def test_sync_matches_ev_with_deactivation_suffix(db_session):
     ev_lookup = _build_ev_lookup([ev])
     ev_name_lookup = _build_ev_name_lookup([ev])
 
-    # HubSpot returns the owner name with a deactivation suffix; email is empty
     owner_map = {
         "77": {"email": None, "name": "Karina Gomes (usuario desativado/removido)"},
     }
 
-    apolice = _apolice("DEACT-A1", beneficio="Saúde")
-    ticket = _ticket_props(ev_email="77", client_name="Cliente X",
-                           mrr="2000", closed="2026-01-15T00:00:00Z")
+    apolice = _apolice("DEACT-A1")
+    deal = _default_deal(closedate="2026-01-15T00:00:00Z")
+    ticket = _ticket_props(ev_email="77", client_name="Cliente X", mrr="2000")
 
     _upsert_policy(
-        apolice, ticket, owner_map, ticket_id="DEACT-T1",
+        "DEACT-T1", ticket, apolice, deal, owner_map,
         ev_lookup=ev_lookup, ev_name_lookup=ev_name_lookup,
     )
     db.session.flush()
-    policy = Policy.query.filter_by(hubspot_apolice_id="DEACT-A1").one()
+    policy = Policy.query.filter_by(hubspot_ticket_id="DEACT-T1").one()
     assert policy.ev_id == ev.id
 
 
-def test_sync_skips_apolice_when_no_active_ev_matches(db_session):
+def test_sync_skips_ticket_when_no_ev_matches(db_session):
     """When ev_lookup is provided and the cascade fails, _upsert_policy returns
-    None and does not create the policy."""
-    _ev("only-this-one@x")  # platform EV
+    None and does not create the policy. The cascade now considers active +
+    inactive EVs (the platform user list is the source of truth)."""
+    _ev("only-this-one@x")
     db.session.flush()
 
-    ev_lookup = _build_ev_lookup(User.query.filter_by(active=True).all())
-    ev_name_lookup = _build_ev_name_lookup(User.query.filter_by(active=True).all())
+    # Match production behavior: include both active and inactive EV/CN users
+    all_evs = User.query.filter(User.role.in_([UserRole.EV, UserRole.CN])).all()
+    ev_lookup = _build_ev_lookup(all_evs)
+    ev_name_lookup = _build_ev_name_lookup(all_evs)
 
-    apolice = _apolice("SKIP-A1", beneficio="Saúde")
+    apolice = _apolice("SKIP-A1")
+    deal = _default_deal()
     ticket = _ticket_props(ev_email="someone-not-in-platform@x",
-                           client_name="Cliente Y", mrr="1000",
-                           closed="2026-01-15T00:00:00Z")
+                           client_name="Cliente Y", mrr="1000")
 
     result = _upsert_policy(
-        apolice, ticket, {}, ticket_id="SKIP-T1",
+        "SKIP-T1", ticket, apolice, deal, {},
         ev_lookup=ev_lookup, ev_name_lookup=ev_name_lookup,
     )
     db.session.flush()
     assert result is None
-    assert Policy.query.filter_by(hubspot_apolice_id="SKIP-A1").first() is None
+    assert Policy.query.filter_by(hubspot_ticket_id="SKIP-T1").first() is None
 
 
 def test_normalize_owner_name_strips_suffix():

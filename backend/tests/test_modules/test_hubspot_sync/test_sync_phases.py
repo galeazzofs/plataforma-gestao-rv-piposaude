@@ -1,11 +1,11 @@
-"""Tests for individual phases of the ticket-anchored sync."""
+"""Tests for individual phases of the ticket-anchored sync (1 row per ticket)."""
 from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
 
 from app.modules.hubspot_sync.sync import (
     _fetch_tickets,
-    _resolve_ticket_apolices,
+    _resolve_ticket_deals,
     _new_summary,
     APOLICE_PIPELINE_ID,
     PLACEMENT_PIPELINE_ID,
@@ -29,8 +29,14 @@ def test_fetch_tickets_builds_correct_search_filters_full_fetch():
     client.search_tickets.assert_called_once()
     call_kwargs = client.search_tickets.call_args.kwargs
     filters = call_kwargs["filters"]
-    # 3 filters AND-ed for full fetch (no incremental cursor)
+    # 3 filters AND-ed: pipeline, stage, closed_date floor.
+    # Team-level filtering was removed in favor of "ticket has default deal"
+    # enforced in _resolve_ticket_deals.
     assert len(filters) == 3
+    assert {f["propertyName"] for f in filters} == {
+        "hs_pipeline", "hs_pipeline_stage", "closed_date",
+    }
+
     pipeline_f = next(f for f in filters if f["propertyName"] == "hs_pipeline")
     assert pipeline_f["operator"] == "EQ"
     assert pipeline_f["value"] == PLACEMENT_PIPELINE_ID
@@ -47,11 +53,10 @@ def test_fetch_tickets_builds_correct_search_filters_full_fetch():
 
 
 def test_fetch_tickets_no_longer_accepts_since_argument():
-    """_fetch_tickets perdeu o parâmetro `since` — full-fetch sempre."""
+    """_fetch_tickets is full-fetch always — no incremental cursor."""
     import inspect
-    from app.modules.hubspot_sync.sync import _fetch_tickets
     sig = inspect.signature(_fetch_tickets)
-    assert "since" not in sig.parameters
+    assert list(sig.parameters) == ["client"]
 
 
 def test_fetch_tickets_paginates_until_exhausted():
@@ -72,234 +77,175 @@ def test_fetch_tickets_empty_first_page_returns_empty():
     assert _fetch_tickets(client) == []
 
 
-# --- _resolve_ticket_apolices ---
+# --- _resolve_ticket_deals ---
 
-def _new_summary():
+def _ticket(tid, beneficio="Saúde"):
+    """Default ticket — benefit lives on the ticket (`beneficio_a_ser_cotado`)."""
+    return {"id": tid, "properties": {"beneficio_a_ser_cotado": beneficio}}
+
+
+def _apolice_props(numero="AP-001", parceiro="Bradesco", entered="2025-01-15"):
+    """Apólice deal payload — benefit no longer lives here, it comes from the ticket."""
     return {
-        "skipped": {
-            "no_default_deal": 0,
-            "no_apolice": 0,
-            "no_active_ev": 0,
-            "not_pre_activation": 0,
-        },
+        "pipeline": APOLICE_PIPELINE_ID,
+        "numero_apolice": numero,
+        "parceiro": parceiro,
+        "hs_v2_date_entered_14038792": entered,
     }
 
 
-def _ticket(tid):
-    return {"id": tid, "properties": {}}
+def _default_deal_props(closedate="2025-06-01T00:00:00Z"):
+    return {"pipeline": DEFAULT_DEAL_PIPELINE_ID, "closedate": closedate}
 
 
-def test_resolve_ticket_apolices_keeps_ticket_with_valid_apolice_and_default():
+def test_resolve_keeps_ticket_with_apolice_in_pre_ativacao_and_default():
     client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-APOLICE", "D-DEFAULT"],
-    }
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
     client.batch_read_objects.return_value = {
-        "D-APOLICE": {
-            "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
-            "numero_apolice": "AP-001",
-            "parceiro": "Bradesco",
-            "hs_v2_date_entered_14038792": "2025-01-15",
-        },
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
+        "D-A": _apolice_props(numero="AP-001", parceiro="Bradesco"),
+        "D-DEFAULT": _default_deal_props(),
     }
     summary = _new_summary()
 
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
 
     assert "T1" in result
-    assert len(result["T1"]) == 1
-    assert result["T1"][0]["id"] == "D-APOLICE"
-    assert result["T1"][0]["properties"]["apolice___beneficio"] == "Saúde"
-    # Properties pulled from same batch_read — no extra round trip needed
-    assert result["T1"][0]["properties"]["numero_apolice"] == "AP-001"
-    # batch_read_objects was called with DEAL_PROPERTIES (single batch for both pipeline + apolice props)
+    assert result["T1"]["apolice"]["id"] == "D-A"
+    assert result["T1"]["apolice"]["properties"]["numero_apolice"] == "AP-001"
+    assert result["T1"]["default_deal"]["id"] == "D-DEFAULT"
+    assert result["T1"]["default_deal"]["properties"]["closedate"] == "2025-06-01T00:00:00Z"
+
     deal_call = client.batch_read_objects.call_args
     assert deal_call.args[0] == "deals"
     assert set(deal_call.args[2]) == set(DEAL_PROPERTIES)
 
 
-def test_resolve_ticket_apolices_keeps_multiple_apolices_per_ticket():
-    """A single ticket can drive multiple apolices (saúde + odonto)."""
+def test_resolve_drops_apolice_without_pre_ativacao_date():
+    """Apolice with no hs_v2_date_entered_14038792 doesn't count — ticket skipped."""
     client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-S", "D-O", "D-DEFAULT"],
-    }
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
     client.batch_read_objects.return_value = {
-        "D-S": {
+        "D-A": {
             "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
-            "hs_v2_date_entered_14038792": "2025-01-15",
+            "numero_apolice": "AP-001",
+            "parceiro": "Bradesco",
+            # hs_v2_date_entered_14038792 missing
         },
-        "D-O": {
-            "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Odonto",
-            "hs_v2_date_entered_14038792": "2025-01-15",
-        },
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
+        "D-DEFAULT": _default_deal_props(),
     }
     summary = _new_summary()
 
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
 
-    assert len(result["T1"]) == 2
-    assert {a["id"] for a in result["T1"]} == {"D-S", "D-O"}
+    assert result == {}
+    assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
 
 
-def test_resolve_ticket_apolices_drops_ticket_without_default_deal():
+def test_resolve_drops_apolice_with_pre_ativacao_before_floor():
     client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-APOLICE"],  # no default
-    }
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
     client.batch_read_objects.return_value = {
-        "D-APOLICE": {
-            "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
-            "hs_v2_date_entered_14038792": "2025-01-15",
-        },
+        "D-A": _apolice_props(entered="2024-08-15"),
+        "D-DEFAULT": _default_deal_props(),
     }
     summary = _new_summary()
 
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert result == {}
+    assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
+
+
+def test_resolve_drops_ticket_with_invalid_benefit():
+    """beneficio_a_ser_cotado outside VALID_BENEFITS_HUBSPOT skips the whole
+    ticket — benefit is now ticket-level, not per-apólice."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(
+        client, [_ticket("T1", beneficio="Outro Beneficio Qualquer")], summary,
+    )
+
+    assert result == {}
+    assert summary["skipped"]["invalid_benefit"] == 1
+
+
+def test_resolve_drops_ticket_with_missing_benefit():
+    """Ticket without beneficio_a_ser_cotado set is treated as invalid_benefit."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [{"id": "T1", "properties": {}}], summary)
+
+    assert result == {}
+    assert summary["skipped"]["invalid_benefit"] == 1
+
+
+def test_resolve_drops_ticket_without_default_deal():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
 
     assert result == {}
     assert summary["skipped"]["no_default_deal"] == 1
 
 
-def test_resolve_ticket_apolices_drops_ticket_without_apolice():
+def test_resolve_drops_ticket_with_no_associated_deals():
     client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-DEFAULT"],  # default but no apolice
-    }
-    client.batch_read_objects.return_value = {
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
-    }
-    summary = _new_summary()
-
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
-
-    assert result == {}
-    assert summary["skipped"]["no_apolice"] == 1
-
-
-def test_resolve_ticket_apolices_drops_apolice_with_invalid_benefit():
-    """Apolice deal in the right pipeline but with an unrecognised benefit
-    is treated as if it didn't exist — ticket is dropped (no_apolice)."""
-    client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-APOLICE", "D-DEFAULT"],
-    }
-    client.batch_read_objects.return_value = {
-        "D-APOLICE": {"pipeline": APOLICE_PIPELINE_ID, "apolice___beneficio": "Outro"},
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
-    }
-    summary = _new_summary()
-
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
-
-    assert result == {}
-    assert summary["skipped"]["no_apolice"] == 1
-
-
-def test_resolve_ticket_apolices_drops_ticket_with_no_associated_deals():
-    client = MagicMock()
-    client.batch_read_associations.return_value = {}  # T1 has no deals at all
+    client.batch_read_associations.return_value = {}
     client.batch_read_objects.return_value = {}
     summary = _new_summary()
 
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
 
     assert result == {}
-    # No default deal → counted as no_default_deal
-    assert summary["skipped"]["no_default_deal"] == 1
+    # No apolice in pré-ativação means no_apolice_pre_ativacao kicks first
+    assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
 
 
-def test_resolve_ticket_apolices_empty_input():
+def test_resolve_warns_and_picks_first_when_multiple_apolices_in_pre_ativacao():
+    """User says this never happens in practice. If it does, we still proceed
+    with the first one and log it via summary["skipped"]["multiple_apolices"]."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A1", "D-A2", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A1": _apolice_props(numero="AP-001"),
+        "D-A2": _apolice_props(numero="AP-002"),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert "T1" in result
+    assert result["T1"]["apolice"]["id"] == "D-A1"  # first one
+    assert summary["skipped"]["multiple_apolices"] == 1
+
+
+def test_resolve_empty_input():
     client = MagicMock()
     summary = _new_summary()
 
-    result = _resolve_ticket_apolices(client, [], summary)
+    result = _resolve_ticket_deals(client, [], summary)
 
     assert result == {}
     client.batch_read_associations.assert_not_called()
     client.batch_read_objects.assert_not_called()
-
-
-def test_resolve_ticket_apolices_includes_apolice_past_pre_activation():
-    """Apólice com hs_v2_date_entered_14038792 >= 2024-09-01 é incluída."""
-    client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-APOLICE", "D-DEFAULT"],
-    }
-    client.batch_read_objects.return_value = {
-        "D-APOLICE": {
-            "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
-            "numero_apolice": "AP-001",
-            "parceiro": "Bradesco",
-            "hs_v2_date_entered_14038792": "2025-01-15",
-        },
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
-    }
-    summary = _new_summary()
-
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
-
-    assert "T1" in result
-    assert len(result["T1"]) == 1
-    assert summary["skipped"]["not_pre_activation"] == 0
-
-
-def test_resolve_ticket_apolices_skips_apolice_without_pre_activation_date():
-    """Apólice sem hs_v2_date_entered_14038792 → skip + counter."""
-    client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-APOLICE", "D-DEFAULT"],
-    }
-    client.batch_read_objects.return_value = {
-        "D-APOLICE": {
-            "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
-            "numero_apolice": "AP-001",
-            "parceiro": "Bradesco",
-            # hs_v2_date_entered_14038792 ausente
-        },
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
-    }
-    summary = _new_summary()
-
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
-
-    # Sem apólices válidas — ticket cai em no_apolice
-    assert result == {}
-    assert summary["skipped"]["not_pre_activation"] == 1
-    assert summary["skipped"]["no_apolice"] == 1
-
-
-def test_resolve_ticket_apolices_skips_apolice_with_pre_activation_before_floor():
-    """Apólice com data anterior a 2024-09-01 → skip + counter."""
-    client = MagicMock()
-    client.batch_read_associations.return_value = {
-        "T1": ["D-APOLICE", "D-DEFAULT"],
-    }
-    client.batch_read_objects.return_value = {
-        "D-APOLICE": {
-            "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
-            "numero_apolice": "AP-001",
-            "parceiro": "Bradesco",
-            "hs_v2_date_entered_14038792": "2024-08-15",
-        },
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
-    }
-    summary = _new_summary()
-
-    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
-
-    assert result == {}
-    assert summary["skipped"]["not_pre_activation"] == 1
-    assert summary["skipped"]["no_apolice"] == 1
 
 
 # --- _upsert_policy ---
@@ -316,25 +262,29 @@ def _ev(email):
     return u
 
 
-def _apolice(apolice_id, beneficio="Saúde", numero="AP-001", parceiro="Bradesco"):
+def _apolice(apolice_id, numero="AP-001", parceiro="Bradesco"):
+    """Apólice deal payload — benefit lives on the ticket now, not here."""
     return {
         "id": apolice_id,
         "properties": {
-            "apolice___beneficio": beneficio,
             "numero_apolice": numero,
             "parceiro": parceiro,
         },
     }
 
 
+def _default_deal(deal_id="D-DEFAULT", closedate="2025-06-01T00:00:00Z"):
+    return {"id": deal_id, "properties": {"closedate": closedate}}
+
+
 def _ticket_for_upsert(ev_email="ev@x", client_name="ClientCo", mrr="1500",
-                      closed="2025-06-01T00:00:00Z", segment="M"):
+                      segment="M", beneficio="Saúde"):
     return {
         "solicitante_demanda": ev_email,
         "cliente___nome_da_empresa": client_name,
         "mrr___receita_mensal": mrr,
-        "closed_date": closed,
         "cotar___segmentacao_pipo": segment,
+        "beneficio_a_ser_cotado": beneficio,
         "hs_pipeline": "651307",
         "hs_pipeline_stage": "11947921",
     }
@@ -342,14 +292,17 @@ def _ticket_for_upsert(ev_email="ev@x", client_name="ClientCo", mrr="1500",
 
 def test_upsert_creates_new_policy(db_session):
     ev = _ev("ev@x")
-    apolice = _apolice("A1", beneficio="Saúde", numero="AP-001", parceiro="Bradesco")
-    ticket = _ticket_for_upsert(ev_email="ev@x", client_name="Acme", mrr="2500")
+    apolice = _apolice("A1", numero="AP-001", parceiro="Bradesco")
+    deal = _default_deal(closedate="2025-06-01T00:00:00Z")
+    ticket = _ticket_for_upsert(ev_email="ev@x", client_name="Acme",
+                                mrr="2500", beneficio="Saúde")
 
-    is_new = _upsert_policy(apolice, ticket, {}, ticket_id="T1")
+    is_new = _upsert_policy("T1", ticket, apolice, deal, {})
     db.session.flush()
 
     assert is_new is True
-    policy = Policy.query.filter_by(hubspot_apolice_id="A1").one()
+    policy = Policy.query.filter_by(hubspot_ticket_id="T1").one()
+    assert policy.hubspot_apolice_id == "A1"
     assert policy.numero_apolice == "AP-001"
     assert policy.partner_operator == "Bradesco"
     assert policy.benefit_type == BenefitType.SAUDE
@@ -360,10 +313,40 @@ def test_upsert_creates_new_policy(db_session):
     assert policy.closed_date == date(2025, 6, 1)
 
 
-def test_upsert_updates_existing_policy(db_session):
+def test_upsert_closed_date_comes_from_default_deal_not_ticket(db_session):
+    """closed_date sourced from default deal's `closedate`, not ticket's `closed_date`."""
+    _ev("ev-cd@x")
+    apolice = _apolice("A-CD")
+    deal = _default_deal(closedate="2025-12-31T00:00:00Z")
+    ticket = _ticket_for_upsert(ev_email="ev-cd@x")
+    # Ticket's own closed_date is irrelevant — should be ignored
+    ticket["closed_date"] = "1999-01-01T00:00:00Z"
+
+    _upsert_policy("T-CD", ticket, apolice, deal, {})
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_ticket_id="T-CD").one()
+    assert policy.closed_date == date(2025, 12, 31)
+
+
+def test_upsert_benefit_comes_from_ticket_not_apolice(db_session):
+    """benefit_type is read from ticket.beneficio_a_ser_cotado. Stale benefit
+    on the apólice payload (legacy) must NOT leak into the policy."""
+    _ev("ev-bn@x")
+    apolice = _apolice("A-BN")
+    apolice["properties"]["apolice___beneficio"] = "Vida"  # legacy/stale value
+    deal = _default_deal()
+    ticket = _ticket_for_upsert(ev_email="ev-bn@x", beneficio="Odonto")
+
+    _upsert_policy("T-BN", ticket, apolice, deal, {})
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_ticket_id="T-BN").one()
+    assert policy.benefit_type == BenefitType.ODONTO
+
+
+def test_upsert_updates_existing_policy_by_ticket_id(db_session):
     ev = _ev("ev2@x")
     existing = Policy(
-        hubspot_apolice_id="A2",
+        hubspot_apolice_id="A-OLD",
         hubspot_ticket_id="T2",
         ev_id=ev.id,
         mrr_projected=Decimal("100"),
@@ -371,49 +354,50 @@ def test_upsert_updates_existing_policy(db_session):
     db.session.add(existing)
     db.session.flush()
 
-    apolice = _apolice("A2", numero="AP-NEW")
+    apolice = _apolice("A-NEW", numero="AP-NEW")
+    deal = _default_deal()
     ticket = _ticket_for_upsert(ev_email="ev2@x", mrr="9999")
 
-    is_new = _upsert_policy(apolice, ticket, {}, ticket_id="T2-NEW")
+    is_new = _upsert_policy("T2", ticket, apolice, deal, {})
     db.session.flush()
 
     assert is_new is False
     db.session.refresh(existing)
     assert existing.mrr_projected == Decimal("9999")
     assert existing.numero_apolice == "AP-NEW"
-    assert existing.hubspot_ticket_id == "T2-NEW"
+    assert existing.hubspot_apolice_id == "A-NEW"  # apolice_id is non-unique now and is overwritten
 
 
 def test_upsert_saude_e_odonto_maps_to_combined_enum(db_session):
     _ev("ev3@x")
-    apolice = _apolice("A3", beneficio="Saúde e Odonto")
-    ticket = _ticket_for_upsert(ev_email="ev3@x")
-    _upsert_policy(apolice, ticket, {}, ticket_id="T3")
+    apolice = _apolice("A3")
+    deal = _default_deal()
+    ticket = _ticket_for_upsert(ev_email="ev3@x", beneficio="Saúde e Odonto")
+    _upsert_policy("T3", ticket, apolice, deal, {})
     db.session.flush()
-    policy = Policy.query.filter_by(hubspot_apolice_id="A3").one()
+    policy = Policy.query.filter_by(hubspot_ticket_id="T3").one()
     assert policy.benefit_type == BenefitType.SAUDE_ODONTO
 
 
-def test_upsert_multiple_apolices_same_ticket(db_session):
+def test_upsert_idempotent_when_called_twice_for_same_ticket(db_session):
     _ev("ev4@x")
+    apolice = _apolice("A4")
+    deal = _default_deal()
     ticket = _ticket_for_upsert(ev_email="ev4@x", mrr="3000")
-    for apolice_id, beneficio in [("A4-S", "Saúde"), ("A4-O", "Odonto"), ("A4-V", "Vida")]:
-        apolice = _apolice(apolice_id, beneficio=beneficio)
-        _upsert_policy(apolice, ticket, {}, ticket_id="T4")
+
+    _upsert_policy("T4", ticket, apolice, deal, {})
+    _upsert_policy("T4", ticket, apolice, deal, {})
     db.session.flush()
 
-    rows = Policy.query.filter_by(hubspot_ticket_id="T4").order_by(Policy.hubspot_apolice_id).all()
-    assert len(rows) == 3
-    assert {r.hubspot_apolice_id for r in rows} == {"A4-S", "A4-O", "A4-V"}
-    assert {r.benefit_type for r in rows} == {BenefitType.SAUDE, BenefitType.ODONTO, BenefitType.VIDA}
-    assert {r.mrr_projected for r in rows} == {Decimal("3000")}
+    rows = Policy.query.filter_by(hubspot_ticket_id="T4").all()
+    assert len(rows) == 1
 
 
 def test_upsert_respects_is_locked_for_lockable_fields(db_session):
     ev_old = _ev("locked-old@x")
-    ev_new = _ev("locked-new@x")
+    _ev("locked-new@x")
     locked = Policy(
-        hubspot_apolice_id="A-LOCK",
+        hubspot_apolice_id="A-LOCK-OLD",
         hubspot_ticket_id="T-LOCK",
         ev_id=ev_old.id,
         segment=Segment.M,
@@ -423,26 +407,192 @@ def test_upsert_respects_is_locked_for_lockable_fields(db_session):
     db.session.add(locked)
     db.session.flush()
 
-    apolice = _apolice("A-LOCK", parceiro="NewOp")
-    ticket = _ticket_for_upsert(ev_email="locked-new@x", segment="G", closed="2026-03-01T00:00:00Z", mrr="7777")
-    _upsert_policy(apolice, ticket, {}, ticket_id="T-LOCK-NEW")
+    apolice = _apolice("A-LOCK-NEW", parceiro="NewOp")
+    deal = _default_deal(closedate="2026-03-01T00:00:00Z")
+    ticket = _ticket_for_upsert(ev_email="locked-new@x", segment="G", mrr="7777")
+    _upsert_policy("T-LOCK", ticket, apolice, deal, {})
     db.session.flush()
     db.session.refresh(locked)
 
+    # Lockable preserved
     assert locked.ev_id == ev_old.id
     assert locked.segment == Segment.M
     assert locked.closed_date == date(2025, 1, 1)
+    # Non-lockable updated (incl. apolice id pointer)
     assert locked.mrr_projected == Decimal("7777")
     assert locked.partner_operator == "NewOp"
-    assert locked.hubspot_ticket_id == "T-LOCK-NEW"
+    assert locked.hubspot_apolice_id == "A-LOCK-NEW"
 
 
 def test_upsert_resolves_ev_via_owner_map(db_session):
     ev = _ev("from-owner@x")
     owner_map = {"99999": "from-owner@x"}
     apolice = _apolice("A-OWN")
+    deal = _default_deal()
     ticket = _ticket_for_upsert(ev_email="99999")
-    _upsert_policy(apolice, ticket, owner_map, ticket_id="T-OWN")
+    _upsert_policy("T-OWN", ticket, apolice, deal, owner_map)
     db.session.flush()
-    policy = Policy.query.filter_by(hubspot_apolice_id="A-OWN").one()
+    policy = Policy.query.filter_by(hubspot_ticket_id="T-OWN").one()
     assert policy.ev_id == ev.id
+
+
+# --- _delete_absent_policies ---
+
+from app.models import Commission, EvValidation, FinancialImport, Appraisal
+from app.models.appraisal import AppraisalStatus
+from app.models.ev_validation import ValidationStatus
+from app.models.financial_import import ImportBatch
+from app.modules.hubspot_sync.sync import _delete_absent_policies
+
+
+def _make_policy(ticket_id, ev_id, locked=False):
+    p = Policy(
+        hubspot_ticket_id=ticket_id,
+        hubspot_apolice_id=f"A-{ticket_id}",
+        ev_id=ev_id,
+        is_locked=locked,
+    )
+    db.session.add(p)
+    db.session.flush()
+    return p
+
+
+def test_delete_absent_policies_removes_policies_not_in_fetch(db_session):
+    ev = _ev("delete-test@x")
+    _make_policy("KEEP-1", ev.id)
+    _make_policy("DROP-1", ev.id)
+
+    summary = _new_summary()
+    _delete_absent_policies({"KEEP-1"}, summary)
+    db.session.flush()
+
+    assert Policy.query.filter_by(hubspot_ticket_id="KEEP-1").one()
+    assert Policy.query.filter_by(hubspot_ticket_id="DROP-1").first() is None
+    assert summary["deleted"] == 1
+
+
+def test_delete_absent_policies_no_op_when_all_seen(db_session):
+    ev = _ev("delete-noop@x")
+    _make_policy("A1", ev.id)
+    _make_policy("A2", ev.id)
+
+    summary = _new_summary()
+    _delete_absent_policies({"A1", "A2"}, summary)
+    db.session.flush()
+
+    assert Policy.query.count() == 2
+    assert summary["deleted"] == 0
+
+
+def test_delete_absent_policies_cascades_commissions(db_session):
+    ev = _ev("delete-cascade-c@x")
+    p_keep = _make_policy("CASC-KEEP", ev.id)
+    p_drop = _make_policy("CASC-C", ev.id)
+    c_keep = Commission(policy_id=p_keep.id, ev_id=ev.id, quarter=1, year=2025)
+    c_drop = Commission(policy_id=p_drop.id, ev_id=ev.id, quarter=1, year=2025)
+    db.session.add_all([c_keep, c_drop])
+    db.session.flush()
+    c_drop_id = c_drop.id
+
+    summary = _new_summary()
+    _delete_absent_policies({"CASC-KEEP"}, summary)
+    db.session.flush()
+
+    assert Commission.query.filter_by(id=c_drop_id).first() is None
+    assert Commission.query.filter_by(policy_id=p_keep.id).count() == 1
+    assert summary["deleted"] == 1
+
+
+def test_delete_absent_policies_cascades_ev_validations(db_session):
+    import random
+    ev = _ev("delete-cascade-v@x")
+    p_keep = _make_policy("CASC-V-KEEP", ev.id)
+    p_drop = _make_policy("CASC-V-DROP", ev.id)
+    appraisal = Appraisal(
+        quarter=1,
+        year=2099 + random.randint(0, 99999),
+        status=AppraisalStatus.DRAFT,
+        created_by=ev.id,
+    )
+    db.session.add(appraisal)
+    db.session.flush()
+    v_drop = EvValidation(
+        appraisal_id=appraisal.id,
+        policy_id=p_drop.id,
+        ev_id=ev.id,
+        status=ValidationStatus.PENDING,
+    )
+    db.session.add(v_drop)
+    db.session.flush()
+    v_drop_id = v_drop.id
+
+    summary = _new_summary()
+    _delete_absent_policies({"CASC-V-KEEP"}, summary)
+    db.session.flush()
+
+    assert EvValidation.query.filter_by(id=v_drop_id).first() is None
+
+
+def test_delete_absent_policies_nulls_financial_imports(db_session):
+    ev = _ev("delete-fi@x")
+    p_keep = _make_policy("FI-KEEP", ev.id)
+    p_drop = _make_policy("FI-DROP", ev.id)
+    batch = ImportBatch(filename="test.csv", uploaded_by=ev.id)
+    db.session.add(batch)
+    db.session.flush()
+    fi = FinancialImport(
+        import_batch_id=batch.id,
+        policy_id=p_drop.id,
+        numero_apolice="X",
+        nf_valor_liquido=Decimal("100.00"),
+        nf_mes_recebimento="2025-01",
+        quarter=1,
+        year=2025,
+    )
+    db.session.add(fi)
+    db.session.flush()
+    fi_id = fi.id
+
+    summary = _new_summary()
+    _delete_absent_policies({"FI-KEEP"}, summary)
+    db.session.flush()
+    # Bulk update used synchronize_session=False — expire identity map so the
+    # re-query sees the new policy_id=None instead of the cached value.
+    db.session.expire_all()
+
+    fi_after = FinancialImport.query.filter_by(id=fi_id).one()
+    assert fi_after.policy_id is None  # unlinked, not deleted
+
+
+def test_delete_absent_policies_deletes_locked_rows(db_session):
+    ev = _ev("delete-locked@x")
+    _make_policy("LOCK-DROP", ev.id, locked=True)
+
+    summary = _new_summary()
+    _delete_absent_policies({"OTHER"}, summary)
+    db.session.flush()
+
+    assert Policy.query.filter_by(hubspot_ticket_id="LOCK-DROP").first() is None
+    assert summary["deleted"] == 1
+
+
+def test_delete_absent_policies_aborts_when_seen_empty_but_db_nonempty(db_session):
+    ev = _ev("delete-guard@x")
+    _make_policy("GUARD-1", ev.id)
+    _make_policy("GUARD-2", ev.id)
+
+    summary = _new_summary()
+    _delete_absent_policies(set(), summary)
+    db.session.flush()
+
+    assert Policy.query.count() == 2
+    assert summary["deleted"] == 0
+    assert any("Delete-by-absence" in e for e in summary["errors"])
+    assert summary["error_count"] >= 1
+
+
+def test_delete_absent_policies_empty_db_empty_seen_is_safe(db_session):
+    summary = _new_summary()
+    _delete_absent_policies(set(), summary)
+    assert summary["deleted"] == 0
+    assert summary["errors"] == []
