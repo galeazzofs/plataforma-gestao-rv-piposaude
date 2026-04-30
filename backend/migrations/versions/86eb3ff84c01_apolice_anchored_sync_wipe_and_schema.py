@@ -20,8 +20,11 @@ def upgrade():
     bind = op.get_bind()
     dialect = bind.dialect.name
 
-    # 1. Wipe existing data (commissions FK → policies)
+    # 1. Wipe existing data — clear all child tables that FK to policies
+    # before deleting policies themselves (no ondelete cascade configured).
     op.execute("DELETE FROM commissions")
+    op.execute("DELETE FROM ev_validations")
+    op.execute("UPDATE financial_imports SET policy_id = NULL WHERE policy_id IS NOT NULL")
     op.execute("DELETE FROM policies")
 
     # 2. Add SAUDE_ODONTO to benefit_type enum (Postgres only — SQLite uses VARCHAR check)
