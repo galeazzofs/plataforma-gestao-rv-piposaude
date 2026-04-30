@@ -41,6 +41,9 @@ GONGO_STAGE_ID = "11947921"
 DEFAULT_DEAL_PIPELINE_ID = "default"
 GONGO_DATE_FLOOR = date(2024, 9, 1)
 
+PRE_ATIVACAO_STAGE_ID = "14038792"
+PRE_ATIVACAO_DATE_FLOOR = date(2024, 9, 1)
+
 VALID_BENEFITS_HUBSPOT = ["Saúde", "Odonto", "Vida", "Saúde e Odonto"]
 
 TICKET_PROPERTIES = [
@@ -54,6 +57,7 @@ TICKET_PROPERTIES = [
 DEAL_PROPERTIES = [
     "pipeline",
     "apolice___beneficio", "numero_apolice", "parceiro",
+    "hs_v2_date_entered_14038792",
 ]
 
 LAST_SUCCESS_KEY = "hubspot_sync_last_success_at"
@@ -206,8 +210,13 @@ def _resolve_ticket_apolices(client, tickets, summary):
             props = deal_props.get(d, {})
             pipeline = props.get("pipeline")
             if pipeline == APOLICE_PIPELINE_ID:
-                if props.get("apolice___beneficio") in VALID_BENEFITS_HUBSPOT:
-                    apolices.append({"id": d, "properties": props})
+                if props.get("apolice___beneficio") not in VALID_BENEFITS_HUBSPOT:
+                    continue
+                entered = parse_date(props.get("hs_v2_date_entered_14038792"))
+                if entered is None or entered < PRE_ATIVACAO_DATE_FLOOR:
+                    summary["skipped"]["not_pre_activation"] += 1
+                    continue
+                apolices.append({"id": d, "properties": props})
             elif pipeline == DEFAULT_DEAL_PIPELINE_ID:
                 has_default = True
         if not has_default:

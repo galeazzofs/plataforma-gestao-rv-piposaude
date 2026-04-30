@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from app.modules.hubspot_sync.sync import (
     _fetch_tickets,
     _resolve_ticket_apolices,
+    _new_summary,
     APOLICE_PIPELINE_ID,
     PLACEMENT_PIPELINE_ID,
     GONGO_STAGE_ID,
@@ -94,7 +95,14 @@ def test_fetch_tickets_empty_first_page_returns_empty():
 # --- _resolve_ticket_apolices ---
 
 def _new_summary():
-    return {"skipped": {"no_default_deal": 0, "no_apolice": 0, "no_active_ev": 0}}
+    return {
+        "skipped": {
+            "no_default_deal": 0,
+            "no_apolice": 0,
+            "no_active_ev": 0,
+            "not_pre_activation": 0,
+        },
+    }
 
 
 def _ticket(tid):
@@ -112,6 +120,7 @@ def test_resolve_ticket_apolices_keeps_ticket_with_valid_apolice_and_default():
             "apolice___beneficio": "Saúde",
             "numero_apolice": "AP-001",
             "parceiro": "Bradesco",
+            "hs_v2_date_entered_14038792": "2025-01-15",
         },
         "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
     }
@@ -138,8 +147,16 @@ def test_resolve_ticket_apolices_keeps_multiple_apolices_per_ticket():
         "T1": ["D-S", "D-O", "D-DEFAULT"],
     }
     client.batch_read_objects.return_value = {
-        "D-S": {"pipeline": APOLICE_PIPELINE_ID, "apolice___beneficio": "Saúde"},
-        "D-O": {"pipeline": APOLICE_PIPELINE_ID, "apolice___beneficio": "Odonto"},
+        "D-S": {
+            "pipeline": APOLICE_PIPELINE_ID,
+            "apolice___beneficio": "Saúde",
+            "hs_v2_date_entered_14038792": "2025-01-15",
+        },
+        "D-O": {
+            "pipeline": APOLICE_PIPELINE_ID,
+            "apolice___beneficio": "Odonto",
+            "hs_v2_date_entered_14038792": "2025-01-15",
+        },
         "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
     }
     summary = _new_summary()
@@ -156,7 +173,11 @@ def test_resolve_ticket_apolices_drops_ticket_without_default_deal():
         "T1": ["D-APOLICE"],  # no default
     }
     client.batch_read_objects.return_value = {
-        "D-APOLICE": {"pipeline": APOLICE_PIPELINE_ID, "apolice___beneficio": "Saúde"},
+        "D-APOLICE": {
+            "pipeline": APOLICE_PIPELINE_ID,
+            "apolice___beneficio": "Saúde",
+            "hs_v2_date_entered_14038792": "2025-01-15",
+        },
     }
     summary = _new_summary()
 
@@ -223,6 +244,82 @@ def test_resolve_ticket_apolices_empty_input():
     assert result == {}
     client.batch_read_associations.assert_not_called()
     client.batch_read_objects.assert_not_called()
+
+
+def test_resolve_ticket_apolices_includes_apolice_past_pre_activation():
+    """Apólice com hs_v2_date_entered_14038792 >= 2024-09-01 é incluída."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {
+        "T1": ["D-APOLICE", "D-DEFAULT"],
+    }
+    client.batch_read_objects.return_value = {
+        "D-APOLICE": {
+            "pipeline": APOLICE_PIPELINE_ID,
+            "apolice___beneficio": "Saúde",
+            "numero_apolice": "AP-001",
+            "parceiro": "Bradesco",
+            "hs_v2_date_entered_14038792": "2025-01-15",
+        },
+        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+
+    assert "T1" in result
+    assert len(result["T1"]) == 1
+    assert summary["skipped"]["not_pre_activation"] == 0
+
+
+def test_resolve_ticket_apolices_skips_apolice_without_pre_activation_date():
+    """Apólice sem hs_v2_date_entered_14038792 → skip + counter."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {
+        "T1": ["D-APOLICE", "D-DEFAULT"],
+    }
+    client.batch_read_objects.return_value = {
+        "D-APOLICE": {
+            "pipeline": APOLICE_PIPELINE_ID,
+            "apolice___beneficio": "Saúde",
+            "numero_apolice": "AP-001",
+            "parceiro": "Bradesco",
+            # hs_v2_date_entered_14038792 ausente
+        },
+        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+
+    # Sem apólices válidas — ticket cai em no_apolice
+    assert result == {}
+    assert summary["skipped"]["not_pre_activation"] == 1
+    assert summary["skipped"]["no_apolice"] == 1
+
+
+def test_resolve_ticket_apolices_skips_apolice_with_pre_activation_before_floor():
+    """Apólice com data anterior a 2024-09-01 → skip + counter."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {
+        "T1": ["D-APOLICE", "D-DEFAULT"],
+    }
+    client.batch_read_objects.return_value = {
+        "D-APOLICE": {
+            "pipeline": APOLICE_PIPELINE_ID,
+            "apolice___beneficio": "Saúde",
+            "numero_apolice": "AP-001",
+            "parceiro": "Bradesco",
+            "hs_v2_date_entered_14038792": "2024-08-15",
+        },
+        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_apolices(client, [_ticket("T1")], summary)
+
+    assert result == {}
+    assert summary["skipped"]["not_pre_activation"] == 1
+    assert summary["skipped"]["no_apolice"] == 1
 
 
 # --- _upsert_policy ---
