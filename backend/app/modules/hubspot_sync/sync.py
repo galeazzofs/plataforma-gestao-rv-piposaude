@@ -399,6 +399,7 @@ def run_sync():
 
     ticket_props_by_id = {t["id"]: t.get("properties", {}) for t in tickets}
 
+    unmatched_owners = {}
     for ticket_id, apolices in ticket_to_apolices.items():
         ticket_props = ticket_props_by_id.get(ticket_id, {})
         for apolice in apolices:
@@ -412,6 +413,9 @@ def run_sync():
                 )
                 if result is None:
                     summary["skipped"]["no_active_ev"] += 1
+                    raw_owner = ticket_props.get("solicitante_demanda") or "<empty>"
+                    unmatched_owners.setdefault(str(raw_owner), 0)
+                    unmatched_owners[str(raw_owner)] += 1
                 elif result:
                     summary["created"] += 1
                 else:
@@ -420,6 +424,17 @@ def run_sync():
                 db.session.rollback()
                 logger.error(f"Error processing apolice {apolice_id}: {e}")
                 summary["errors"].append(f"Apolice {apolice_id}: {e}")
+
+    if unmatched_owners:
+        # Surface raw solicitante_demanda values so admins can map them in
+        # PlatformSetting "hubspot_owner_map". Sorted by frequency descending.
+        ranked = sorted(unmatched_owners.items(), key=lambda kv: -kv[1])
+        logger.warning(
+            "Skipped %d apolice(s) with no matching active EV. "
+            "Top unmatched solicitante_demanda values: %s",
+            sum(unmatched_owners.values()),
+            ", ".join(f"{raw}({count})" for raw, count in ranked[:10]),
+        )
 
     db.session.commit()
     summary["error_count"] = len(summary["errors"])
