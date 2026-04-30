@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from app.extensions import db
 from app.models import (
     User, UserRole, Client, Perk, ImportBatch,
-    Appraisal, AppraisalStatus,
+    Appraisal, AppraisalStatus, AuditLog,
 )
 from app.modules.financial.perk_parser import parse_perk_xlsx, PerkParseError
 from app.modules.financial.processor import (
@@ -37,6 +37,7 @@ def admin_user():
     ImportBatch.query.delete()
     Appraisal.query.delete()
     Client.query.delete()
+    AuditLog.query.filter_by(user_id=u.id).delete()
     db.session.delete(u)
     db.session.commit()
 

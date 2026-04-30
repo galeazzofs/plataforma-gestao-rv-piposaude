@@ -38,7 +38,9 @@ def _base_setup(session):
     session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="A-TICKET-100",
         hubspot_ticket_id="TICKET-100",
+        numero_apolice="AP-100",
         ev_id=ev.id,
         client_id=client.id,
         segment=Segment.P,
@@ -88,6 +90,7 @@ class TestPerEmpresaFormula:
                 cliente_mae="Acme Corp",
                 operadora="Bradesco",
                 produto="Saude",
+                numero_apolice="AP-100",
                 status_recebimento="RECEBIDO",
                 data_recebimento=date(2026, 2 + i, 15),
             ))
@@ -113,6 +116,7 @@ class TestPerEmpresaFormula:
             cliente_mae="Acme Corp",
             operadora="Bradesco",
             produto="Saude",
+            numero_apolice="AP-100",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -139,7 +143,9 @@ class TestPerEmpresaFormula:
         ev, client, policy_saude, batch = _base_setup(db_session)
 
         policy_odonto = Policy(
+            hubspot_apolice_id="A-TICKET-101",
             hubspot_ticket_id="TICKET-101",
+            numero_apolice="AP-101",
             ev_id=ev.id,
             client_id=client.id,
             segment=Segment.P,
@@ -164,6 +170,7 @@ class TestPerEmpresaFormula:
             cliente_mae="Acme Corp",
             operadora="Bradesco",
             produto="Saude",
+            numero_apolice="AP-100",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -176,6 +183,7 @@ class TestPerEmpresaFormula:
             cliente_mae="Acme Corp",
             operadora="Bradesco",
             produto="Odonto",
+            numero_apolice="AP-101",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -216,6 +224,7 @@ class TestPerEmpresaFormula:
             cliente_mae="Acme Corp",
             operadora="Bradesco",
             produto="Saude",
+            numero_apolice="AP-100",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -245,6 +254,7 @@ class TestPerEmpresaFormula:
             cliente_mae="Acme Corp",
             operadora="Bradesco",
             produto="Saude",
+            numero_apolice="AP-100",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
