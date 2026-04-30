@@ -106,35 +106,38 @@ class Policy(db.Model):
 
     @property
     def commission_potential(self):
-        """MRR x 12 x commission_pct.
+        """MRR × 12 × commission_pct.
 
-        % cascade: if any apuração already produced a commission_pct for
-        this policy, use the most recent one. Otherwise look up the base
-        rate for this segment at 100% achievement (the floor a fully
-        on-target EV would receive)."""
+        commission_pct is looked up from the EV's achievement in the
+        apolice's gongo quarter (same snapshot the calculator uses when
+        stamping a Commission row), so 'potential' tracks what the EV
+        will actually earn for the full 12-month vigência.
+
+        Returns None if any of segment / closed_date / ev_id / mrr is
+        missing — those cases can't produce a meaningful potential."""
         from decimal import Decimal
-        from app.models import CommissionPctTable
+        from app.models import CommissionPctTable, EvQuarterAchievement
 
         mrr = self.mrr_for_commission
-        if mrr is None:
+        if mrr is None or self.segment is None:
+            return None
+        if self.closed_date is None or self.ev_id is None:
             return None
 
-        pct = None
-        if self.commissions:
-            latest = max(
-                (c for c in self.commissions if c.commission_pct is not None),
-                key=lambda c: (c.year, c.quarter),
-                default=None,
-            )
-            if latest is not None:
-                pct = latest.commission_pct
+        gongo_q = (self.closed_date.month - 1) // 3 + 1
+        gongo_y = self.closed_date.year
+        ach = EvQuarterAchievement.query.filter_by(
+            ev_id=self.ev_id, quarter=gongo_q, year=gongo_y,
+        ).first()
+        # When the EV has no achievement on file for this quarter we
+        # mirror the calculator's behaviour and treat it as 0 — i.e. the
+        # lowest tier of CommissionPctTable, not "unknown / null".
+        achievement = ach.achievement_pct if ach else Decimal("0")
 
-        if pct is None and self.segment is not None:
-            row = CommissionPctTable.lookup(self.segment.value, Decimal("1.0"))
-            if row is not None:
-                pct = row.commission_pct
-
-        if pct is None:
+        row = CommissionPctTable.lookup(self.segment.value, achievement)
+        if row is None:
             return None
 
-        return (Decimal(str(mrr)) * Decimal("12") * Decimal(str(pct))).quantize(Decimal("0.01"))
+        return (
+            Decimal(str(mrr)) * Decimal("12") * Decimal(str(row.commission_pct))
+        ).quantize(Decimal("0.01"))
