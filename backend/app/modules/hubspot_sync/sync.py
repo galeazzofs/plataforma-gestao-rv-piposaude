@@ -307,10 +307,12 @@ def _new_summary():
         "timestamp": None,
         "created": 0,
         "updated": 0,
+        "deleted": 0,
         "skipped": {
             "no_default_deal": 0,
             "no_apolice": 0,
             "no_active_ev": 0,
+            "not_pre_activation": 0,
         },
         "errors": [],
         "error_count": 0,
@@ -323,6 +325,7 @@ def _persist_last_sync(summary):
     PlatformSetting.set("hubspot_last_sync_errors", summary["errors"], user_id=None)
     PlatformSetting.set("hubspot_last_sync_created", summary["created"], user_id=None)
     PlatformSetting.set("hubspot_last_sync_updated", summary["updated"], user_id=None)
+    PlatformSetting.set("hubspot_last_sync_deleted", summary["deleted"], user_id=None)
     skipped_total = sum(summary["skipped"].values()) if isinstance(summary["skipped"], dict) else summary["skipped"]
     PlatformSetting.set("hubspot_last_sync_skipped", skipped_total, user_id=None)
     db.session.commit()
