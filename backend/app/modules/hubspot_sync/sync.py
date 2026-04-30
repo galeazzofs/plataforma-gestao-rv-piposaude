@@ -203,3 +203,76 @@ def _filter_tickets_with_default_deal(client, ticket_ids, summary):
             summary["skipped"]["no_default_deal"] += 1
     logger.info(f"_filter_tickets_with_default_deal: {len(valid)}/{len(ticket_ids)} tickets pass")
     return valid
+
+
+def _new_summary():
+    return {
+        "timestamp": None,
+        "created": 0,
+        "updated": 0,
+        "skipped": {
+            "no_ticket": 0,
+            "wrong_pipeline": 0,
+            "not_gongo": 0,
+            "too_old": 0,
+            "no_default_deal": 0,
+        },
+        "errors": [],
+        "error_count": 0,
+    }
+
+
+def run_sync():
+    """Main sync job: pull apolices from HubSpot, validate linkage, upsert into policies.
+
+    Returns summary dict.
+    """
+    client = HubSpotClient()
+    summary = _new_summary()
+
+    try:
+        owner_map = client.get_all_owners()
+        logger.info(f"Loaded {len(owner_map)} HubSpot owners")
+    except Exception as e:
+        logger.warning(f"Could not load owners: {e}")
+        owner_map = {}
+
+    try:
+        apolices = _fetch_apolices(client)
+        apolice_to_ticket = _fetch_apolice_tickets(client, apolices, summary)
+        tickets = _fetch_and_validate_tickets(
+            client, apolice_to_ticket.values(), summary
+        )
+        valid_ticket_ids = _filter_tickets_with_default_deal(
+            client, tickets.keys(), summary
+        )
+    except Exception as e:
+        logger.error(f"HubSpot fetch failed: {e}")
+        summary["errors"].append(f"Fetch failed: {e}")
+        summary["error_count"] = len(summary["errors"])
+        summary["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return summary
+
+    for apolice in apolices:
+        apolice_id = apolice["id"]
+        ticket_id = apolice_to_ticket.get(apolice_id)
+        if not ticket_id or ticket_id not in valid_ticket_ids:
+            continue
+        try:
+            was_created = _upsert_policy(
+                apolice, tickets[ticket_id], owner_map, ticket_id=ticket_id
+            )
+            if was_created:
+                summary["created"] += 1
+            else:
+                summary["updated"] += 1
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error processing apolice {apolice_id}: {e}")
+            summary["errors"].append(f"Apolice {apolice_id}: {e}")
+
+    db.session.commit()
+    summary["error_count"] = len(summary["errors"])
+    summary["timestamp"] = datetime.now(timezone.utc).isoformat()
+    logger.info(f"HubSpot sync completed: {summary}")
+    return summary
