@@ -7,7 +7,10 @@
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
             [app.ds.table :as tbl]
-            [app.ds.badge :as badge]))
+            [app.ds.badge :as badge]
+            [app.ds.tokens :as t]
+            [app.views.revops.dashboard :as revops-shell]
+            [app.auth.subs]))
 
 (rf/reg-event-fx
  :revops/fetch-leadership-preview
@@ -66,9 +69,15 @@
     (fn []
       (let [preview  @(rf/subscribe [:revops/leadership-preview])
             results  @(rf/subscribe [:revops/leadership-appraisals])
-            loading? @(rf/subscribe [:revops/leadership-loading?])]
-        [layout/page {:title "Apuração Liderança — GERENTEs"}
-         [cards/card
+            loading? @(rf/subscribe [:revops/leadership-loading?])
+            user     @(rf/subscribe [:auth/current-user])
+            route    @(rf/subscribe [:current-route-name])]
+        [layout/page-shell
+         {:sidebar-items revops-shell/sidebar-items
+          :current-route route
+          :user          user
+          :title         "Apuração Liderança — GERENTEs"}
+         [cards/card {}
           [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :margin-bottom "16px"}}
            [inputs/select {:label "Trimestre" :value (:quarter @filter-s)
                            :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
@@ -91,18 +100,18 @@
                [:div {:style {:display "flex" :gap "12px" :align-items "center"
                               :margin-bottom "8px"}}
                 [:span {:style {:width "140px" :font-size "13px"}} gerente_name]
-                [:span {:style {:width "120px" :font-size "12px" :color "#666"}}
+                [:span {:style {:width "120px" :font-size "12px" :color t/text-secondary}}
                  (str "Meta MRR: R$ " meta_mrr " (auto)")]
-                [inputs/text-field
+                [inputs/input
                  {:label "MRR Realizado"
                   :value (get-in @form-inputs [gerente_id :realizado_mrr] "")
                   :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_mrr] %)}]
-                [inputs/text-field
-                 {:label "Meta SQL" :type :number
+                [inputs/input
+                 {:label "Meta SQL" :type "number"
                   :value (get-in @form-inputs [gerente_id :meta_sql] "")
                   :on-change #(swap! form-inputs assoc-in [gerente_id :meta_sql] %)}]
-                [inputs/text-field
-                 {:label "SQL Realizado" :type :number
+                [inputs/input
+                 {:label "SQL Realizado" :type "number"
                   :value (get-in @form-inputs [gerente_id :realizado_sql] "")
                   :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_sql] %)}]])])
 
@@ -121,24 +130,26 @@
 
           (when (seq results)
             [:div {:style {:margin-top "24px"}}
-             [tbl/table
-              {:loading? loading?
-               :columns  [{:key :gerente_name  :label "Gerente"}
-                          {:key :meta_mrr     :label "Meta MRR"}
-                          {:key :pct_mrr      :label "% MRR"}
-                          {:key :pct_sql      :label "% SQL"}
-                          {:key :multiplicador :label "Mult."}
-                          {:key :bonus_amount  :label "Bônus (R$)"}
-                          {:key :is_final      :label "Status"
-                           :render (fn [v row]
-                                     (if v
-                                       [badge/badge {:variant :success} "Final"]
-                                       [btn/button
-                                        {:variant :primary :size :sm
-                                         :on-click #(rf/dispatch
-                                                     [:revops/finalize-leadership
-                                                      (:id row)
-                                                      (:quarter @filter-s)
-                                                      (:year @filter-s)])}
-                                        "Finalizar"]))}]
-               :rows     results}]])]]))))
+             (if loading?
+               [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}}
+                "Carregando..."]
+               [tbl/data-table
+                {:columns  [{:key :gerente_name  :label "Gerente"}
+                            {:key :meta_mrr     :label "Meta MRR"}
+                            {:key :pct_mrr      :label "% MRR"}
+                            {:key :pct_sql      :label "% SQL"}
+                            {:key :multiplicador :label "Mult."}
+                            {:key :bonus_amount  :label "Bônus (R$)"}
+                            {:key :is_final      :label "Status"
+                             :render (fn [row]
+                                       (if (:is_final row)
+                                         [badge/badge {:variant :success} "Final"]
+                                         [btn/button
+                                          {:variant :primary :size :sm
+                                           :on-click #(rf/dispatch
+                                                       [:revops/finalize-leadership
+                                                        (:id row)
+                                                        (:quarter @filter-s)
+                                                        (:year @filter-s)])}
+                                          "Finalizar"]))}]
+                 :rows     results}])])]]))))

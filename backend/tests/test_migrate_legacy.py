@@ -31,6 +31,7 @@ def policy(db_session):
     client = Client.find_or_create("Celcoin")
     db.session.flush()
     p = Policy(
+        hubspot_apolice_id="A-CELCOIN",
         hubspot_ticket_id="T-CELCOIN",
         client_id=client.id,
         benefit_type=BenefitType.SAUDE,
@@ -88,6 +89,7 @@ def test_skips_locked_policy(tmp_path, db_session):
     client = Client.find_or_create("LockedCo")
     db.session.flush()
     p = Policy(
+        hubspot_apolice_id="A-LOCKED",
         hubspot_ticket_id="T-LOCKED",
         client_id=client.id,
         benefit_type=BenefitType.SAUDE,

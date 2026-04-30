@@ -15,6 +15,7 @@ def _make_client(session, name="Acme Corp"):
 
 def _make_policy(session, client, **overrides):
     defaults = dict(
+        hubspot_apolice_id=f"A-{id(overrides)}",
         hubspot_ticket_id=f"T-{id(overrides)}",
         client_id=client.id,
         segment=Segment.P,

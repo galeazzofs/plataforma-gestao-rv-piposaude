@@ -49,7 +49,7 @@ class TestComputeEvBalance:
         ev, client = _setup(db_session)
 
         db_session.add(Policy(
-            hubspot_ticket_id="T-1", ev_id=ev.id, client_id=client.id,
+            hubspot_apolice_id="A-1", hubspot_ticket_id="T-1", ev_id=ev.id, client_id=client.id,
             segment=Segment.P, benefit_type=BenefitType.SAUDE,
             mrr_projected=Decimal("10000"),
             closed_date=date(2026, 1, 15),
@@ -67,7 +67,7 @@ class TestComputeEvBalance:
         ev, client = _setup(db_session)
 
         db_session.add(Policy(
-            hubspot_ticket_id="T-2", ev_id=ev.id, client_id=client.id,
+            hubspot_apolice_id="A-2", hubspot_ticket_id="T-2", ev_id=ev.id, client_id=client.id,
             segment=Segment.P, benefit_type=BenefitType.SAUDE,
             mrr_projected=Decimal("10000"),
             closed_date=date(2026, 1, 15),
@@ -86,7 +86,7 @@ class TestComputeEvBalance:
         ev, client = _setup(db_session)
 
         db_session.add(Policy(
-            hubspot_ticket_id="T-3", ev_id=ev.id, client_id=client.id,
+            hubspot_apolice_id="A-3", hubspot_ticket_id="T-3", ev_id=ev.id, client_id=client.id,
             segment=Segment.P, benefit_type=BenefitType.SAUDE,
             mrr_projected=Decimal("10000"),
             closed_date=date(2026, 1, 15),
@@ -102,7 +102,7 @@ class TestComputeEvBalance:
         ev, client = _setup(db_session)
 
         db_session.add(Policy(
-            hubspot_ticket_id="T-4", ev_id=ev.id, client_id=client.id,
+            hubspot_apolice_id="A-4", hubspot_ticket_id="T-4", ev_id=ev.id, client_id=client.id,
             segment=Segment.P, benefit_type=BenefitType.SAUDE,
             mrr_projected=Decimal("10000"),
             mrr_post_deploy=Decimal("8000"),
@@ -126,7 +126,7 @@ class TestComputeEvProjection:
         ev, client = _setup(db_session)
 
         db_session.add(Policy(
-            hubspot_ticket_id="T-5", ev_id=ev.id, client_id=client.id,
+            hubspot_apolice_id="A-5", hubspot_ticket_id="T-5", ev_id=ev.id, client_id=client.id,
             segment=Segment.P, benefit_type=BenefitType.SAUDE,
             mrr_projected=Decimal("10000"),
             closed_date=date(2026, 1, 15),

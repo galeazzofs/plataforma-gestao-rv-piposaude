@@ -7,7 +7,7 @@ import pytest
 
 from app.extensions import db
 from app.models import (
-    User, UserRole, FinancialImport, ImportBatch,
+    User, UserRole, FinancialImport, ImportBatch, AuditLog,
 )
 from app.auth.jwt_manager import create_access_token
 
@@ -32,6 +32,7 @@ def admin():
     yield u
     FinancialImport.query.delete()
     ImportBatch.query.delete()
+    AuditLog.query.filter_by(user_id=u.id).delete()
     db.session.delete(u)
     db.session.commit()
 
