@@ -45,6 +45,17 @@ class HubSpotClient:
             body["after"] = after
         return self._request("POST", "/crm/v3/objects/tickets/search", json=body)
 
+    def search_deals(self, filters, properties, limit=100, after=None):
+        """Search deals via CRM search API."""
+        body = {
+            "filterGroups": [{"filters": filters}],
+            "properties": properties,
+            "limit": limit,
+        }
+        if after:
+            body["after"] = after
+        return self._request("POST", "/crm/v3/objects/deals/search", json=body)
+
     def get_associations(self, object_type, object_id, to_type):
         """Get associations for an object."""
         return self._request(
