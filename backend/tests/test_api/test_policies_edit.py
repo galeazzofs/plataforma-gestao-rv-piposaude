@@ -51,8 +51,10 @@ def fresh_actors():
 
 
 def _make_policy(ev_id, client_id, ticket_id="PUT-T"):
+    ticket_uuid = uuid.uuid4().hex[:6]
     p = Policy(
-        hubspot_ticket_id=f"{ticket_id}-{uuid.uuid4().hex[:6]}",
+        hubspot_apolice_id=f"A-{ticket_id}-{ticket_uuid}",
+        hubspot_ticket_id=f"{ticket_id}-{ticket_uuid}",
         ev_id=ev_id,
         client_id=client_id,
         segment=Segment.M,
@@ -156,12 +158,14 @@ def test_get_policies_applies_active_ev_filter(client, fresh_actors):
     active_ticket = f"ACTIVE-{suffix}"
     inactive_ticket = f"INACTIVE-{suffix}"
     p_active = Policy(
+        hubspot_apolice_id=f"A-{active_ticket}",
         hubspot_ticket_id=active_ticket,
         ev_id=active_ev.id, client_id=client_obj.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,
         closed_date=date(2025, 12, 1),
     )
     p_inactive = Policy(
+        hubspot_apolice_id=f"A-{inactive_ticket}",
         hubspot_ticket_id=inactive_ticket,
         ev_id=inactive_ev.id, client_id=client_obj.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,

@@ -11,7 +11,7 @@ def test_validate_nf_rows_valid(db_session):
     client = Client(name="Acme", name_normalized="acme", ev_id=ev.id)
     db_session.add(client)
     db_session.flush()
-    policy = Policy(hubspot_ticket_id="T-1", ev_id=ev.id, client_id=client.id)
+    policy = Policy(hubspot_apolice_id="A-T-1", hubspot_ticket_id="T-1", ev_id=ev.id, client_id=client.id)
     db_session.add(policy)
     db_session.flush()
 

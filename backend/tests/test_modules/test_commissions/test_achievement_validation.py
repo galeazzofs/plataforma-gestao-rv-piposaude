@@ -25,6 +25,7 @@ def _policy(ev, ticket, closed_date, client_name="X"):
     c = Client.find_or_create(client_name)
     db.session.flush()
     p = Policy(
+        hubspot_apolice_id=f"A-{ticket}",
         hubspot_ticket_id=ticket,
         ev_id=ev.id,
         client_id=c.id,

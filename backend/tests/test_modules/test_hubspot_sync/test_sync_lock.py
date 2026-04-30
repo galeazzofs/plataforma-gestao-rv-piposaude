@@ -32,6 +32,7 @@ def test_sync_preserves_locked_fields(db_session):
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="A-LOCK-T1",
         hubspot_ticket_id="LOCK-T1",
         ev_id=old_ev.id,
         client_id=old_client.id,
@@ -77,6 +78,7 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="A-UNLOCK-T1",
         hubspot_ticket_id="UNLOCK-T1",
         ev_id=ev1.id,
         segment=Segment.M,
@@ -118,6 +120,7 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="A-MRR-T1",
         hubspot_ticket_id="MRR-T1",
         ev_id=old_ev.id,
         client_id=old_client.id,
