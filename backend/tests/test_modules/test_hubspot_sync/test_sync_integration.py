@@ -1,11 +1,9 @@
-"""End-to-end mocked test for run_sync (ticket-anchored, incremental).
+"""End-to-end mocked test for run_sync (ticket-anchored, full-fetch).
 
 Stubs the HubSpotClient at the module level and walks through a realistic
 scenario with multiple tickets in mixed states, verifying the final state
-of `policies`, the summary counts, and that the incremental cursor is
-bumped on success.
+of `policies` and the summary counts.
 """
-from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 
@@ -14,7 +12,6 @@ from app.models import Policy, User, UserRole, BenefitType, Client, PlatformSett
 from app.modules.hubspot_sync.sync import (
     APOLICE_PIPELINE_ID,
     DEFAULT_DEAL_PIPELINE_ID,
-    LAST_SUCCESS_KEY,
 )
 
 
@@ -46,6 +43,7 @@ def _apolice_props(beneficio, numero="AP-X", parceiro="BradescoTest"):
         "apolice___beneficio": beneficio,
         "numero_apolice": numero,
         "parceiro": parceiro,
+        "hs_v2_date_entered_14038792": "2025-01-15",
     }
 
 
@@ -111,91 +109,10 @@ def test_run_sync_end_to_end(db_session):
     assert a_s.numero_apolice == "AP-S"
     assert a_v.partner_operator == "BradescoTest"
 
-    # Incremental cursor bumped on zero-error run
-    last_success = PlatformSetting.get(LAST_SUCCESS_KEY)
-    assert last_success is not None
-    # ISO-formatted datetime
-    parsed = datetime.fromisoformat(last_success)
-    assert parsed.tzinfo is not None
-
     # run_sync() commits internally — clean up explicitly so subsequent tests
     # start with a pristine DB
     Policy.query.delete()
     Client.query.delete()
     User.query.filter_by(email="ev@x").delete()
-    PlatformSetting.query.filter_by(key=LAST_SUCCESS_KEY).delete()
-    PlatformSetting.query.filter(PlatformSetting.key.like("hubspot_last_sync%")).delete()
-    db.session.commit()
-
-
-def test_run_sync_passes_modified_since_when_cursor_present(db_session):
-    """Second sync should add hs_lastmodifieddate filter using last_success."""
-    _ev("ev2@x")
-    PlatformSetting.set(LAST_SUCCESS_KEY, "2026-04-01T00:00:00+00:00", user_id=None)
-    db.session.commit()
-
-    fake_client = MagicMock()
-    fake_client.search_tickets.return_value = {"results": [], "paging": {}}
-    fake_client.get_all_owners.return_value = {}
-
-    with patch("app.modules.hubspot_sync.sync.HubSpotClient", return_value=fake_client):
-        from app.modules.hubspot_sync.sync import run_sync
-        run_sync()
-
-    # Verify search_tickets was called with the modified-since filter
-    filters = fake_client.search_tickets.call_args.kwargs["filters"]
-    modified_filter = next(
-        (f for f in filters if f["propertyName"] == "hs_lastmodifieddate"), None
-    )
-    assert modified_filter is not None
-    assert modified_filter["operator"] == "GTE"
-    assert modified_filter["value"] == "2026-04-01T00:00:00+00:00"
-
-    # Cleanup
-    User.query.filter_by(email="ev2@x").delete()
-    PlatformSetting.query.filter_by(key=LAST_SUCCESS_KEY).delete()
-    PlatformSetting.query.filter(PlatformSetting.key.like("hubspot_last_sync%")).delete()
-    db.session.commit()
-
-
-def test_run_sync_does_not_bump_cursor_on_error(db_session):
-    """Partial-failure run must NOT bump the incremental cursor — otherwise
-    failed records would silently fall outside the next incremental window."""
-    _ev("ev3@x")
-    # Pre-set a cursor to verify it is preserved
-    PlatformSetting.set(LAST_SUCCESS_KEY, "2026-03-01T00:00:00+00:00", user_id=None)
-    db.session.commit()
-
-    fake_client = MagicMock()
-    fake_client.search_tickets.return_value = {
-        "results": [_ticket("T-ERR", {"solicitante_demanda": "ev3@x"})],
-        "paging": {},
-    }
-    fake_client.batch_read_associations.return_value = {
-        "T-ERR": ["D-A", "D-DEFAULT"],
-    }
-    fake_client.batch_read_objects.return_value = {
-        "D-A": _apolice_props("Saúde"),
-        "D-DEFAULT": {"pipeline": DEFAULT_DEAL_PIPELINE_ID},
-    }
-    fake_client.get_all_owners.return_value = {}
-
-    # Force _upsert_policy to raise once
-    with patch("app.modules.hubspot_sync.sync.HubSpotClient", return_value=fake_client), \
-         patch("app.modules.hubspot_sync.sync._upsert_policy", side_effect=RuntimeError("boom")):
-        from app.modules.hubspot_sync.sync import run_sync
-        summary = run_sync()
-
-    assert summary["error_count"] >= 1
-
-    # Cursor must NOT have moved
-    preserved = PlatformSetting.get(LAST_SUCCESS_KEY)
-    assert preserved == "2026-03-01T00:00:00+00:00"
-
-    # Cleanup
-    Policy.query.delete()
-    Client.query.delete()
-    User.query.filter_by(email="ev3@x").delete()
-    PlatformSetting.query.filter_by(key=LAST_SUCCESS_KEY).delete()
     PlatformSetting.query.filter(PlatformSetting.key.like("hubspot_last_sync%")).delete()
     db.session.commit()
