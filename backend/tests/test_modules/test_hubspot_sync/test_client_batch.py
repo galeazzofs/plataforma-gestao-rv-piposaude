@@ -69,3 +69,63 @@ def test_batch_read_associations_empty_input_returns_empty_dict():
         result = c.batch_read_associations("deals", "tickets", [])
         assert result == {}
         mock_req.assert_not_called()
+
+
+def test_batch_read_objects_endpoint_and_body():
+    c = _client()
+    with patch.object(c, "_request") as mock_req:
+        mock_req.return_value = {"results": []}
+        c.batch_read_objects("tickets", ["T1", "T2"], ["foo", "bar"])
+        method, path = mock_req.call_args[0]
+        assert method == "POST"
+        assert path == "/crm/v3/objects/tickets/batch/read"
+        body = mock_req.call_args[1]["json"]
+        assert body == {
+            "properties": ["foo", "bar"],
+            "inputs": [{"id": "T1"}, {"id": "T2"}],
+        }
+
+
+def test_batch_read_objects_parses_response():
+    c = _client()
+    with patch.object(c, "_request") as mock_req:
+        mock_req.return_value = {
+            "results": [
+                {"id": "T1", "properties": {"foo": "v1"}},
+                {"id": "T2", "properties": {"foo": "v2"}},
+            ]
+        }
+        result = c.batch_read_objects("tickets", ["T1", "T2"], ["foo"])
+        assert result == {
+            "T1": {"foo": "v1"},
+            "T2": {"foo": "v2"},
+        }
+
+
+def test_batch_read_objects_empty_input_returns_empty_dict():
+    c = _client()
+    with patch.object(c, "_request") as mock_req:
+        result = c.batch_read_objects("tickets", [], ["foo"])
+        assert result == {}
+        mock_req.assert_not_called()
+
+
+def test_batch_read_objects_chunks_above_100():
+    c = _client()
+    ids = [f"id-{i}" for i in range(250)]
+    with patch.object(c, "_request") as mock_req:
+        # Each call returns its inputs as identity dict
+        def fake_req(method, path, json=None, **kwargs):
+            return {
+                "results": [
+                    {"id": inp["id"], "properties": {"foo": inp["id"]}}
+                    for inp in json["inputs"]
+                ]
+            }
+        mock_req.side_effect = fake_req
+        result = c.batch_read_objects("tickets", ids, ["foo"])
+        # 250 ids → 100 + 100 + 50 = 3 calls
+        assert mock_req.call_count == 3
+        assert len(result) == 250
+        assert result["id-0"]["foo"] == "id-0"
+        assert result["id-249"]["foo"] == "id-249"
