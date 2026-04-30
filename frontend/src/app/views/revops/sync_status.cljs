@@ -70,14 +70,29 @@
 
              ;; Counts breakdown
              (when (:counts status)
-               [:div {:style {:padding "16px" :background t/bg-subtle :border-radius (:md t/border-radius)}}
-                [:span {:style {:font-size (:sm t/font-sizes) :font-weight (:semibold t/font-weights)}}
-                 "Detalhes:"]
-                [:div {:style {:margin-top "8px" :display "flex" :gap "16px" :flex-wrap "wrap"}}
-                 (for [[k v] (:counts status)]
-                   ^{:key k}
-                   [:span {:style {:font-size (:sm t/font-sizes) :color t/text-secondary}}
-                    (str (name k) ": " v)])]])
+               (let [counts    (:counts status)
+                     breakdown (:skipped_breakdown counts)]
+                 [:div {:style {:padding "16px" :background t/bg-subtle :border-radius (:md t/border-radius)}}
+                  [:span {:style {:font-size (:sm t/font-sizes) :font-weight (:semibold t/font-weights)}}
+                   "Detalhes:"]
+                  [:div {:style {:margin-top "8px" :display "flex" :gap "16px" :flex-wrap "wrap"}}
+                   (for [[k v] (dissoc counts :skipped_breakdown)]
+                     ^{:key k}
+                     [:span {:style {:font-size (:sm t/font-sizes) :color t/text-secondary}}
+                      (str (name k) ": " v)])]
+                  ;; Per-reason skip breakdown — useful when investigating
+                  ;; why fewer tickets came in than expected.
+                  (when (and (map? breakdown) (seq breakdown))
+                    [:div {:style {:margin-top "12px" :padding-top "12px"
+                                   :border-top (str "1px solid " t/border-default)}}
+                     [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
+                                     :text-transform "uppercase" :letter-spacing "0.04em"}}
+                      "Skipped por motivo"]
+                     [:div {:style {:margin-top "8px" :display "flex" :gap "16px" :flex-wrap "wrap"}}
+                      (for [[k v] breakdown]
+                        ^{:key k}
+                        [:span {:style {:font-size (:sm t/font-sizes) :color t/text-secondary}}
+                         (str (name k) ": " v)])]])]))
 
              ;; Errors
              (when (seq (:errors status))
