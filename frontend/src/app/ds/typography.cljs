@@ -1,14 +1,27 @@
 (ns app.ds.typography
   (:require [app.ds.tokens :as t]))
 
+;; The Pipo design uses DM Serif Display for hero/H1 titles, Poppins for
+;; structural headings, and Manrope/Work Sans for UI labels. Sizes here mirror
+;; the .h* spec from shared.css.
+
 (defn heading
-  "Heading component. level: 1-4, children: content."
-  [{:keys [level class]} & children]
+  "Heading component. level: 1-4."
+  [{:keys [level class display?]} & children]
   (let [tag (keyword (str "h" (or level 1)))
-        styles {:h1 {:font-size (:4xl t/font-sizes) :font-weight (:bold t/font-weights) :line-height (:tight t/line-heights) :color t/text-primary :margin "0"}
-                :h2 {:font-size (:3xl t/font-sizes) :font-weight (:bold t/font-weights) :line-height (:tight t/line-heights) :color t/text-primary :margin "0"}
-                :h3 {:font-size (:2xl t/font-sizes) :font-weight (:semibold t/font-weights) :line-height (:tight t/line-heights) :color t/text-primary :margin "0"}
-                :h4 {:font-size (:xl t/font-sizes) :font-weight (:semibold t/font-weights) :line-height (:tight t/line-heights) :color t/text-primary :margin "0"}}]
+        font (if display? t/font-display t/font-heading)
+        styles {:h1 {:font-family font :font-size "28px" :line-height "1.15"
+                     :font-weight (if display? "400" (:semibold t/font-weights))
+                     :color t/text-primary :margin "0" :letter-spacing "-0.005em"}
+                :h2 {:font-family font :font-size "22px" :line-height "1.2"
+                     :font-weight (if display? "400" (:semibold t/font-weights))
+                     :color t/text-primary :margin "0" :letter-spacing "-0.005em"}
+                :h3 {:font-family t/font-heading :font-size "16px" :line-height "1.3"
+                     :font-weight (:semibold t/font-weights)
+                     :color t/text-primary :margin "0" :letter-spacing "-0.005em"}
+                :h4 {:font-family t/font-heading :font-size "14px" :line-height "1.4"
+                     :font-weight (:semibold t/font-weights)
+                     :color t/text-primary :margin "0"}}]
     (into [tag {:style (get styles tag (:h1 styles))
                 :class class}]
           children)))
@@ -19,6 +32,7 @@
   (let [color (case (or variant :primary)
                 :primary   t/text-primary
                 :secondary t/text-secondary
+                :tertiary  t/text-tertiary
                 :disabled  t/text-disabled
                 t/text-primary)
         font-size (get t/font-sizes (or size :base) (:base t/font-sizes))]
@@ -26,7 +40,7 @@
                               :color color
                               :line-height (:normal t/line-heights)
                               :margin "0"
-                              :font-family t/font-family}
+                              :font-family t/font-body}
                              style)
                :class class}]
           children)))
@@ -34,9 +48,10 @@
 (defn label
   "Form label."
   [{:keys [required class]} & children]
-  (into [:label {:style {:font-size (:sm t/font-sizes)
-                         :font-weight (:medium t/font-weights)
-                         :color t/text-primary
+  (into [:label {:style {:font-family t/font-ui
+                         :font-size "12px"
+                         :font-weight (:semibold t/font-weights)
+                         :color t/text-secondary
                          :margin-bottom "4px"
                          :display "block"}
                  :class class}]

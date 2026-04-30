@@ -1,40 +1,48 @@
 (ns app.ds.badge
   (:require [app.ds.tokens :as t]))
 
+;; Badge variants are rendered with a leading status dot, matching the
+;; .badge spec from the Pipo design (mono font, pill, dot in `currentColor`).
+
 (defn badge
-  "Simple badge. variant: :default :success :warning :error :info."
+  "Pill badge with a leading dot.
+   variant: :default :success :warning :error :info."
   [{:keys [variant]} & children]
-  (let [styles {:default {:bg t/beige-100 :color t/beige-700}
-                :success {:bg t/success-light :color t/success-dark}
-                :warning {:bg t/warning-light :color t/warning-dark}
-                :error   {:bg t/error-light :color t/error-dark}
-                :info    {:bg "#DBEAFE" :color t/blue-700}}
+  (let [styles {:default {:bg "#F6F6F6"          :color "#6B6663"}
+                :success {:bg t/success-light    :color t/success-default}
+                :warning {:bg t/warning-light    :color t/warning-dark}
+                :error   {:bg t/error-light      :color t/error-default}
+                :info    {:bg "#EAF1FB"          :color t/blue-700}}
         s (get styles (or variant :default))]
     (into [:span {:style {:display "inline-flex"
                           :align-items "center"
+                          :gap "6px"
                           :padding "3px 10px"
-                          :font-size (:xs t/font-sizes)
-                          :font-weight (:semibold t/font-weights)
+                          :font-family t/font-mono
+                          :font-size "11px"
+                          :font-weight (:medium t/font-weights)
+                          :line-height "1.4"
                           :border-radius (:full t/border-radius)
                           :background (:bg s)
                           :color (:color s)
-                          :letter-spacing "0.02em"
-                          :white-space "nowrap"}}]
+                          :white-space "nowrap"}}
+           [:span {:style {:width "6px" :height "6px" :border-radius "50%"
+                           :background "currentColor" :flex-shrink "0"}}]]
           children)))
 
 (defn status-badge
-  "Badge that maps commission/appraisal status to visual style."
+  "Maps commission/appraisal status to visual style."
   [{:keys [status]}]
   (let [config {"PROJECTED"     {:label "Projetado"     :variant :default}
                 "IN_PAYMENT"    {:label "Em pagamento"  :variant :info}
                 "SETTLED"       {:label "Quitado"       :variant :success}
                 "CANCELLED"     {:label "Cancelado"     :variant :error}
                 "DRAFT"         {:label "Rascunho"      :variant :default}
-                "CALCULATING"   {:label "Calculando"    :variant :warning}
+                "CALCULATING"   {:label "Calculando"    :variant :info}
                 "VALIDATING"    {:label "Validação"     :variant :info}
                 "REVIEWING"     {:label "Revisão"       :variant :warning}
                 "APPROVED"      {:label "Aprovado"      :variant :success}
-                "LOCKED"        {:label "Fechado"       :variant :success}
+                "LOCKED"        {:label "Fechado"       :variant :default}
                 "PENDING"       {:label "Pendente"      :variant :warning}
                 "CONTESTED"     {:label "Contestado"    :variant :error}
                 "RESOLVED"      {:label "Resolvido"     :variant :success}

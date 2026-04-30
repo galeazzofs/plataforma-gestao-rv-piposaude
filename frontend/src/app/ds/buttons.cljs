@@ -2,41 +2,40 @@
   (:require [app.ds.tokens :as t]))
 
 (defn button
-  "Button component.
+  "Button component, styled to match the Pipo design.
    variant: :primary :secondary :ghost :danger
    size: :sm :md :lg
    Props: on-click, disabled, loading, full-width"
-  [{:keys [variant size on-click disabled loading full-width class]} & children]
+  [{:keys [variant size on-click disabled loading full-width class type]} & children]
   (let [v (or variant :primary)
         s (or size :md)
-        base-style {:font-family t/font-family
+        base-style {:font-family t/font-ui
                     :font-weight (:semibold t/font-weights)
-                    :border-radius (:md t/border-radius)
+                    :border-radius (:sm t/border-radius)
                     :cursor (if (or disabled loading) "not-allowed" "pointer")
                     :transition (str "all " t/transition-fast)
                     :display "inline-flex"
                     :align-items "center"
                     :justify-content "center"
-                    :gap "6px"
-                    :border "none"
+                    :gap "8px"
+                    :line-height "1"
+                    :border "1px solid transparent"
                     :width (when full-width "100%")
                     :opacity (if (or disabled loading) "0.5" "1")
                     :white-space "nowrap"
-                    :letter-spacing "0.01em"}
-        size-styles {:sm {:font-size (:xs t/font-sizes) :padding "0 10px" :height "32px" :min-width "64px"}
-                     :md {:font-size (:sm t/font-sizes) :padding "0 16px" :height "40px" :min-width "80px"}
-                     :lg {:font-size (:base t/font-sizes) :padding "0 24px" :height "48px" :min-width "100px"}}
-        variant-styles {:primary   {:background t/color-primary :color t/color-white
-                                    :box-shadow "0 1px 2px rgba(0,0,0,0.1)"}
+                    :letter-spacing "0"}
+        size-styles {:sm {:font-size "11px" :padding "6px 11px" :min-height "28px"}
+                     :md {:font-size "13px" :padding "9px 16px" :min-height "36px"}
+                     :lg {:font-size "14px" :padding "12px 22px" :min-height "44px"}}
+        variant-styles {:primary   {:background t/color-primary :color t/color-white}
                         :secondary {:background t/bg-card :color t/text-primary
-                                    :border (str "1px solid " t/border-default)
-                                    :box-shadow (:sm t/shadows)}
-                        :ghost     {:background "transparent" :color t/text-secondary
-                                    :padding "0 8px"}
-                        :danger    {:background t/error-default :color t/color-white
-                                    :box-shadow "0 1px 2px rgba(239,68,68,0.2)"}}
+                                    :border (str "1px solid " t/border-default)}
+                        :ghost     {:background "transparent" :color t/text-secondary}
+                        :danger    {:background t/error-light :color t/error-dark
+                                    :border (str "1px solid " t/error-light)}}
         merged (merge base-style (get size-styles s) (get variant-styles v))]
     (into [:button {:style merged
+                    :type (or type "button")
                     :on-click (when-not (or disabled loading) on-click)
                     :disabled (or disabled loading)
                     :class class}]

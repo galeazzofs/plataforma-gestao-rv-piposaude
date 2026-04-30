@@ -1,0 +1,105 @@
+/* ==========================================================================
+   Pipo Design System — applied from "Plataforma RV / Todas as Telas" handoff.
+   These tokens drive the visual language for the whole app. ClojureScript DS
+   components read the same values from app.ds.tokens; non-DS markup picks them
+   up via CSS variables.
+   ========================================================================== */
+
+:root{
+  /* Paleta Pipo */
+  --black:#000;
+  --night:#060D41;
+  --cyan:#3B9AFF;
+
+  --beige-lightest:#F7F3EB;
+  --beige-light:#E6D9C2;
+  --beige-regular:#DDD6D0;
+
+  --neutral-darkest:#3C404A;
+  --neutral-dark:#6B6663;
+  --neutral-regular:#BCBAB5;
+  --neutral-light:#E2E1DF;
+  --neutral-lightest:#F6F6F6;
+
+  --success-dark:#17A66D;
+  --success-light:#A8F2CE;
+  --success-lightest:#D4F8E7;
+  --warning-dark:#FFB033;
+  --warning-light:#FFD17D;
+  --warning-lightest:#FFEEC2;
+  --danger-dark:#F04646;
+  --danger-light:#FFACAC;
+  --danger-lightest:#FFDEDE;
+
+  --blue-dark:#1527A9;
+  --blue-regular:#3370D1;
+  --blue-light:#A2CEFF;
+  --purple-regular:#8B3ADD;
+  --pink-regular:#FE7B9D;
+  --peach-regular:#FFA28D;
+
+  --fg-1:#000;
+  --fg-2:#3C404A;
+  --fg-3:#6B6663;
+  --fg-muted:#BCBAB5;
+  --bg-1:#FFF;
+  --bg-2:#F6F6F6;
+  --bg-3:#F7F3EB;
+  --border-subtle:#E2E1DF;
+  --border-regular:#BCBAB5;
+
+  --r-sm:8px; --r-md:16px; --r-lg:24px; --r-pill:9999px;
+  --shadow-01:0 1px 2px rgba(0,0,0,.06);
+  --shadow-02:0 0 2px rgba(0,0,0,.2),0 2px 15px rgba(0,0,0,.08);
+  --shadow-03:0 0 4px rgba(0,0,0,.05),0 8px 40px rgba(0,0,0,.10);
+  --shadow-hover:0 1px 1px rgba(0,0,0,.05),0 0 0 1px #BCBAB5 inset;
+
+  --ease:cubic-bezier(.2,0,0,1);
+  --d:160ms;
+
+  --font-display:"DM Serif Display",Georgia,serif;
+  --font-heading:"Poppins",system-ui,sans-serif;
+  --font-body:"Work Sans",system-ui,sans-serif;
+  --font-ui:"Manrope","Work Sans",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font-body);
+  font-size:14px;
+  line-height:1.5;
+  color:var(--fg-2);
+  background:var(--bg-2);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+h1,h2,h3,h4,h5{font-family:var(--font-heading);color:var(--fg-1);margin:0;letter-spacing:-0.005em}
+h1{font-size:28px;line-height:1.15;font-weight:600}
+h2{font-size:22px;line-height:1.2;font-weight:600}
+h3{font-size:16px;line-height:1.3;font-weight:600}
+h4{font-size:14px;line-height:1.4;font-weight:600}
+p{margin:0}
+button{font-family:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+
+/* Spinner used by buttons in loading state. */
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* Shimmer for skeleton placeholders. */
+@keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+.skel{
+  background:linear-gradient(90deg,var(--bg-2) 0%,var(--neutral-lightest) 50%,var(--bg-2) 100%);
+  background-size:800px 100%;animation:shimmer 1.4s linear infinite;border-radius:6px;
+}
+
+/* Tabular numbers for finance figures. */
+.num-tab{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* Decorative dot grid used on the login night panel. */
+.dot-grid{
+  position:absolute;inset:0;
+  background-image:radial-gradient(circle,var(--cyan) 1px,transparent 1.5px);
+  background-size:32px 32px;opacity:.15;pointer-events:none;
+}

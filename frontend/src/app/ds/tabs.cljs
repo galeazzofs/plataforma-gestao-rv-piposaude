@@ -1,28 +1,29 @@
 (ns app.ds.tabs
-  (:require [app.ds.tokens :as t]
-            [reagent.core :as r]))
+  (:require [app.ds.tokens :as t]))
 
 (defn tab-group
-  "Tab navigation group.
+  "Tab navigation group, styled to match the design's .tabs spec.
    tabs: [{:key :overview :label \"Visão Geral\"} ...]
    active: currently active tab key
    on-change: fn called with tab key on click"
   [{:keys [tabs active on-change]}]
-  [:div {:style {:display "flex"
+  [:div {:style {:display "flex" :gap "2px"
                  :border-bottom (str "1px solid " t/border-default)
-                 :gap "0"}}
+                 :margin-bottom "-1px"}}
    (for [{:keys [key label]} tabs]
      ^{:key key}
-     [:button {:style {:padding "10px 20px"
-                       :font-size (:sm t/font-sizes)
-                       :font-weight (if (= key active) (:semibold t/font-weights) (:regular t/font-weights))
-                       :color (if (= key active) t/color-primary t/text-secondary)
+     [:button {:style {:padding "10px 14px"
+                       :font-family t/font-ui
+                       :font-weight (:semibold t/font-weights)
+                       :font-size "13px"
+                       :color (if (= key active) t/text-primary t/text-tertiary)
                        :background "none"
                        :border "none"
-                       :border-bottom (if (= key active) (str "2px solid " t/color-primary) "2px solid transparent")
+                       :border-bottom (if (= key active)
+                                        (str "2px solid " t/color-primary)
+                                        "2px solid transparent")
                        :cursor "pointer"
-                       :transition t/transition-fast
-                       :margin-bottom "-1px"}
+                       :transition (str "color " t/transition-fast ", border-color " t/transition-fast)}
                :on-click #(when on-change (on-change key))}
       label])])
 
