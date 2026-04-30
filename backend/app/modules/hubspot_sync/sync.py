@@ -39,7 +39,7 @@ TICKET_PROPERTIES = [
     "cliente___nome_da_empresa",
     "hs_pipeline", "hs_pipeline_stage",
 ]
-DEAL_VALIDATION_PROPERTIES = ["hs_pipeline"]
+DEAL_VALIDATION_PROPERTIES = ["pipeline"]
 
 
 # --- EV / owner resolution helpers ---
@@ -129,7 +129,7 @@ def _fetch_apolices(client):
     (each has at least `id` and `properties`).
     """
     filters = [
-        {"propertyName": "hs_pipeline", "operator": "EQ", "value": APOLICE_PIPELINE_ID},
+        {"propertyName": "pipeline", "operator": "EQ", "value": APOLICE_PIPELINE_ID},
         {"propertyName": "apolice___beneficio", "operator": "IN", "values": VALID_BENEFITS_HUBSPOT},
     ]
     apolices = []
@@ -221,7 +221,7 @@ def _filter_tickets_with_default_deal(client, ticket_ids, summary):
     for ticket_id in ticket_ids:
         deals_for_ticket = ticket_to_deals.get(ticket_id, [])
         has_default = any(
-            deal_props.get(d, {}).get("hs_pipeline") == DEFAULT_DEAL_PIPELINE_ID
+            deal_props.get(d, {}).get("pipeline") == DEFAULT_DEAL_PIPELINE_ID
             for d in deals_for_ticket
         )
         if has_default:
