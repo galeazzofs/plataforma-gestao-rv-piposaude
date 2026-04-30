@@ -10,7 +10,7 @@ class AuditLog(db.Model):
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     table_name = db.Column(db.String(100), nullable=False, index=True)
     record_id = db.Column(GUID, nullable=False, index=True)
-    action = db.Column(db.String(10), nullable=False)  # CREATE, UPDATE, DELETE
+    action = db.Column(db.String(32), nullable=False)  # CREATE, UPDATE, DELETE, UPSERT, PARTIAL_MATCH, BATCH_CALCULATE
     old_values = db.Column(JSONType, nullable=True)
     new_values = db.Column(JSONType, nullable=True)
     user_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=True)
