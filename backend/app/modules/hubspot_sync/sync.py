@@ -89,3 +89,31 @@ def _fetch_apolice_tickets(client, apolices, summary):
         out[apolice_id] = ticket_ids[0]
     logger.info(f"_fetch_apolice_tickets: {len(out)}/{len(apolice_ids)} apolices linked to tickets")
     return out
+
+
+def _fetch_and_validate_tickets(client, ticket_ids, summary):
+    """Phase 3 — batch fetch tickets and filter by pipeline/stage/date.
+
+    `ticket_ids` is an iterable; duplicates are deduped before the API call.
+    Returns dict {ticket_id: properties_dict} for tickets that pass all filters.
+    Skipped tickets are counted in summary by reason.
+    """
+    unique_ids = list(set(ticket_ids))
+    if not unique_ids:
+        return {}
+    all_props = client.batch_read_objects("tickets", unique_ids, TICKET_PROPERTIES)
+    out = {}
+    for ticket_id, props in all_props.items():
+        if props.get("hs_pipeline") != PLACEMENT_PIPELINE_ID:
+            summary["skipped"]["wrong_pipeline"] += 1
+            continue
+        if props.get("hs_pipeline_stage") != GONGO_STAGE_ID:
+            summary["skipped"]["not_gongo"] += 1
+            continue
+        closed = parse_date(props.get("closed_date"))
+        if closed is None or closed < GONGO_DATE_FLOOR:
+            summary["skipped"]["too_old"] += 1
+            continue
+        out[ticket_id] = props
+    logger.info(f"_fetch_and_validate_tickets: {len(out)}/{len(unique_ids)} tickets valid")
+    return out
