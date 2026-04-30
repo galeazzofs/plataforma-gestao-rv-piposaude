@@ -1,5 +1,7 @@
 # Filtro Pré-ativação + Full-Fetch + Delete-by-Absence — Implementation Plan
 
+> ⚠️ **SUPERSEDED — não implementado.** Substituído por [`2026-04-30-ticket-anchored-sync-redesign.md`](./2026-04-30-ticket-anchored-sync-redesign.md). O redesign incorpora pré-ativação + full-fetch + delete-by-absence dentro de uma cardinalidade nova (1 Policy por ticket em vez de 1 por apólice).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Adicionar filtro `hs_v2_date_entered_14038792 ≥ 2024-09-01` ao sync de apólices, remover o cursor incremental por `hs_lastmodifieddate` (full-fetch sempre) e introduzir delete-by-absence para manter `policies` em paridade com o estado HubSpot.

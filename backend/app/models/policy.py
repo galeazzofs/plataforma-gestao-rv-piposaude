@@ -30,8 +30,8 @@ class Policy(db.Model):
     __tablename__ = "policies"
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
-    hubspot_apolice_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
-    hubspot_ticket_id = db.Column(db.String(100), nullable=False, index=True)
+    hubspot_apolice_id = db.Column(db.String(100), nullable=True, index=True)
+    hubspot_ticket_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
     numero_apolice = db.Column(db.String(100), nullable=True, index=True)
     ev_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=True)
     client_id = db.Column(GUID, db.ForeignKey("clients.id"), nullable=True)
