@@ -40,6 +40,7 @@ def _setup_basic_scenario():
     policy = Policy(
         hubspot_apolice_id="A-T1",
         hubspot_ticket_id="T1",
+        numero_apolice="AP-001",
         ev_id=ev.id,
         client_id=client.id,
         segment=Segment.M,
@@ -77,6 +78,7 @@ def _setup_basic_scenario():
         cliente_mae='Zup',
         operadora='SulAmerica',
         produto='Saúde',
+        numero_apolice='AP-001',
         tipo_receita='Comissão',
         status_recebimento='RECEBIDO',
         data_recebimento=date(2026, 2, 15),
@@ -286,6 +288,7 @@ def test_negative_nf_subtracts_from_commission(db_session):
         cliente_mae='Zup',
         operadora='SulAmerica',
         produto='Saúde',
+        numero_apolice='AP-001',
         tipo_receita='Comissão',
         status_recebimento='RECEBIDO',
         data_recebimento=date(2026, 3, 10),
@@ -347,15 +350,20 @@ def test_multi_policy_picks_most_recent_within_window(db_session):
     client = Client.find_or_create("Zup")
     db.session.flush()
 
+    # Both policies share the same numero_apolice so the matcher returns
+    # both as candidates and the calculator's vigência logic picks the
+    # most recent one whose window covers the NF date.
     p_old = Policy(
-        hubspot_apolice_id="A-OLD", hubspot_ticket_id="OLD", ev_id=ev.id, client_id=client.id,
+        hubspot_apolice_id="A-OLD", hubspot_ticket_id="OLD", numero_apolice="AP-SHARED",
+        ev_id=ev.id, client_id=client.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,
         partner_operator="SulAmerica",
         closed_date=date(2025, 3, 1),
         first_payment_real=date(2025, 4, 1),
     )
     p_new = Policy(
-        hubspot_apolice_id="A-NEW", hubspot_ticket_id="NEW", ev_id=ev.id, client_id=client.id,
+        hubspot_apolice_id="A-NEW", hubspot_ticket_id="NEW", numero_apolice="AP-SHARED",
+        ev_id=ev.id, client_id=client.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,
         partner_operator="SulAmerica",
         closed_date=date(2025, 12, 1),
@@ -382,6 +390,7 @@ def test_multi_policy_picks_most_recent_within_window(db_session):
         nf_valor_liquido=Decimal('1000.00'),
         nf_mes_recebimento='2026-02',
         cliente_mae='Zup', operadora='SulAmerica', produto='Saúde',
+        numero_apolice='AP-SHARED',
         status_recebimento='RECEBIDO',
         data_recebimento=date(2026, 2, 15),
         match_status='UNMATCHED',
@@ -414,7 +423,9 @@ def test_auto_sets_first_payment_real_when_none(db_session):
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id='A-AUTODETECT',
         hubspot_ticket_id='T-AUTODETECT',
+        numero_apolice='AP-AUTODETECT',
         ev_id=ev.id,
         client_id=client.id,
         segment=Segment.M,
@@ -454,6 +465,7 @@ def test_auto_sets_first_payment_real_when_none(db_session):
         cliente_mae='AutoDetect Co',
         operadora='TestOp',
         produto='Saúde',
+        numero_apolice='AP-AUTODETECT',
         tipo_receita='Comissão',
         status_recebimento='RECEBIDO',
         data_recebimento=date(2026, 1, 15),

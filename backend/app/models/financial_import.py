@@ -34,6 +34,7 @@ class FinancialImport(db.Model):
     cliente_mae = db.Column(db.String(500), nullable=True)
     operadora = db.Column(db.String(255), nullable=True)
     produto = db.Column(db.String(50), nullable=True)
+    numero_apolice = db.Column(db.String(100), nullable=True, index=True)
     tipo_receita = db.Column(db.String(100), nullable=True)
     status_recebimento = db.Column(db.String(50), nullable=True)
     data_recebimento = db.Column(db.Date, nullable=True)

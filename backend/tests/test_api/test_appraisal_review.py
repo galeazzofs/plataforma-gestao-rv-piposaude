@@ -52,6 +52,7 @@ def review_setup():
     policy = Policy(
         hubspot_apolice_id=f"A-REV-T-{suffix}",
         hubspot_ticket_id=f"REV-T-{suffix}",
+        numero_apolice=f"AP-REV-{suffix}",
         ev_id=ev.id, client_id=client.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,
         partner_operator="SulAmerica",
@@ -85,6 +86,7 @@ def review_setup():
         cliente_mae=client.name,
         operadora="SulAmerica",
         produto="Saúde",
+        numero_apolice=f"AP-REV-{suffix}",
         tipo_receita="Comissão",
         status_recebimento="RECEBIDO",
         data_recebimento=date(2026, 8, 10),
