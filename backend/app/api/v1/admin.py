@@ -448,11 +448,13 @@ def sync_status():
     sync_created = PlatformSetting.get("hubspot_last_sync_created", 0)
     sync_updated = PlatformSetting.get("hubspot_last_sync_updated", 0)
     sync_skipped = PlatformSetting.get("hubspot_last_sync_skipped", 0)
+    sync_skipped_breakdown = PlatformSetting.get("hubspot_last_sync_skipped_breakdown", {})
     running = PlatformSetting.get("hubspot_sync_running", False)
 
     created = sync_created if isinstance(sync_created, int) else 0
     updated = sync_updated if isinstance(sync_updated, int) else 0
     skipped = sync_skipped if isinstance(sync_skipped, int) else 0
+    skipped_breakdown = sync_skipped_breakdown if isinstance(sync_skipped_breakdown, dict) else {}
     error_list = sync_errors if isinstance(sync_errors, list) else []
 
     if running:
@@ -468,7 +470,12 @@ def sync_status():
             "records_synced": created + updated,
             "running": bool(running),
             "status": display_status,
-            "counts": {"created": created, "updated": updated, "skipped": skipped},
+            "counts": {
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+                "skipped_breakdown": skipped_breakdown,
+            },
             "errors": error_list,
         }
     })

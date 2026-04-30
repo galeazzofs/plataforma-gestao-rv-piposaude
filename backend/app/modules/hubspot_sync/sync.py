@@ -377,8 +377,12 @@ def _persist_last_sync(summary):
     PlatformSetting.set("hubspot_last_sync_created", summary["created"], user_id=None)
     PlatformSetting.set("hubspot_last_sync_updated", summary["updated"], user_id=None)
     PlatformSetting.set("hubspot_last_sync_deleted", summary["deleted"], user_id=None)
-    skipped_total = sum(summary["skipped"].values()) if isinstance(summary["skipped"], dict) else summary["skipped"]
+    skipped = summary["skipped"] if isinstance(summary["skipped"], dict) else {}
+    skipped_total = sum(skipped.values()) if skipped else (summary["skipped"] or 0)
     PlatformSetting.set("hubspot_last_sync_skipped", skipped_total, user_id=None)
+    # Persist the breakdown so admins can see WHY tickets dropped without
+    # tailing logs — gap diagnostics (e.g. "expected 100+, got 30") need this.
+    PlatformSetting.set("hubspot_last_sync_skipped_breakdown", skipped, user_id=None)
     db.session.commit()
 
 
