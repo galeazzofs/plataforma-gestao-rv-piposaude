@@ -1,3 +1,13 @@
+"""Tests for the legacy 'ticket de implantação' enrichment phase
+(populates mrr_post_deploy + first_payment_prev from a separate
+'implantação' ticket associated to the apolice's deal).
+
+This phase was removed in commit caa4db1 (apolice-anchored sync rewrite)
+and not re-introduced in the ticket-anchored + incremental rewrite. The
+feature is tracked separately; these tests stay so the contract is visible
+when the phase is brought back.
+"""
+import pytest
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
@@ -8,6 +18,12 @@ from app.models import (
 )
 from app.modules.hubspot_sync.sync import run_sync
 from app.extensions import db
+
+
+pytestmark = pytest.mark.skip(
+    reason="Implant ticket enrichment removed in apolice-anchored rewrite "
+    "(caa4db1); will be re-added when needed."
+)
 
 
 _ev_counter = 0
