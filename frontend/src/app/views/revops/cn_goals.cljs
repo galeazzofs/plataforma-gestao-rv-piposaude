@@ -6,7 +6,10 @@
             [app.ds.cards :as cards]
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
-            [app.ds.table :as tbl]))
+            [app.ds.table :as tbl]
+            [app.ds.tokens :as t]
+            [app.views.revops.dashboard :as revops-shell]
+            [app.auth.subs]))
 
 ;; ── Events ──────────────────────────────────────────────────────────────────
 
@@ -56,13 +59,19 @@
         edits        (r/atom {})]
     (fn []
       (let [goals    @(rf/subscribe [:revops/cn-goals])
-            loading? @(rf/subscribe [:revops/cn-goals-loading?])]
-        [layout/page {:title "Metas Mensais CN"}
-         [cards/card
+            loading? @(rf/subscribe [:revops/cn-goals-loading?])
+            user     @(rf/subscribe [:auth/current-user])
+            route    @(rf/subscribe [:current-route-name])]
+        [layout/page-shell
+         {:sidebar-items revops-shell/sidebar-items
+          :current-route route
+          :user          user
+          :title         "Metas Mensais CN"}
+         [cards/card {}
           [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :margin-bottom "16px"}}
            [inputs/select
             {:label "Mês" :value (:month @filter-state)
-             :options (map (fn [m] {:value (str m) :label (str m)}) (range 1 13))
+             :options (mapv (fn [m] {:value (str m) :label (str m)}) (range 1 13))
              :on-change #(swap! filter-state assoc :month %)}]
            [inputs/select
             {:label "Ano" :value (:year @filter-state)
@@ -73,20 +82,22 @@
                                                  (:month @filter-state)
                                                  (:year @filter-state)])}
             "Buscar"]]
-          [tbl/table
-           {:loading? loading?
-            :columns  [{:key :cn_id    :label "CN"}
-                       {:key :sao_target :label "Meta SAO"
-                        :render (fn [v row]
-                                  [inputs/text-field
-                                   {:value    (get-in @edits [(:cn_id row) :sao_target] (str v))
-                                    :on-change #(swap! edits assoc-in [(:cn_id row) :sao_target] %)}])}
-                       {:key :vidas_target :label "Meta Vidas"
-                        :render (fn [v row]
-                                  [inputs/text-field
-                                   {:value    (get-in @edits [(:cn_id row) :vidas_target] (str v))
-                                    :on-change #(swap! edits assoc-in [(:cn_id row) :vidas_target] %)}])}]
-            :rows     goals}]
+          (if loading?
+            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}}
+             "Carregando..."]
+            [tbl/data-table
+             {:columns  [{:key :cn_id    :label "CN"}
+                         {:key :sao_target :label "Meta SAO"
+                          :render (fn [row]
+                                    [inputs/input
+                                     {:value     (get-in @edits [(:cn_id row) :sao_target] (str (:sao_target row)))
+                                      :on-change #(swap! edits assoc-in [(:cn_id row) :sao_target] %)}])}
+                         {:key :vidas_target :label "Meta Vidas"
+                          :render (fn [row]
+                                    [inputs/input
+                                     {:value     (get-in @edits [(:cn_id row) :vidas_target] (str (:vidas_target row)))
+                                      :on-change #(swap! edits assoc-in [(:cn_id row) :vidas_target] %)}])}]
+              :rows     goals}])
           [btn/button
            {:variant  :primary
             :on-click (fn []

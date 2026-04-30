@@ -6,7 +6,10 @@
             [app.ds.cards :as cards]
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
-            [app.ds.table :as tbl]))
+            [app.ds.table :as tbl]
+            [app.ds.tokens :as t]
+            [app.views.revops.dashboard :as revops-shell]
+            [app.auth.subs]))
 
 (rf/reg-event-fx
  :revops/fetch-ev-bonus
@@ -40,9 +43,15 @@
   (let [filter-s (r/atom {:quarter "1" :year "2026"})]
     (fn []
       (let [items    @(rf/subscribe [:revops/ev-bonus])
-            loading? @(rf/subscribe [:revops/ev-bonus-loading?])]
-        [layout/page {:title "Bônus MRR Trimestral — EVs"}
-         [cards/card
+            loading? @(rf/subscribe [:revops/ev-bonus-loading?])
+            user     @(rf/subscribe [:auth/current-user])
+            route    @(rf/subscribe [:current-route-name])]
+        [layout/page-shell
+         {:sidebar-items revops-shell/sidebar-items
+          :current-route route
+          :user          user
+          :title         "Bônus MRR Trimestral — EVs"}
+         [cards/card {}
           [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :margin-bottom "16px"}}
            [inputs/select {:label "Trimestre" :value (:quarter @filter-s)
                            :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
@@ -59,10 +68,12 @@
                         :on-click #(rf/dispatch [:revops/run-ev-bonus
                                                  (:quarter @filter-s) (:year @filter-s)])}
             "Calcular Bônus"]]
-          [tbl/table
-           {:loading? loading?
-            :columns  [{:key :ev_id              :label "EV"}
-                       {:key :achievement_pct     :label "% Atingimento"}
-                       {:key :salario_base_snapshot :label "Salário Base"}
-                       {:key :bonus_amount         :label "Bônus (R$)"}]
-            :rows     items}]]]))))
+          (if loading?
+            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}}
+             "Carregando..."]
+            [tbl/data-table
+             {:columns  [{:key :ev_id              :label "EV"}
+                         {:key :achievement_pct     :label "% Atingimento"}
+                         {:key :salario_base_snapshot :label "Salário Base"}
+                         {:key :bonus_amount         :label "Bônus (R$)"}]
+              :rows     items}])]]))))

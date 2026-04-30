@@ -6,7 +6,9 @@
             [app.ds.cards :as cards]
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
-            [app.ds.tokens :as t]))
+            [app.ds.tokens :as t]
+            [app.views.cn.dashboard :as cn-shell]
+            [app.auth.subs]))
 
 ;; ── Events ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +41,7 @@
 
 (defn- result-panel [result]
   [:div {:style {:display "flex" :flex-direction "column" :gap "8px"
-                 :padding "16px" :background t/surface-raised
+                 :padding "16px" :background t/bg-surface
                  :border-radius (:md t/border-radius)}}
    [:div {:style {:font-weight "600" :font-size "14px"}} "Resultado"]
    [:div (str "% SAO: " (* 100 (js/parseFloat (:pct_sao result))) "%")]
@@ -52,20 +54,26 @@
 (defn page []
   (let [form (r/atom {:sao_meta "" :sao_realizado "" :vidas_meta "" :vidas_realizado ""})]
     (fn []
-      (let [result @(rf/subscribe [:cn/simulator-result])]
-        [layout/page {:title "Simulador de Comissão"}
+      (let [result @(rf/subscribe [:cn/simulator-result])
+            user   @(rf/subscribe [:auth/current-user])
+            route  @(rf/subscribe [:current-route-name])]
+        [layout/page-shell
+         {:sidebar-items cn-shell/sidebar-items
+          :current-route route
+          :user          user
+          :title         "Simulador de Comissão"}
          [cards/card {:style {:max-width "480px"}}
           [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-           [inputs/text-field
+           [inputs/input
             {:label "Meta SAO (R$)" :value (:sao_meta @form)
              :on-change #(swap! form assoc :sao_meta %)}]
-           [inputs/text-field
+           [inputs/input
             {:label "SAO Realizado (R$)" :value (:sao_realizado @form)
              :on-change #(swap! form assoc :sao_realizado %)}]
-           [inputs/text-field
+           [inputs/input
             {:label "Meta Vidas" :value (:vidas_meta @form)
              :on-change #(swap! form assoc :vidas_meta %)}]
-           [inputs/text-field
+           [inputs/input
             {:label "Vidas Realizadas" :value (:vidas_realizado @form)
              :on-change #(swap! form assoc :vidas_realizado %)}]
            [btn/button {:variant :primary

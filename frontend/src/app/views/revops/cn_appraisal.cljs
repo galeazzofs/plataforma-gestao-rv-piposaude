@@ -8,7 +8,9 @@
             [app.ds.buttons :as btn]
             [app.ds.table :as tbl]
             [app.ds.badge :as badge]
-            [app.ds.tokens :as t]))
+            [app.ds.tokens :as t]
+            [app.views.revops.dashboard :as revops-shell]
+            [app.auth.subs]))
 
 ;; ── Events ──────────────────────────────────────────────────────────────────
 
@@ -67,13 +69,19 @@
         form-inputs  (r/atom {})]
     (fn []
       (let [items    @(rf/subscribe [:revops/cn-appraisals])
-            loading? @(rf/subscribe [:revops/cn-appraisals-loading?])]
-        [layout/page {:title "Apuração Mensal CN"}
-         [cards/card
+            loading? @(rf/subscribe [:revops/cn-appraisals-loading?])
+            user     @(rf/subscribe [:auth/current-user])
+            route    @(rf/subscribe [:current-route-name])]
+        [layout/page-shell
+         {:sidebar-items revops-shell/sidebar-items
+          :current-route route
+          :user          user
+          :title         "Apuração Mensal CN"}
+         [cards/card {}
           [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :margin-bottom "16px"}}
            [inputs/select
             {:label "Mês" :value (:month @filter-s)
-             :options (map (fn [m] {:value (str m) :label (str m)}) (range 1 13))
+             :options (mapv (fn [m] {:value (str m) :label (str m)}) (range 1 13))
              :on-change #(swap! filter-s assoc :month %)}]
            [inputs/select
             {:label "Ano" :value (:year @filter-s)
@@ -99,21 +107,23 @@
                                                      @form-inputs)}]))}
            "Rodar Apuração"]
 
-          [tbl/table
-           {:loading? loading?
-            :columns  [{:key :cn_name         :label "CN"}
-                       {:key :score_final     :label "Score"}
-                       {:key :multiplicador   :label "Mult."}
-                       {:key :commission_amount :label "Comissão (R$)"}
-                       {:key :is_final        :label "Status"
-                        :render (fn [v row]
-                                  (if v
-                                    [badge/badge {:variant :success} "Final"]
-                                    [btn/button {:variant :primary :size :sm
-                                                 :on-click #(rf/dispatch
-                                                              [:revops/finalize-cn-appraisal
-                                                               (:id row)
-                                                               (:month @filter-s)
-                                                               (:year @filter-s)])}
-                                     "Finalizar"]))}]
-            :rows     items}]]]))))
+          (if loading?
+            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}}
+             "Carregando..."]
+            [tbl/data-table
+             {:columns  [{:key :cn_name         :label "CN"}
+                         {:key :score_final     :label "Score"}
+                         {:key :multiplicador   :label "Mult."}
+                         {:key :commission_amount :label "Comissão (R$)"}
+                         {:key :is_final        :label "Status"
+                          :render (fn [row]
+                                    (if (:is_final row)
+                                      [badge/badge {:variant :success} "Final"]
+                                      [btn/button {:variant :primary :size :sm
+                                                   :on-click #(rf/dispatch
+                                                                [:revops/finalize-cn-appraisal
+                                                                 (:id row)
+                                                                 (:month @filter-s)
+                                                                 (:year @filter-s)])}
+                                       "Finalizar"]))}]
+              :rows     items}])]]))))
