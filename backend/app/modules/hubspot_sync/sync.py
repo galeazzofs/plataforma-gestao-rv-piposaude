@@ -9,7 +9,7 @@ import logging
 from datetime import date, datetime, timezone
 
 from app.extensions import db
-from app.models import User, Policy, Client
+from app.models import User, Policy, Client, BenefitType, Segment
 from app.modules.hubspot_sync.client import HubSpotClient
 from app.modules.hubspot_sync.mapper import (
     map_segment, map_benefit_type, parse_date, parse_decimal,
@@ -117,6 +117,65 @@ def _fetch_and_validate_tickets(client, ticket_ids, summary):
         out[ticket_id] = props
     logger.info(f"_fetch_and_validate_tickets: {len(out)}/{len(unique_ids)} tickets valid")
     return out
+
+
+def _upsert_policy(apolice, ticket_props, owner_map, ticket_id=None):
+    """Phase 5 — create or update one Policy row from an apolice + its ticket.
+
+    Args:
+        apolice: dict from HubSpot search (has `id` and `properties`)
+        ticket_props: dict of ticket properties (already validated/filtered)
+        owner_map: dict {owner_id_str: email}
+        ticket_id: HubSpot ticket id; pulled from caller's apolice→ticket map.
+                   Optional for backward-compat in tests but production passes it.
+
+    Returns True if a new row was created, False if updated.
+    Respects Policy.is_locked: locked rows keep ev_id, client_id, segment, closed_date.
+    """
+    apolice_id = apolice["id"]
+    apolice_props = apolice.get("properties", {})
+
+    # Resolve EV: solicitante_demanda may be an owner_id (lookup in map) or already an email
+    raw_ev = ticket_props.get("solicitante_demanda")
+    ev_email = owner_map.get(str(raw_ev), raw_ev) if raw_ev else None
+    ev = User.query.filter_by(email=ev_email).first() if ev_email else None
+
+    # Upsert client (always — even when locked we may need it)
+    client_name = ticket_props.get("cliente___nome_da_empresa") or ""
+    client_obj = None
+    if client_name:
+        client_obj = Client.find_or_create(client_name, ev_id=ev.id if ev else None)
+        db.session.flush()
+
+    # Find or create policy
+    policy = Policy.query.filter_by(hubspot_apolice_id=str(apolice_id)).first()
+    is_new = policy is None
+    if is_new:
+        policy = Policy(hubspot_apolice_id=str(apolice_id))
+        db.session.add(policy)
+
+    locked = bool(getattr(policy, "is_locked", False))
+
+    # Always update (non-lockable):
+    policy.hubspot_ticket_id = str(ticket_id) if ticket_id else policy.hubspot_ticket_id
+    policy.numero_apolice = apolice_props.get("numero_apolice") or None
+    policy.partner_operator = apolice_props.get("parceiro") or None
+    benefit_raw = map_benefit_type(apolice_props.get("apolice___beneficio"))
+    policy.benefit_type = BenefitType(benefit_raw) if benefit_raw else None
+    policy.mrr_projected = parse_decimal(ticket_props.get("mrr___receita_mensal"))
+
+    # Lockable — only update if not locked
+    if not locked:
+        if ev:
+            policy.ev_id = ev.id
+        if client_obj:
+            policy.client_id = client_obj.id
+        segment_raw = map_segment(ticket_props.get("cotar___segmentacao_pipo"))
+        policy.segment = Segment(segment_raw) if segment_raw else None
+        policy.closed_date = parse_date(ticket_props.get("closed_date"))
+
+    db.session.flush()
+    return is_new
 
 
 def _filter_tickets_with_default_deal(client, ticket_ids, summary):

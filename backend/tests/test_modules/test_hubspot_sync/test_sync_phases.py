@@ -221,3 +221,153 @@ def test_filter_tickets_empty_input():
     result = _filter_tickets_with_default_deal(client, [], summary)
     assert result == set()
     client.batch_read_associations.assert_not_called()
+
+
+# Task 11: _upsert_policy
+from app.extensions import db
+from app.models import User, UserRole, Policy, Client, Segment, BenefitType
+from app.modules.hubspot_sync.sync import _upsert_policy
+
+
+def _ev(email):
+    u = User(email=email, name=email, role=UserRole.EV, active=True)
+    db.session.add(u)
+    db.session.flush()
+    return u
+
+
+def _apolice(apolice_id, beneficio="Saúde", numero="AP-001", parceiro="Bradesco"):
+    return {
+        "id": apolice_id,
+        "properties": {
+            "apolice___beneficio": beneficio,
+            "numero_apolice": numero,
+            "parceiro": parceiro,
+        },
+    }
+
+
+def _ticket(ev_email="ev@x", client_name="ClientCo", mrr="1500",
+            closed="2025-06-01T00:00:00Z", segment="M"):
+    return {
+        "solicitante_demanda": ev_email,
+        "cliente___nome_da_empresa": client_name,
+        "mrr___receita_mensal": mrr,
+        "closed_date": closed,
+        "cotar___segmentacao_pipo": segment,
+        "hs_pipeline": "651307",
+        "hs_pipeline_stage": "11947921",
+    }
+
+
+def test_upsert_creates_new_policy(db_session):
+    ev = _ev("ev@x")
+    owner_map = {}  # solicitante_demanda is already an email here
+    apolice = _apolice("A1", beneficio="Saúde", numero="AP-001", parceiro="Bradesco")
+    ticket = _ticket(ev_email="ev@x", client_name="Acme", mrr="2500")
+
+    is_new = _upsert_policy(apolice, ticket, owner_map, ticket_id="T1")
+    db.session.flush()
+
+    assert is_new is True
+    policy = Policy.query.filter_by(hubspot_apolice_id="A1").one()
+    assert policy.numero_apolice == "AP-001"
+    assert policy.partner_operator == "Bradesco"
+    assert policy.benefit_type == BenefitType.SAUDE
+    assert policy.mrr_projected == Decimal("2500")
+    assert policy.ev_id == ev.id
+    assert policy.client.name == Client.find_or_create("Acme").name
+    assert policy.segment == Segment.M
+    assert policy.closed_date == date(2025, 6, 1)
+
+
+def test_upsert_updates_existing_policy(db_session):
+    ev = _ev("ev2@x")
+    owner_map = {}
+    existing = Policy(
+        hubspot_apolice_id="A2",
+        hubspot_ticket_id="T2",
+        ev_id=ev.id,
+        mrr_projected=Decimal("100"),
+    )
+    db.session.add(existing)
+    db.session.flush()
+
+    apolice = _apolice("A2", numero="AP-NEW")
+    ticket = _ticket(ev_email="ev2@x", mrr="9999")
+
+    is_new = _upsert_policy(apolice, ticket, owner_map, ticket_id="T2-NEW")
+    db.session.flush()
+
+    assert is_new is False
+    db.session.refresh(existing)
+    assert existing.mrr_projected == Decimal("9999")
+    assert existing.numero_apolice == "AP-NEW"
+    assert existing.hubspot_ticket_id == "T2-NEW"
+
+
+def test_upsert_saude_e_odonto_maps_to_combined_enum(db_session):
+    _ev("ev3@x")
+    apolice = _apolice("A3", beneficio="Saúde e Odonto")
+    ticket = _ticket(ev_email="ev3@x")
+    _upsert_policy(apolice, ticket, {}, ticket_id="T3")
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_apolice_id="A3").one()
+    assert policy.benefit_type == BenefitType.SAUDE_ODONTO
+
+
+def test_upsert_multiple_apolices_same_ticket(db_session):
+    _ev("ev4@x")
+    ticket = _ticket(ev_email="ev4@x", mrr="3000")
+    for apolice_id, beneficio in [("A4-S", "Saúde"), ("A4-O", "Odonto"), ("A4-V", "Vida")]:
+        apolice = _apolice(apolice_id, beneficio=beneficio)
+        _upsert_policy(apolice, ticket, {}, ticket_id="T4")
+    db.session.flush()
+
+    rows = Policy.query.filter_by(hubspot_ticket_id="T4").order_by(Policy.hubspot_apolice_id).all()
+    assert len(rows) == 3
+    assert {r.hubspot_apolice_id for r in rows} == {"A4-S", "A4-O", "A4-V"}
+    assert {r.benefit_type for r in rows} == {BenefitType.SAUDE, BenefitType.ODONTO, BenefitType.VIDA}
+    # All share the same MRR (replicated)
+    assert {r.mrr_projected for r in rows} == {Decimal("3000")}
+
+
+def test_upsert_respects_is_locked_for_lockable_fields(db_session):
+    ev_old = _ev("locked-old@x")
+    ev_new = _ev("locked-new@x")
+    locked = Policy(
+        hubspot_apolice_id="A-LOCK",
+        hubspot_ticket_id="T-LOCK",
+        ev_id=ev_old.id,
+        segment=Segment.M,
+        closed_date=date(2025, 1, 1),
+        is_locked=True,
+    )
+    db.session.add(locked)
+    db.session.flush()
+
+    apolice = _apolice("A-LOCK", parceiro="NewOp")
+    ticket = _ticket(ev_email="locked-new@x", segment="G", closed="2026-03-01T00:00:00Z", mrr="7777")
+    _upsert_policy(apolice, ticket, {}, ticket_id="T-LOCK-NEW")
+    db.session.flush()
+    db.session.refresh(locked)
+
+    # Lockable: preserved
+    assert locked.ev_id == ev_old.id
+    assert locked.segment == Segment.M
+    assert locked.closed_date == date(2025, 1, 1)
+    # Non-lockable: updated
+    assert locked.mrr_projected == Decimal("7777")
+    assert locked.partner_operator == "NewOp"
+    assert locked.hubspot_ticket_id == "T-LOCK-NEW"
+
+
+def test_upsert_resolves_ev_via_owner_map(db_session):
+    ev = _ev("from-owner@x")
+    owner_map = {"99999": "from-owner@x"}
+    apolice = _apolice("A-OWN")
+    ticket = _ticket(ev_email="99999")  # solicitante_demanda is an owner_id, not email
+    _upsert_policy(apolice, ticket, owner_map, ticket_id="T-OWN")
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_apolice_id="A-OWN").one()
+    assert policy.ev_id == ev.id
