@@ -224,6 +224,7 @@ def _serialize_policy(policy, detail=False):
     data = {
         "id": str(policy.id),
         "hubspot_ticket_id": policy.hubspot_ticket_id,
+        "numero_apolice": policy.numero_apolice,
         "ev_id": str(policy.ev_id) if policy.ev_id else None,
         "ev_name": policy.ev.name if policy.ev else None,
         "client_id": str(policy.client_id) if policy.client_id else None,

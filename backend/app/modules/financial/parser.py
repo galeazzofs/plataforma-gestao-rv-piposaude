@@ -24,6 +24,7 @@ COLUMN_KEYWORDS = {
     'cliente_mae': lambda h: 'cliente' in h and 'mae' in h,
     'operadora': lambda h: 'operadora' in h,
     'produto': lambda h: 'produto' in h and 'segmenta' not in h,
+    'numero_apolice': lambda h: 'apolice' in h and 'beneficio' not in h,
     'nf_valor_liquido': lambda h: 'nf' in h and 'liquido' in h,
     'data_recebimento': lambda h: 'data' in h and 'recebimento' in h,
     'mes_recebimento': lambda h: 'mes' in h and 'recebimento' in h,
@@ -191,10 +192,14 @@ def parse_financial_xlsx(filepath, target_quarter, target_year):
             stats['descartadas_vazias'] += 1
             continue
 
+        numero_raw = cell(r, 'numero_apolice')
+        numero_apolice = str(numero_raw).strip() if numero_raw is not None else ''
+
         rows.append({
             'cliente_mae': str(cliente_mae).strip(),
             'operadora': str(cell(r, 'operadora') or '').strip(),
             'produto': str(cell(r, 'produto') or '').strip(),
+            'numero_apolice': numero_apolice or None,
             'nf_valor_liquido': valor_liquido,
             'data_recebimento': data_rec,
             'mes_recebimento': mes_rec,

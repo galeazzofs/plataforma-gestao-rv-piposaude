@@ -80,6 +80,7 @@ def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
             cliente_mae=row['cliente_mae'],
             operadora=row['operadora'],
             produto=row['produto'],
+            numero_apolice=row.get('numero_apolice'),
             tipo_receita=row.get('tipo_receita'),
             status_recebimento=row['status_recebimento'],
             data_recebimento=row['data_recebimento'],

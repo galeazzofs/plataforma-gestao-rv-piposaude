@@ -49,7 +49,9 @@
    {:value "G"  :label "G"}])
 
 (defn build-columns [open-edit]
-  [{:key :client_name      :label "Cliente"       :sortable true}
+  [{:key :numero_apolice   :label "Nº Apólice"    :sortable true :width "120px"
+    :render (fn [row] (or-dash (:numero_apolice row)))}
+   {:key :client_name      :label "Cliente"       :sortable true}
    {:key :ev_name          :label "EV"            :sortable true :width "140px"
     :render (fn [row] (or-dash (:ev_name row)))}
    {:key :benefit_type     :label "Benefício"     :sortable true :width "100px"

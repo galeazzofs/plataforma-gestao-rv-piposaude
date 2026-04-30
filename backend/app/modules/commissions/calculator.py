@@ -4,7 +4,11 @@ Spec 4.3:
   Comissao real = (Total liquido empresa - Perks empresa) x % comissao
 
 Algorithm:
-1. Match NF rows -> policies by (cliente_mae, operadora, produto) normalised
+1. Match NF rows -> policies by `numero_apolice` (after normalising whitespace
+   and case). Product is still validated against the saude/odonto/vida
+   benefit map so non-policy revenue is rejected explicitly. NFs without
+   `numero_apolice` populated are dropped as UNMATCHED — the spreadsheet
+   must carry the apolice number for the row to match.
 2. Aggregate matched NFs by client (empresa level)
 3. Subtract perks at the client level
 4. Distribute net amount proportionally across policies
@@ -27,7 +31,7 @@ from app.models import (
     User,
 )
 from app.modules.policies.filters import active_ev_policies_query
-from app.modules.financial.matcher import build_policy_index, normalize
+from app.modules.financial.matcher import build_policy_index, normalize_apolice_number
 from app.modules.commissions.pct_lookup import lookup_commission_pct
 from app.modules.commissions.status import update_policy_statuses
 
@@ -152,7 +156,12 @@ def run_quarterly_appraisal(quarter, year):
     earliest_nf_dates = {}                          # policy_id -> earliest date
 
     for nf in nfs:
-        produto_n = normalize(nf.produto or '')
+        # Apolice-number-anchored matching: every match is keyed on the
+        # apolice number stamped on the NF row + on the policy. Product
+        # is still validated so non-saude/odonto/vida revenue is rejected
+        # explicitly rather than appearing as "no policy found".
+        from app.modules.financial.matcher import normalize as _normalize_text
+        produto_n = _normalize_text(nf.produto or '')
         benefit = BENEFIT_MAP.get(produto_n)
         if benefit is None:
             nf.match_status = 'PRODUTO_NAO_SUPORTADO'
@@ -160,12 +169,14 @@ def run_quarterly_appraisal(quarter, year):
             nf.matched_at = None
             continue
 
-        key = (
-            normalize(nf.cliente_mae or ''),
-            normalize(nf.operadora or ''),
-            benefit,
-        )
-        candidates = policy_index.get(key, [])
+        apolice_key = normalize_apolice_number(nf.numero_apolice)
+        if not apolice_key:
+            nf.match_status = 'UNMATCHED'
+            nf.policy_id = None
+            nf.matched_at = None
+            continue
+
+        candidates = policy_index.get(apolice_key, [])
         if not candidates:
             nf.match_status = 'UNMATCHED'
             nf.policy_id = None
