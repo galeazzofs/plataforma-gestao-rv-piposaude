@@ -22,27 +22,27 @@ def _ev(email):
     return u
 
 
-def _ticket(tid, props=None):
+def _ticket(tid, props=None, beneficio="Saúde"):
     base = {
         "solicitante_demanda": "ev@x",
         "cliente___nome_da_empresa": "ClientCo",
         "mrr___receita_mensal": "2000",
         "closed_date": "2025-09-01T00:00:00Z",
         "cotar___segmentacao_pipo": "M",
+        "beneficio_a_ser_cotado": beneficio,
         "hs_pipeline": "651307",
         "hs_pipeline_stage": "11947921",
-        "time_solicitante": "Vendas",
     }
     if props:
         base.update(props)
     return {"id": tid, "properties": base}
 
 
-def _apolice_props(beneficio, numero="AP-X", parceiro="BradescoTest",
+def _apolice_props(numero="AP-X", parceiro="BradescoTest",
                    entered="2025-01-15"):
+    """Apólice deal payload — benefit lives on the ticket now."""
     return {
         "pipeline": APOLICE_PIPELINE_ID,
-        "apolice___beneficio": beneficio,
         "numero_apolice": numero,
         "parceiro": parceiro,
         "hs_v2_date_entered_14038792": entered,
@@ -74,11 +74,12 @@ def test_run_sync_end_to_end(db_session):
     fake_client = MagicMock()
     fake_client.search_tickets.return_value = {
         "results": [
-            _ticket("T1"),
-            _ticket("T2"),
-            _ticket("T3"),
-            _ticket("T4"),
-            _ticket("T5"),
+            _ticket("T1", beneficio="Saúde"),
+            _ticket("T2", beneficio="Vida"),
+            _ticket("T3", beneficio="Saúde"),
+            _ticket("T4", beneficio="Saúde"),
+            _ticket("T5", beneficio="Saúde"),
+            _ticket("T6", beneficio="Outro"),  # invalid benefit on the ticket
         ],
         "paging": {},
     }
@@ -88,12 +89,14 @@ def test_run_sync_end_to_end(db_session):
         "T3": ["D-A3", "D-DEFAULT"],
         "T4": ["D-DEFAULT"],
         "T5": ["D-A5"],
+        "T6": ["D-A6", "D-DEFAULT"],
     }
     fake_client.batch_read_objects.return_value = {
-        "D-A1": _apolice_props("Saúde", numero="AP-1"),
-        "D-A2": _apolice_props("Vida", numero="AP-2"),
-        "D-A3": _apolice_props("Saúde", numero="AP-3", entered=None),
-        "D-A5": _apolice_props("Saúde", numero="AP-5"),
+        "D-A1": _apolice_props(numero="AP-1"),
+        "D-A2": _apolice_props(numero="AP-2"),
+        "D-A3": _apolice_props(numero="AP-3", entered=None),
+        "D-A5": _apolice_props(numero="AP-5"),
+        "D-A6": _apolice_props(numero="AP-6"),
         "D-DEFAULT": _default_deal_props(closedate="2025-09-01T00:00:00Z"),
     }
     fake_client.get_all_owners.return_value = {}
@@ -105,6 +108,7 @@ def test_run_sync_end_to_end(db_session):
     assert summary["created"] == 2  # T1, T2
     assert summary["updated"] == 0
     assert summary["deleted"] == 0  # nothing pre-existing to delete
+    assert summary["skipped"]["invalid_benefit"] == 1          # T6
     assert summary["skipped"]["no_apolice_pre_ativacao"] == 2  # T3, T4
     assert summary["skipped"]["no_default_deal"] == 1          # T5
     assert summary["error_count"] == 0
@@ -113,6 +117,7 @@ def test_run_sync_end_to_end(db_session):
     assert {r.hubspot_ticket_id for r in rows} == {"T1", "T2"}
     p_t1 = Policy.query.filter_by(hubspot_ticket_id="T1").one()
     p_t2 = Policy.query.filter_by(hubspot_ticket_id="T2").one()
+    # benefit comes from the ticket, not the apólice
     assert p_t1.benefit_type == BenefitType.SAUDE
     assert p_t2.benefit_type == BenefitType.VIDA
     assert p_t1.hubspot_apolice_id == "D-A1"
@@ -145,7 +150,7 @@ def test_run_sync_deletes_policies_not_in_fetch(db_session):
         "T-FRESH": ["D-FRESH", "D-DEFAULT"],
     }
     fake_client.batch_read_objects.return_value = {
-        "D-FRESH": _apolice_props("Saúde", numero="AP-FRESH"),
+        "D-FRESH": _apolice_props(numero="AP-FRESH"),
         "D-DEFAULT": _default_deal_props(),
     }
     fake_client.get_all_owners.return_value = {}
@@ -183,7 +188,7 @@ def test_run_sync_does_not_delete_when_errors_occur(db_session):
         "T-ERR": ["D-A", "D-DEFAULT"],
     }
     fake_client.batch_read_objects.return_value = {
-        "D-A": _apolice_props("Saúde"),
+        "D-A": _apolice_props(),
         "D-DEFAULT": _default_deal_props(),
     }
     fake_client.get_all_owners.return_value = {}

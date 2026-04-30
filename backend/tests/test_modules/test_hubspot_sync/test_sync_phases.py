@@ -13,7 +13,6 @@ from app.modules.hubspot_sync.sync import (
     GONGO_DATE_FLOOR,
     DEFAULT_DEAL_PIPELINE_ID,
     VALID_BENEFITS_HUBSPOT,
-    TIME_SOLICITANTE_VENDAS,
     TICKET_PROPERTIES,
     DEAL_PROPERTIES,
 )
@@ -30,8 +29,14 @@ def test_fetch_tickets_builds_correct_search_filters_full_fetch():
     client.search_tickets.assert_called_once()
     call_kwargs = client.search_tickets.call_args.kwargs
     filters = call_kwargs["filters"]
-    # 4 filters AND-ed: pipeline, stage, closed_date floor, time_solicitante=Vendas
-    assert len(filters) == 4
+    # 3 filters AND-ed: pipeline, stage, closed_date floor.
+    # Team-level filtering was removed in favor of "ticket has default deal"
+    # enforced in _resolve_ticket_deals.
+    assert len(filters) == 3
+    assert {f["propertyName"] for f in filters} == {
+        "hs_pipeline", "hs_pipeline_stage", "closed_date",
+    }
+
     pipeline_f = next(f for f in filters if f["propertyName"] == "hs_pipeline")
     assert pipeline_f["operator"] == "EQ"
     assert pipeline_f["value"] == PLACEMENT_PIPELINE_ID
@@ -43,10 +48,6 @@ def test_fetch_tickets_builds_correct_search_filters_full_fetch():
     date_f = next(f for f in filters if f["propertyName"] == "closed_date")
     assert date_f["operator"] == "GTE"
     assert date_f["value"] == GONGO_DATE_FLOOR.isoformat()
-
-    time_f = next(f for f in filters if f["propertyName"] == "time_solicitante")
-    assert time_f["operator"] == "EQ"
-    assert time_f["value"] == TIME_SOLICITANTE_VENDAS
 
     assert set(call_kwargs["properties"]) == set(TICKET_PROPERTIES)
 
@@ -78,15 +79,15 @@ def test_fetch_tickets_empty_first_page_returns_empty():
 
 # --- _resolve_ticket_deals ---
 
-def _ticket(tid):
-    return {"id": tid, "properties": {}}
+def _ticket(tid, beneficio="Saúde"):
+    """Default ticket — benefit lives on the ticket (`beneficio_a_ser_cotado`)."""
+    return {"id": tid, "properties": {"beneficio_a_ser_cotado": beneficio}}
 
 
-def _apolice_props(beneficio="Saúde", numero="AP-001", parceiro="Bradesco",
-                   entered="2025-01-15"):
+def _apolice_props(numero="AP-001", parceiro="Bradesco", entered="2025-01-15"):
+    """Apólice deal payload — benefit no longer lives here, it comes from the ticket."""
     return {
         "pipeline": APOLICE_PIPELINE_ID,
-        "apolice___beneficio": beneficio,
         "numero_apolice": numero,
         "parceiro": parceiro,
         "hs_v2_date_entered_14038792": entered,
@@ -101,7 +102,7 @@ def test_resolve_keeps_ticket_with_apolice_in_pre_ativacao_and_default():
     client = MagicMock()
     client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
     client.batch_read_objects.return_value = {
-        "D-A": _apolice_props(beneficio="Saúde", numero="AP-001", parceiro="Bradesco"),
+        "D-A": _apolice_props(numero="AP-001", parceiro="Bradesco"),
         "D-DEFAULT": _default_deal_props(),
     }
     summary = _new_summary()
@@ -126,7 +127,6 @@ def test_resolve_drops_apolice_without_pre_ativacao_date():
     client.batch_read_objects.return_value = {
         "D-A": {
             "pipeline": APOLICE_PIPELINE_ID,
-            "apolice___beneficio": "Saúde",
             "numero_apolice": "AP-001",
             "parceiro": "Bradesco",
             # hs_v2_date_entered_14038792 missing
@@ -156,19 +156,39 @@ def test_resolve_drops_apolice_with_pre_ativacao_before_floor():
     assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
 
 
-def test_resolve_drops_apolice_with_invalid_benefit():
+def test_resolve_drops_ticket_with_invalid_benefit():
+    """beneficio_a_ser_cotado outside VALID_BENEFITS_HUBSPOT skips the whole
+    ticket — benefit is now ticket-level, not per-apólice."""
     client = MagicMock()
     client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
     client.batch_read_objects.return_value = {
-        "D-A": _apolice_props(beneficio="Outro"),
+        "D-A": _apolice_props(),
         "D-DEFAULT": _default_deal_props(),
     }
     summary = _new_summary()
 
-    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+    result = _resolve_ticket_deals(
+        client, [_ticket("T1", beneficio="Outro Beneficio Qualquer")], summary,
+    )
 
     assert result == {}
-    assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
+    assert summary["skipped"]["invalid_benefit"] == 1
+
+
+def test_resolve_drops_ticket_with_missing_benefit():
+    """Ticket without beneficio_a_ser_cotado set is treated as invalid_benefit."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [{"id": "T1", "properties": {}}], summary)
+
+    assert result == {}
+    assert summary["skipped"]["invalid_benefit"] == 1
 
 
 def test_resolve_drops_ticket_without_default_deal():
@@ -242,11 +262,11 @@ def _ev(email):
     return u
 
 
-def _apolice(apolice_id, beneficio="Saúde", numero="AP-001", parceiro="Bradesco"):
+def _apolice(apolice_id, numero="AP-001", parceiro="Bradesco"):
+    """Apólice deal payload — benefit lives on the ticket now, not here."""
     return {
         "id": apolice_id,
         "properties": {
-            "apolice___beneficio": beneficio,
             "numero_apolice": numero,
             "parceiro": parceiro,
         },
@@ -258,23 +278,24 @@ def _default_deal(deal_id="D-DEFAULT", closedate="2025-06-01T00:00:00Z"):
 
 
 def _ticket_for_upsert(ev_email="ev@x", client_name="ClientCo", mrr="1500",
-                      segment="M"):
+                      segment="M", beneficio="Saúde"):
     return {
         "solicitante_demanda": ev_email,
         "cliente___nome_da_empresa": client_name,
         "mrr___receita_mensal": mrr,
         "cotar___segmentacao_pipo": segment,
+        "beneficio_a_ser_cotado": beneficio,
         "hs_pipeline": "651307",
         "hs_pipeline_stage": "11947921",
-        "time_solicitante": "Vendas",
     }
 
 
 def test_upsert_creates_new_policy(db_session):
     ev = _ev("ev@x")
-    apolice = _apolice("A1", beneficio="Saúde", numero="AP-001", parceiro="Bradesco")
+    apolice = _apolice("A1", numero="AP-001", parceiro="Bradesco")
     deal = _default_deal(closedate="2025-06-01T00:00:00Z")
-    ticket = _ticket_for_upsert(ev_email="ev@x", client_name="Acme", mrr="2500")
+    ticket = _ticket_for_upsert(ev_email="ev@x", client_name="Acme",
+                                mrr="2500", beneficio="Saúde")
 
     is_new = _upsert_policy("T1", ticket, apolice, deal, {})
     db.session.flush()
@@ -307,6 +328,21 @@ def test_upsert_closed_date_comes_from_default_deal_not_ticket(db_session):
     assert policy.closed_date == date(2025, 12, 31)
 
 
+def test_upsert_benefit_comes_from_ticket_not_apolice(db_session):
+    """benefit_type is read from ticket.beneficio_a_ser_cotado. Stale benefit
+    on the apólice payload (legacy) must NOT leak into the policy."""
+    _ev("ev-bn@x")
+    apolice = _apolice("A-BN")
+    apolice["properties"]["apolice___beneficio"] = "Vida"  # legacy/stale value
+    deal = _default_deal()
+    ticket = _ticket_for_upsert(ev_email="ev-bn@x", beneficio="Odonto")
+
+    _upsert_policy("T-BN", ticket, apolice, deal, {})
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_ticket_id="T-BN").one()
+    assert policy.benefit_type == BenefitType.ODONTO
+
+
 def test_upsert_updates_existing_policy_by_ticket_id(db_session):
     ev = _ev("ev2@x")
     existing = Policy(
@@ -334,9 +370,9 @@ def test_upsert_updates_existing_policy_by_ticket_id(db_session):
 
 def test_upsert_saude_e_odonto_maps_to_combined_enum(db_session):
     _ev("ev3@x")
-    apolice = _apolice("A3", beneficio="Saúde e Odonto")
+    apolice = _apolice("A3")
     deal = _default_deal()
-    ticket = _ticket_for_upsert(ev_email="ev3@x")
+    ticket = _ticket_for_upsert(ev_email="ev3@x", beneficio="Saúde e Odonto")
     _upsert_policy("T3", ticket, apolice, deal, {})
     db.session.flush()
     policy = Policy.query.filter_by(hubspot_ticket_id="T3").one()
