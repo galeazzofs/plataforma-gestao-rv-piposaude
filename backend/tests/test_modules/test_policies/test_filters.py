@@ -9,8 +9,12 @@ def _make_user(email, role=UserRole.EV, active=True):
     return u
 
 
-def _make_policy(ev, ticket_id):
-    p = Policy(hubspot_ticket_id=ticket_id, ev_id=ev.id)
+def _make_policy(ev, ticket_id, apolice_id=None):
+    p = Policy(
+        hubspot_apolice_id=apolice_id or f"A-{ticket_id}",
+        hubspot_ticket_id=ticket_id,
+        ev_id=ev.id,
+    )
     db.session.add(p)
     db.session.flush()
     return p
@@ -35,7 +39,7 @@ def test_returns_only_policies_of_active_evs(db_session):
 def test_excludes_policies_with_null_ev(db_session):
     from app.modules.policies.filters import active_ev_policies_query
 
-    p = Policy(hubspot_ticket_id="T_NULL", ev_id=None)
+    p = Policy(hubspot_apolice_id="A-NULL", hubspot_ticket_id="T_NULL", ev_id=None)
     db.session.add(p)
     db.session.flush()
 
