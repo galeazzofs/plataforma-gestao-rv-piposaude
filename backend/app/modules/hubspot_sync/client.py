@@ -63,6 +63,25 @@ class HubSpotClient:
             f"/crm/v4/objects/{object_type}/{object_id}/associations/{to_type}",
         )
 
+    def batch_read_associations(self, from_type, to_type, ids):
+        """POST /crm/v4/associations/{from}/{to}/batch/read.
+
+        Returns dict mapping each from_id (str) to a list of to_ids (str).
+        IDs without associations are omitted from the result. Returns {}
+        for empty input without making any API call.
+        """
+        if not ids:
+            return {}
+        body = {"inputs": [{"id": str(i)} for i in ids]}
+        path = f"/crm/v4/associations/{from_type}/{to_type}/batch/read"
+        result = self._request("POST", path, json=body)
+        out = {}
+        for entry in result.get("results", []):
+            from_id = str(entry["from"]["id"])
+            to_ids = [str(t["toObjectId"]) for t in entry.get("to", [])]
+            out[from_id] = to_ids
+        return out
+
     def get_deal(self, deal_id, properties):
         """Get a deal by ID."""
         params = {"properties": ",".join(properties)}
