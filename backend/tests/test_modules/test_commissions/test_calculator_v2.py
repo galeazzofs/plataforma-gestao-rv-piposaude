@@ -400,3 +400,71 @@ def test_multi_policy_picks_most_recent_within_window(db_session):
         policy_id=p_new.id, quarter=1, year=2026
     ).first()
     assert comm.total_actual == Decimal('60.00')
+
+
+def test_auto_sets_first_payment_real_when_none(db_session):
+    """Policy with no first_payment_real: first matched NF sets it and counts as month 1."""
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev = User(email='ev@autodetect', name='EV AutoDetect', role=UserRole.EV, active=True)
+    db.session.add(ev)
+    db.session.flush()
+
+    client = Client.find_or_create('AutoDetect Co')
+    db.session.flush()
+
+    policy = Policy(
+        hubspot_ticket_id='T-AUTODETECT',
+        ev_id=ev.id,
+        client_id=client.id,
+        segment=Segment.M,
+        benefit_type=BenefitType.SAUDE,
+        partner_operator='TestOp',
+        closed_date=date(2025, 11, 1),  # Q4/2025 gongo
+        first_payment_real=None,        # ← no vigência set yet
+        installments_paid=0,
+        initial_installments_paid=0,
+    )
+    db.session.add(policy)
+    db.session.flush()
+
+    db.session.add(EvQuarterAchievement(
+        ev_id=ev.id,
+        quarter=4,
+        year=2025,
+        achievement_pct=Decimal('0.75'),
+    ))
+    db.session.add(EvQuarterAchievement(
+        ev_id=ev.id,
+        quarter=1,
+        year=2026,
+        achievement_pct=Decimal('0.75'),
+    ))
+
+    batch = ImportBatch(filename='auto.xlsx', uploaded_by=ev.id, status='CONFIRMED')
+    db.session.add(batch)
+    db.session.flush()
+
+    db.session.add(FinancialImport(
+        import_batch_id=batch.id,
+        quarter=1,
+        year=2026,
+        nf_valor_liquido=Decimal('1000.00'),
+        nf_mes_recebimento='2026-01',
+        cliente_mae='AutoDetect Co',
+        operadora='TestOp',
+        produto='Saúde',
+        tipo_receita='Comissão',
+        status_recebimento='RECEBIDO',
+        data_recebimento=date(2026, 1, 15),
+        match_status='UNMATCHED',
+    ))
+    db.session.flush()
+
+    run_quarterly_appraisal(quarter=1, year=2026)
+
+    db.session.refresh(policy)
+    assert policy.first_payment_real == date(2026, 1, 15)
+    assert policy.installments_paid == 1
+    nf = db.session.query(FinancialImport).filter_by(cliente_mae='AutoDetect Co').first()
+    assert nf.match_status == 'MATCHED'

@@ -43,7 +43,22 @@
 (def commission-table        "/admin/commission-table")
 (def commission-table-import "/admin/commission-table/import")
 (def financial-upload "/financial/upload")
+(def perk-upload "/financial/upload-perks")
 (def settings "/admin/settings")
 (def sync-status    "/admin/sync-status")
 (def sync-trigger   "/admin/sync-trigger")
 (def audit-log   "/admin/audit-log")
+
+;; CN commissions
+(def cn-goals           "/commissions/cn/goals")
+(def cn-appraisal       "/commissions/cn/appraisal")
+(defn cn-appraisal-finalize [id] (str "/commissions/cn/appraisal/" id "/finalize"))
+(def cn-simulate        "/commissions/cn/simulate")
+
+;; EV bonus
+(def ev-bonus           "/commissions/ev/bonus")
+
+;; Leadership
+(def leadership-preview    "/commissions/leadership/preview")
+(def leadership-appraisal  "/commissions/leadership/appraisal")
+(defn leadership-finalize [id] (str "/commissions/leadership/appraisal/" id "/finalize"))

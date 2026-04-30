@@ -32,64 +32,72 @@
       (when (and policy (not= (:id policy) @last-id))
         (reset! form (->form policy))
         (reset! last-id (:id policy)))
-      [modal/modal
-       {:open? open?
-        :on-close on-close
-        :title (str "Editar Apólice "
-                    (or (:hubspot_ticket_id policy)
-                        (some-> (:id policy) str (subs 0 8))))
-        :size :md}
-       (when @form
-         [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-          [:div {:style {:padding "10px 12px" :background t/beige-100
-                         :border-radius (:md t/border-radius)
-                         :font-size (:xs t/font-sizes)
-                         :color t/text-secondary}}
-           "⚠️ Ao salvar, a apólice será marcada como ‘locked’. O sync do HubSpot "
-           "não vai sobrescrever esses campos até você desbloquear."]
+      (let [ev-users @(rf/subscribe [:revops/ev-users])]
+        [modal/modal
+         {:open? open?
+          :on-close on-close
+          :title (str "Editar Apólice "
+                      (or (:hubspot_ticket_id policy)
+                          (some-> (:id policy) str (subs 0 8))))
+          :size :md}
+         (when @form
+           [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
+            [:div {:style {:padding "10px 12px" :background t/beige-100
+                           :border-radius (:md t/border-radius)
+                           :font-size (:xs t/font-sizes)
+                           :color t/text-secondary}}
+             "⚠️ Ao salvar, a apólice será marcada como 'locked'. O sync do HubSpot "
+             "não vai sobrescrever esses campos até você desbloquear."]
 
-          [inputs/input
-           {:label "Início Vigência (first_payment_real)"
-            :type "date"
-            :value (:first_payment_real @form)
-            :on-change #(swap! form assoc :first_payment_real %)}]
+            [inputs/select
+             {:label "EV Responsável"
+              :value (or (:ev_id @form) "")
+              :options (into [{:value "" :label "— Sem EV —"}]
+                             (map (fn [u] {:value (:id u) :label (:name u)}) ev-users))
+              :on-change #(swap! form assoc :ev_id %)}]
 
-          [inputs/input
-           {:label "Data de Gongo (closed_date)"
-            :type "date"
-            :value (:closed_date @form)
-            :on-change #(swap! form assoc :closed_date %)}]
+            [inputs/input
+             {:label "Início Vigência (first_payment_real)"
+              :type "date"
+              :value (:first_payment_real @form)
+              :on-change #(swap! form assoc :first_payment_real %)}]
 
-          [inputs/input
-           {:label "Parcelas pagas antes da plataforma (0–12)"
-            :type "number"
-            :value (str (:initial_installments_paid @form))
-            :on-change #(swap! form assoc :initial_installments_paid
-                               (max 0 (min 12 (or (js/parseInt %) 0))))}]
+            [inputs/input
+             {:label "Data de Gongo (closed_date)"
+              :type "date"
+              :value (:closed_date @form)
+              :on-change #(swap! form assoc :closed_date %)}]
 
-          [inputs/select
-           {:label "Segmento"
-            :value (:segment @form)
-            :options [{:value "PP" :label "PP"}
-                      {:value "P"  :label "P"}
-                      {:value "M"  :label "M"}
-                      {:value "G"  :label "G"}]
-            :on-change #(swap! form assoc :segment %)}]
+            [inputs/input
+             {:label "Parcelas pagas antes da plataforma (0–12)"
+              :type "number"
+              :value (str (:initial_installments_paid @form))
+              :on-change #(swap! form assoc :initial_installments_paid
+                                 (max 0 (min 12 (or (js/parseInt %) 0))))}]
 
-          [inputs/input
-           {:label "Operadora"
-            :value (:partner_operator @form)
-            :on-change #(swap! form assoc :partner_operator %)}]
+            [inputs/select
+             {:label "Segmento"
+              :value (:segment @form)
+              :options [{:value "PP" :label "PP"}
+                        {:value "P"  :label "P"}
+                        {:value "M"  :label "M"}
+                        {:value "G"  :label "G"}]
+              :on-change #(swap! form assoc :segment %)}]
 
-          [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"
-                         :padding-top "8px"
-                         :border-top (str "1px solid " t/border-default)}}
-           [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
-           [btn/button {:variant :primary
-                        :on-click (fn []
-                                    (rf/dispatch [:revops/update-policy
-                                                  (:id policy)
-                                                  (payload @form)])
-                                    (reset! last-id nil)
-                                    (on-close))}
-            "Salvar"]]])])))
+            [inputs/input
+             {:label "Operadora"
+              :value (:partner_operator @form)
+              :on-change #(swap! form assoc :partner_operator %)}]
+
+            [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"
+                           :padding-top "8px"
+                           :border-top (str "1px solid " t/border-default)}}
+             [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
+             [btn/button {:variant :primary
+                          :on-click (fn []
+                                      (rf/dispatch [:revops/update-policy
+                                                    (:id policy)
+                                                    (payload @form)])
+                                      (reset! last-id nil)
+                                      (on-close))}
+              "Salvar"]]])]))))

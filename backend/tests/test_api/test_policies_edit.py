@@ -145,7 +145,8 @@ def test_put_policy_updates_first_payment_real_and_segment(client, fresh_actors)
 
 
 def test_get_policies_applies_active_ev_filter(client, fresh_actors):
-    """GET /policies must hide policies whose EV is inactive."""
+    """GET /policies as ADMIN returns ALL policies (active + inactive EVs).
+    EV/CN/GERENTE roles get only active EV policies (covered elsewhere)."""
     admin, active_ev, client_obj = fresh_actors
     suffix = uuid.uuid4().hex[:8]
     inactive_ev = User(
@@ -183,7 +184,8 @@ def test_get_policies_applies_active_ev_filter(client, fresh_actors):
         data = resp.get_json()["data"]
         ticket_ids = {p["hubspot_ticket_id"] for p in data}
         assert active_ticket in ticket_ids
-        assert inactive_ticket not in ticket_ids
+        # ADMIN sees the complete picture — inactive EVs are NOT hidden
+        assert inactive_ticket in ticket_ids
     finally:
         Policy.query.filter(Policy.id.in_([p_active.id, p_inactive.id])).delete()
         db.session.delete(inactive_ev)

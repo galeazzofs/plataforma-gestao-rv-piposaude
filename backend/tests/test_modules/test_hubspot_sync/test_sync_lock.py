@@ -1,8 +1,11 @@
-"""Tests for HubSpot sync respecting Policy.is_locked.
+"""Tests for HubSpot sync respecting Policy.is_locked + EV resolution.
 
 When is_locked=True, fields ev_id, closed_date, segment, and client_id
 must NOT be overwritten by the sync. Non-lockable fields like mrr_projected,
 partner_operator, numero_apolice, and benefit_type are still updated.
+
+EV resolution cascade (when ev_lookup/ev_name_lookup are provided):
+  email local part → normalized owner name → manual owner_id override.
 """
 from datetime import date
 from decimal import Decimal
@@ -11,17 +14,20 @@ from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, Segment, BenefitType,
 )
-from app.modules.hubspot_sync.sync import _upsert_policy
+from app.modules.hubspot_sync.sync import (
+    _upsert_policy, _build_ev_lookup, _build_ev_name_lookup,
+    _normalize_owner_name,
+)
 
 
-def _ev(email):
-    u = User(email=email, name=email, role=UserRole.EV, active=True)
+def _ev(email, name=None):
+    u = User(email=email, name=name or email, role=UserRole.EV, active=True)
     db.session.add(u)
     db.session.flush()
     return u
 
 
-def _apolice(apolice_id, beneficio="ODONTO", parceiro="OpA"):
+def _apolice(apolice_id, beneficio="Odonto", parceiro="OpA"):
     return {
         "id": apolice_id,
         "properties": {
@@ -49,7 +55,7 @@ def test_sync_preserves_locked_fields(db_session):
     """A locked policy keeps its ev_id, closed_date, segment, and client_id
     intact when the sync re-processes its apolice with different values."""
     old_ev = _ev("old-ev@x")
-    _ev("new-ev@x")
+    new_ev = _ev("new-ev@x")
     old_client = Client.find_or_create("OldClient")
     db.session.flush()
 
@@ -145,3 +151,88 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     assert policy.partner_operator == "NewPartner"
     # Lockable: preserved
     assert policy.closed_date == date(2025, 6, 1)
+
+
+def test_sync_matches_ev_by_name_fallback(db_session):
+    """When email local-part doesn't match, the EV is resolved by full name."""
+    ev = _ev("luciana.rodrigues@piposaude.com.br", name="Luciana Rodrigues")
+    db.session.flush()
+
+    ev_lookup = _build_ev_lookup([ev])
+    ev_name_lookup = _build_ev_name_lookup([ev])
+
+    # owner_id "99" maps to a different email (no email-local match), but the
+    # name "Luciana Rodrigues" matches the platform EV.
+    owner_map = {
+        "99": {"email": "luciana.rodrigues@outraempresa.com", "name": "Luciana Rodrigues"},
+    }
+
+    apolice = _apolice("NAME-A1", beneficio="Saúde")
+    ticket = _ticket_props(ev_email="99", client_name="Cliente Teste",
+                           mrr="3000", closed="2026-01-15T00:00:00Z")
+
+    _upsert_policy(
+        apolice, ticket, owner_map, ticket_id="NAME-T1",
+        ev_lookup=ev_lookup, ev_name_lookup=ev_name_lookup,
+    )
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_apolice_id="NAME-A1").one()
+    assert policy.ev_id == ev.id
+
+
+def test_sync_matches_ev_with_deactivation_suffix(db_session):
+    """HubSpot appends '(usuario desativado/removido)' to deactivated owner names.
+    The name-based fallback must still resolve after stripping the suffix."""
+    ev = _ev("karina.gomes@piposaude.com.br", name="Karina Gomes")
+    db.session.flush()
+
+    ev_lookup = _build_ev_lookup([ev])
+    ev_name_lookup = _build_ev_name_lookup([ev])
+
+    # HubSpot returns the owner name with a deactivation suffix; email is empty
+    owner_map = {
+        "77": {"email": None, "name": "Karina Gomes (usuario desativado/removido)"},
+    }
+
+    apolice = _apolice("DEACT-A1", beneficio="Saúde")
+    ticket = _ticket_props(ev_email="77", client_name="Cliente X",
+                           mrr="2000", closed="2026-01-15T00:00:00Z")
+
+    _upsert_policy(
+        apolice, ticket, owner_map, ticket_id="DEACT-T1",
+        ev_lookup=ev_lookup, ev_name_lookup=ev_name_lookup,
+    )
+    db.session.flush()
+    policy = Policy.query.filter_by(hubspot_apolice_id="DEACT-A1").one()
+    assert policy.ev_id == ev.id
+
+
+def test_sync_skips_apolice_when_no_active_ev_matches(db_session):
+    """When ev_lookup is provided and the cascade fails, _upsert_policy returns
+    None and does not create the policy."""
+    _ev("only-this-one@x")  # platform EV
+    db.session.flush()
+
+    ev_lookup = _build_ev_lookup(User.query.filter_by(active=True).all())
+    ev_name_lookup = _build_ev_name_lookup(User.query.filter_by(active=True).all())
+
+    apolice = _apolice("SKIP-A1", beneficio="Saúde")
+    ticket = _ticket_props(ev_email="someone-not-in-platform@x",
+                           client_name="Cliente Y", mrr="1000",
+                           closed="2026-01-15T00:00:00Z")
+
+    result = _upsert_policy(
+        apolice, ticket, {}, ticket_id="SKIP-T1",
+        ev_lookup=ev_lookup, ev_name_lookup=ev_name_lookup,
+    )
+    db.session.flush()
+    assert result is None
+    assert Policy.query.filter_by(hubspot_apolice_id="SKIP-A1").first() is None
+
+
+def test_normalize_owner_name_strips_suffix():
+    assert _normalize_owner_name("Karina Gomes (usuario desativado/removido)") == "karina gomes"
+    assert _normalize_owner_name("Bruno Fernandes") == "bruno fernandes"
+    assert _normalize_owner_name("Milena Vançan (deactivated)") == "milena vancan"
+    assert _normalize_owner_name(None) == ""
+    assert _normalize_owner_name("") == ""

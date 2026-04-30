@@ -1,14 +1,17 @@
-"""Quarterly commission calculator (v3 — replaces old run_quarterly_appraisal_v2).
+"""Quarterly commission calculator (v4 --- per-empresa formula with perks).
 
-Match logic ported from the old React app's processCommissions:
-- Match NF row → Policy by (cliente_mae, operadora, produto) normalized
-- Vigência window = [first_payment_real, first_payment_real + (12 - initial_installments_paid) months]
-- Achievement % is taken from EvQuarterAchievement of the policy's GONGO quarter
-  (NOT the apuração quarter — snapshot per the old app)
-- Commission = nf_valor_liquido × matrix[segment][achievement_faixa]
+Spec 4.3:
+  Comissao real = (Total liquido empresa - Perks empresa) x % comissao
 
-is_final is NEVER set here; only by transition_appraisal(LOCKED).
+Algorithm:
+1. Match NF rows -> policies by (cliente_mae, operadora, produto) normalised
+2. Aggregate matched NFs by client (empresa level)
+3. Subtract perks at the client level
+4. Distribute net amount proportionally across policies
+5. Apply commission % per policy (from gongo quarter achievement snapshot)
+6. Update commission_status via status helper
 """
+from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -20,14 +23,16 @@ from app.models import (
     Commission,
     EvQuarterAchievement,
     FinancialImport,
+    Perk,
     User,
 )
 from app.modules.policies.filters import active_ev_policies_query
 from app.modules.financial.matcher import build_policy_index, normalize
 from app.modules.commissions.pct_lookup import lookup_commission_pct
+from app.modules.commissions.status import update_policy_statuses
 
 
-# ── Errors ───────────────────────────────────────────────────────────
+# -- Errors -------------------------------------------------------------------
 
 
 class MissingAchievementsError(Exception):
@@ -36,12 +41,17 @@ class MissingAchievementsError(Exception):
         super().__init__(f"Missing achievements: {missing}")
 
 
-# ── Pre-check ────────────────────────────────────────────────────────
+# -- Pre-check ----------------------------------------------------------------
 
 
 def validate_achievements_for_appraisal(quarter, year):
-    """Verify every (ev_id, gongo_q, gongo_y) needed by this apuração
-    has a stored achievement.
+    """Verify every (ev_id, gongo_quarter, gongo_year) tuple needed by this
+    apuracao has a stored achievement.
+
+    Each policy uses the achievement_pct from the EV's GONGO quarter (when
+    the sale closed) as a snapshot — not the appraisal quarter. So we need
+    one achievement per (ev_id, gongo_q, gongo_y) combination across all
+    active policies.
 
     Returns list of human-readable strings for missing combinations.
     Empty list = ok to proceed.
@@ -63,48 +73,36 @@ def validate_achievements_for_appraisal(quarter, year):
         if ach is None or ach.achievement_pct is None:
             user = db.session.get(User, ev_id)
             label = user.name if user else str(ev_id)
-            missing.append(f"{label} → Q{gq}/{gy}")
+            missing.append(f"{label} \u2192 Q{gq}/{gy}")
     return missing
 
 
-# ── Main entry ───────────────────────────────────────────────────────
-
+# -- Benefit normalisation ----------------------------------------------------
 
 BENEFIT_MAP = {'saude': 'SAUDE', 'odonto': 'ODONTO', 'vida': 'VIDA'}
+
+
+# -- Main entry ---------------------------------------------------------------
 
 
 def run_quarterly_appraisal(quarter, year):
     """Process all financial_imports for (quarter, year) and produce commissions.
 
-    Pre-conditions:
-    - validate_achievements_for_appraisal(quarter, year) returns []
-    - financial_imports populated for this quarter
-
-    Side effects:
-    - Wipes Commissions for (quarter, year) where is_final=False
-    - Resets policy.installments_paid to baseline (initial + LOCKED count)
-    - Updates each NF's match_status and policy_id
-    - Creates/updates Commission rows (is_final=False)
-    - Increments policy.installments_paid as MATCHED NFs are processed
-
-    Raises:
-        MissingAchievementsError if pre-check fails (no writes happen).
+    Implements spec 4.3:
+      Comissao real = (Total liquido empresa - Perks empresa) x % comissao
     """
-    # ── Pre-check ────────────────────────────────────────────
+    # -- Pre-check ----------------------------------------------------
     missing = validate_achievements_for_appraisal(quarter, year)
     if missing:
         raise MissingAchievementsError(missing)
 
-    # ── 1. Wipe non-final commissions ────────────────────────
+    # -- 1. Wipe non-final commissions --------------------------------
     Commission.query.filter_by(
         quarter=quarter, year=year, is_final=False
     ).delete()
     db.session.flush()
 
-    # ── 2. Reset installments_paid to baseline ───────────────
-    # baseline = initial_installments_paid + count(NFs from LOCKED periods)
-    # Exclude policies that already have a LOCKED commission for (quarter, year)
-    # from the matching set — they are already finalized.
+    # -- 2. Reset installments_paid to baseline -----------------------
     locked_policy_ids = {
         pid for (pid,) in db.session.query(Commission.policy_id)
         .filter(
@@ -139,13 +137,19 @@ def run_quarterly_appraisal(quarter, year):
             (p.initial_installments_paid or 0) + locked_nf_count.get(p.id, 0)
         )
 
-    # ── 3. Build matcher index ───────────────────────────────
+    # -- 3. Build matcher index ---------------------------------------
     policy_index = build_policy_index(policies)
 
-    # ── 4. Iterate financial_imports for this quarter ────────
+    # -- 4. Pass 1 --- Match NFs to policies --------------------------
     nfs = FinancialImport.query.filter_by(
         quarter=quarter, year=year, status_recebimento='RECEBIDO'
     ).all()
+
+    # Accumulators
+    policy_nf_subtotals = defaultdict(Decimal)    # policy_id -> sum NF values
+    client_nf_totals = defaultdict(Decimal)        # client_id -> sum NF values
+    matched_policies = {}                           # policy_id -> Policy
+    earliest_nf_dates = {}                          # policy_id -> earliest date
 
     for nf in nfs:
         produto_n = normalize(nf.produto or '')
@@ -168,11 +172,12 @@ def run_quarterly_appraisal(quarter, year):
             nf.matched_at = None
             continue
 
-        # Pick most recent policy whose vigência window covers data_recebimento
         matched = None
-        for policy in candidates:  # already sorted desc by closed_date
+        for policy in candidates:
             if not policy.first_payment_real:
-                continue
+                if nf.data_recebimento is None:
+                    continue
+                policy.first_payment_real = nf.data_recebimento
             window_end = policy.first_payment_real + relativedelta(
                 months=12 - (policy.initial_installments_paid or 0)
             )
@@ -186,8 +191,7 @@ def run_quarterly_appraisal(quarter, year):
             break
 
         if matched is None:
-            # Has candidates but none in vigência — record reason
-            best = candidates[0]  # most recent
+            best = candidates[0]
             if (not best.first_payment_real
                     or (nf.data_recebimento
                         and nf.data_recebimento < best.first_payment_real)):
@@ -198,62 +202,87 @@ def run_quarterly_appraisal(quarter, year):
             nf.matched_at = None
             continue
 
-        # Lookup achievement from the gongo quarter (snapshot)
-        gongo_q = (matched.closed_date.month - 1) // 3 + 1
-        gongo_y = matched.closed_date.year
-        ach = EvQuarterAchievement.query.filter_by(
-            ev_id=matched.ev_id, quarter=gongo_q, year=gongo_y
-        ).first()
-        achievement = ach.achievement_pct if ach else Decimal('0')
-
-        segment_value = matched.segment.value if matched.segment else 'P'
-        commission_pct, version = lookup_commission_pct(segment_value, achievement)
-        if commission_pct is None:
-            commission_pct = Decimal('0')
-
-        commission_amount = (
-            Decimal(str(nf.nf_valor_liquido)) * commission_pct
-        ).quantize(Decimal('0.01'))
-
-        # Upsert commission (non-final, accumulating)
-        comm = Commission.query.filter_by(
-            policy_id=matched.id, quarter=quarter, year=year, is_final=False
-        ).first()
-        if comm is None:
-            comm = Commission(
-                policy_id=matched.id,
-                ev_id=matched.ev_id,
-                quarter=quarter,
-                year=year,
-                segment=segment_value,
-                achievement_pct=achievement,
-                commission_pct=commission_pct,
-                commission_pct_version=version,
-                monthly_actual=Decimal('0'),
-                total_actual=Decimal('0'),
-                is_final=False,
-            )
-            db.session.add(comm)
-        comm.monthly_actual = (comm.monthly_actual or Decimal('0')) + commission_amount
-        comm.total_actual = (comm.total_actual or Decimal('0')) + commission_amount
-
+        # Record the match
+        amount = Decimal(str(nf.nf_valor_liquido))
         nf.policy_id = matched.id
         nf.match_status = 'MATCHED'
         nf.matched_at = datetime.now(timezone.utc)
 
-        # Increment counter (baseline was reset at the start of this fn)
+        policy_nf_subtotals[matched.id] += amount
+        client_nf_totals[matched.client_id] += amount
+        matched_policies[matched.id] = matched
         matched.installments_paid = (matched.installments_paid or 0) + 1
+
+        # Track earliest NF date per policy (for first_payment_real inference)
+        if nf.data_recebimento:
+            prev = earliest_nf_dates.get(matched.id)
+            if prev is None or nf.data_recebimento < prev:
+                earliest_nf_dates[matched.id] = nf.data_recebimento
+
+    # -- 5. Load perks per client -------------------------------------
+    perks_by_client = defaultdict(Decimal)
+    perk_rows = Perk.query.filter_by(quarter=quarter, year=year).all()
+    for perk in perk_rows:
+        perks_by_client[perk.client_id] += perk.amount
+
+    # -- 6. Pass 2 --- Compute commissions per policy -----------------
+    for policy_id, nf_subtotal in policy_nf_subtotals.items():
+        policy = matched_policies[policy_id]
+        client_id = policy.client_id
+
+        # Empresa-level aggregation (spec 4.3)
+        client_total = client_nf_totals[client_id]
+        client_perks = perks_by_client.get(client_id, Decimal('0'))
+        net_client = max(Decimal('0'), client_total - client_perks)
+
+        # Proportional share for this policy
+        if client_total > 0:
+            share = nf_subtotal / client_total
+        else:
+            share = Decimal('0')
+        net_policy = (net_client * share).quantize(Decimal('0.01'))
+
+        # Achievement snapshot from gongo quarter
+        gongo_q = (policy.closed_date.month - 1) // 3 + 1
+        gongo_y = policy.closed_date.year
+        ach = EvQuarterAchievement.query.filter_by(
+            ev_id=policy.ev_id, quarter=gongo_q, year=gongo_y
+        ).first()
+        achievement = ach.achievement_pct if ach else Decimal('0')
+
+        segment_value = policy.segment.value if policy.segment else 'P'
+        commission_pct, version = lookup_commission_pct(segment_value, achievement)
+        if commission_pct is None:
+            commission_pct = Decimal('0')
+
+        commission_amount = (net_policy * commission_pct).quantize(Decimal('0.01'))
+
+        comm = Commission(
+            policy_id=policy_id,
+            ev_id=policy.ev_id,
+            quarter=quarter,
+            year=year,
+            segment=segment_value,
+            achievement_pct=achievement,
+            commission_pct=commission_pct,
+            commission_pct_version=version,
+            monthly_actual=commission_amount,
+            total_actual=commission_amount,
+            is_final=False,
+        )
+        db.session.add(comm)
+
+    # -- 7. Update commission_status ----------------------------------
+    update_policy_statuses(matched_policies.values(), earliest_nf_dates)
 
     db.session.flush()
     return _build_summary(quarter, year)
 
 
-# ── Summary ──────────────────────────────────────────────────────────
+# -- Summary ------------------------------------------------------------------
 
 
 def _build_summary(quarter, year):
-    """Lightweight summary for the caller.
-    The rich ev_summary / drill-down lives in workflow.py serializer."""
     return {
         "totals": {
             "matched_count": FinancialImport.query.filter_by(

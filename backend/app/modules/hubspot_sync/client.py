@@ -97,16 +97,26 @@ class HubSpotClient:
         return self._request("GET", f"/crm/v3/owners/{owner_id}")
 
     def get_all_owners(self):
-        """Fetch all owners and return a dict mapping owner_id → email."""
+        """Fetch all owners (including deactivated) and return a dict mapping owner_id → {email, name}.
+
+        includeDeactivated=true is required so that tickets assigned to former team members
+        (who appear as 'Proprietário desativado/removido' in HubSpot) are still matched
+        against platform EV users.
+        """
         owner_map = {}
         after = None
         while True:
-            params = {"limit": 100}
+            params = {"limit": 100, "includeDeactivated": "true"}
             if after:
                 params["after"] = after
             result = self._request("GET", "/crm/v3/owners", params=params)
             for o in result.get("results", []):
-                owner_map[str(o["id"])] = o.get("email")
+                first = (o.get("firstName") or "").strip()
+                last = (o.get("lastName") or "").strip()
+                owner_map[str(o["id"])] = {
+                    "email": o.get("email"),
+                    "name": f"{first} {last}".strip(),
+                }
             after = result.get("paging", {}).get("next", {}).get("after")
             if not after:
                 break

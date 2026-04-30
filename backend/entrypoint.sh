@@ -30,4 +30,4 @@ echo "Seeding database (if empty)..."
 python seed.py
 
 echo "Starting gunicorn..."
-exec gunicorn wsgi:app --bind 0.0.0.0:8000 --workers 4 --timeout 120
+exec gunicorn wsgi:app --bind 0.0.0.0:8000 --workers 4 --timeout 600

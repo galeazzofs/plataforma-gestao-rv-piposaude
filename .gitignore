@@ -37,3 +37,13 @@ frontend/resources/public/js/compiled/
 # Test scripts (dev only)
 backend/test_*.py
 backend/listar_*.py
+
+# Legacy migration data (contains PII - keep out of repo)
+backend/apolices_legado.csv
+*.csv
+
+# Local-only operational scripts
+reset_sync.sql
+
+# Claude assistant data
+.claude/

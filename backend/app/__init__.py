@@ -16,10 +16,28 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config_map[config_name])
 
+    # Hard fail if no SECRET_KEY in non-dev/test envs
+    if not app.config.get("SECRET_KEY"):
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set in stag/prod. "
+            "Set it via .env, container env, or your secrets manager."
+        )
+
+    cors_origins = app.config.get("CORS_ORIGINS") or []
+    if not cors_origins and config_name in ("stag", "prod"):
+        raise RuntimeError(
+            "CORS_ORIGINS environment variable must be set in stag/prod. "
+            "Comma-separated list of allowed frontend origins."
+        )
+
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
-    cors.init_app(app, resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}})
+    cors.init_app(
+        app,
+        resources={r"/api/*": {"origins": cors_origins or "http://localhost:3000"}},
+        supports_credentials=True,
+    )
 
     # Import models so Alembic sees them
     from app import models as _models  # noqa: F401

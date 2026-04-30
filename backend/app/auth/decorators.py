@@ -1,6 +1,7 @@
 from functools import wraps
 from flask import request, jsonify, g
 from app.auth.jwt_manager import decode_token, InvalidTokenError
+from app.extensions import db
 from app.models.user import User, UserRole
 
 
@@ -17,7 +18,7 @@ def require_auth(f):
             return jsonify({"error": {"code": "UNAUTHORIZED", "message": str(e)}}), 401
         if payload.get("type") != "access":
             return jsonify({"error": {"code": "UNAUTHORIZED", "message": "Invalid token type"}}), 401
-        user = User.query.get(payload["sub"])
+        user = db.session.get(User, payload["sub"])
         if user is None or not user.active:
             return jsonify({"error": {"code": "UNAUTHORIZED", "message": "User not found or inactive"}}), 401
         if user.role is None:

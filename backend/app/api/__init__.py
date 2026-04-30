@@ -23,3 +23,9 @@ def register_blueprints(app):
     app.register_blueprint(finance_dashboard_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(gerente_bp)
+    from app.api.v1.cn_commissions import cn_commissions_bp
+    from app.api.v1.ev_bonus import ev_bonus_bp
+    from app.api.v1.leadership import leadership_bp
+    app.register_blueprint(cn_commissions_bp)
+    app.register_blueprint(ev_bonus_bp)
+    app.register_blueprint(leadership_bp)
