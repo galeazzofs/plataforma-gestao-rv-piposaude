@@ -343,16 +343,6 @@ def list_settings():
     })
 
 
-def _invalidate_sync_cursor_if_needed(key):
-    """Reset the incremental sync cursor when a setting that affects EV
-    resolution changes — otherwise tickets previously skipped (e.g. for
-    a deleted owner) won't be re-fetched on the next sync.
-    """
-    from app.models import PlatformSetting
-    if key == "hubspot_owner_map":
-        PlatformSetting.set("hubspot_sync_last_success_at", None, user_id=None)
-
-
 @admin_bp.route("/settings", methods=["PUT"])
 @require_role(UserRole.ADMIN)
 def bulk_update_settings():
@@ -367,7 +357,6 @@ def bulk_update_settings():
         setting = PlatformSetting.set(key, value, user_id=user.id)
         db.session.flush()  # ensure setting.id is populated before log_audit
         log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": value})
-        _invalidate_sync_cursor_if_needed(key)
         result[key] = value
 
     db.session.commit()
@@ -386,7 +375,6 @@ def update_setting(key):
     setting = PlatformSetting.set(key, data["value"], user_id=user.id)
     db.session.flush()  # ensure setting.id is populated before log_audit
     log_audit("platform_settings", setting.id, "UPDATE", new_values={"key": key, "value": data["value"]})
-    _invalidate_sync_cursor_if_needed(key)
     db.session.commit()
 
     return jsonify({"data": {"key": key, "value": data["value"]}})
