@@ -28,11 +28,11 @@ def _ev(email, name=None):
     return u
 
 
-def _apolice(apolice_id, beneficio="Odonto", parceiro="OpA"):
+def _apolice(apolice_id, parceiro="OpA"):
+    """Apólice deal payload — benefit lives on the ticket now, not here."""
     return {
         "id": apolice_id,
         "properties": {
-            "apolice___beneficio": beneficio,
             "numero_apolice": f"AP-{apolice_id}",
             "parceiro": parceiro,
         },
@@ -43,15 +43,16 @@ def _default_deal(closedate="2026-01-15T00:00:00Z", deal_id="D-DEFAULT"):
     return {"id": deal_id, "properties": {"closedate": closedate}}
 
 
-def _ticket_props(ev_email, client_name, segment="G", mrr="5000"):
+def _ticket_props(ev_email, client_name, segment="G", mrr="5000",
+                  beneficio="Saúde"):
     return {
         "solicitante_demanda": ev_email,
         "cliente___nome_da_empresa": client_name,
         "cotar___segmentacao_pipo": segment,
         "mrr___receita_mensal": mrr,
+        "beneficio_a_ser_cotado": beneficio,
         "hs_pipeline": "651307",
         "hs_pipeline_stage": "11947921",
-        "time_solicitante": "Vendas",
     }
 
 
@@ -76,9 +77,12 @@ def test_sync_preserves_locked_fields(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    apolice = _apolice("LOCK-A1", beneficio="Odonto")
+    apolice = _apolice("LOCK-A1")
     deal = _default_deal(closedate="2026-01-15T00:00:00Z")
-    ticket = _ticket_props(ev_email="new-ev@x", client_name="NewClient", segment="G")
+    # benefit comes from the ticket — set it here so the non-lockable
+    # benefit_type update in _upsert_policy resolves to ODONTO
+    ticket = _ticket_props(ev_email="new-ev@x", client_name="NewClient",
+                           segment="G", beneficio="Odonto")
 
     _upsert_policy("LOCK-T1", ticket, apolice, deal, {})
     db.session.flush()
@@ -110,7 +114,7 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    apolice = _apolice("UNLOCK-A1", beneficio="Odonto")
+    apolice = _apolice("UNLOCK-A1")
     deal = _default_deal(closedate="2026-01-15T00:00:00Z")
     ticket = _ticket_props(ev_email="unlocked-ev2@x", client_name="SomeClient", segment="G")
 
@@ -142,7 +146,7 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    apolice = _apolice("MRR-A1", beneficio="Saúde", parceiro="NewPartner")
+    apolice = _apolice("MRR-A1", parceiro="NewPartner")
     deal = _default_deal(closedate="2026-02-01T00:00:00Z")
     ticket = _ticket_props(ev_email="mrr-ev@x", client_name="MrrClient", mrr="9999")
 
@@ -169,7 +173,7 @@ def test_sync_matches_ev_by_name_fallback(db_session):
         "99": {"email": "luciana.rodrigues@outraempresa.com", "name": "Luciana Rodrigues"},
     }
 
-    apolice = _apolice("NAME-A1", beneficio="Saúde")
+    apolice = _apolice("NAME-A1")
     deal = _default_deal(closedate="2026-01-15T00:00:00Z")
     ticket = _ticket_props(ev_email="99", client_name="Cliente Teste", mrr="3000")
 
@@ -195,7 +199,7 @@ def test_sync_matches_ev_with_deactivation_suffix(db_session):
         "77": {"email": None, "name": "Karina Gomes (usuario desativado/removido)"},
     }
 
-    apolice = _apolice("DEACT-A1", beneficio="Saúde")
+    apolice = _apolice("DEACT-A1")
     deal = _default_deal(closedate="2026-01-15T00:00:00Z")
     ticket = _ticket_props(ev_email="77", client_name="Cliente X", mrr="2000")
 
@@ -208,16 +212,19 @@ def test_sync_matches_ev_with_deactivation_suffix(db_session):
     assert policy.ev_id == ev.id
 
 
-def test_sync_skips_ticket_when_no_active_ev_matches(db_session):
+def test_sync_skips_ticket_when_no_ev_matches(db_session):
     """When ev_lookup is provided and the cascade fails, _upsert_policy returns
-    None and does not create the policy."""
+    None and does not create the policy. The cascade now considers active +
+    inactive EVs (the platform user list is the source of truth)."""
     _ev("only-this-one@x")
     db.session.flush()
 
-    ev_lookup = _build_ev_lookup(User.query.filter_by(active=True).all())
-    ev_name_lookup = _build_ev_name_lookup(User.query.filter_by(active=True).all())
+    # Match production behavior: include both active and inactive EV/CN users
+    all_evs = User.query.filter(User.role.in_([UserRole.EV, UserRole.CN])).all()
+    ev_lookup = _build_ev_lookup(all_evs)
+    ev_name_lookup = _build_ev_name_lookup(all_evs)
 
-    apolice = _apolice("SKIP-A1", beneficio="Saúde")
+    apolice = _apolice("SKIP-A1")
     deal = _default_deal()
     ticket = _ticket_props(ev_email="someone-not-in-platform@x",
                            client_name="Cliente Y", mrr="1000")

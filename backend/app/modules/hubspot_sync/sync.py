@@ -1,14 +1,14 @@
 """HubSpot sync — ticket-anchored, full-fetch, 1 Policy per ticket.
 
-Searches tickets in the Placement pipeline, Gongo stage, with team
-solicitante = "Vendas" and closed_date >= 2024-09-01. For each ticket,
-identifies the apólice deal (must have entered pré-ativação) and the
-default-pipeline deal. Upserts one row in `policies` per ticket.
+Searches tickets in the Placement pipeline, Gongo stage, with
+closed_date >= 2024-09-01. For each ticket, requires an associated deal
+in the default pipeline (oportunidades) AND an apólice deal that has
+entered pré-ativação. Upserts one row in `policies` per ticket.
 
 Source-of-truth per field:
-- ticket             → ev_id, client_id, segment, mrr_projected
-- apólice deal       → numero_apolice, partner_operator, benefit_type
-- default deal       → closed_date  (from `closedate`)
+- ticket             → ev_id, client_id, segment, mrr_projected, benefit_type
+- apólice deal       → numero_apolice, partner_operator
+- default deal       → closed_date (from `closedate`); presence is required
 
 Premise: each ticket has exactly one apólice in pré-ativação. If more,
 the first is used and a warning is logged. If none, the ticket is skipped
@@ -18,9 +18,10 @@ Sync is full-fetch every run + delete-by-absence — `policies` mirrors
 HubSpot 1:1 by ticket id. Tickets missing from a clean fetch are deleted
 (commissions/ev_validations cascaded; financial_imports unlinked).
 
-EV resolution cascade (unchanged): owner_map → email local part →
-normalized owner name → manual override via PlatformSetting
-"hubspot_owner_map".
+EV resolution: matches the platform's full EV/CN user list (active +
+inactive — historical apólices owned by deactivated EVs must still
+sync). Cascade: owner_map → email local part → normalized owner name →
+manual override via PlatformSetting "hubspot_owner_map".
 
 See docs/superpowers/specs/2026-04-30-ticket-anchored-sync-redesign-design.md
 """
@@ -47,20 +48,19 @@ GONGO_DATE_FLOOR = date(2024, 9, 1)
 PRE_ATIVACAO_DATE_FLOOR = date(2024, 9, 1)
 
 VALID_BENEFITS_HUBSPOT = ["Saúde", "Odonto", "Vida", "Saúde e Odonto"]
-TIME_SOLICITANTE_VENDAS = "Vendas"
 
 TICKET_PROPERTIES = [
     "solicitante_demanda", "cotar___segmentacao_pipo",
     "mrr___receita_mensal", "closed_date",
     "cliente___nome_da_empresa",
+    "beneficio_a_ser_cotado",
     "hs_pipeline", "hs_pipeline_stage",
-    "time_solicitante",
 ]
 # Single batch_read pulls pipeline classification + apolice props + default
 # deal closedate — saves a round trip per ticket batch.
 DEAL_PROPERTIES = [
     "pipeline",
-    "apolice___beneficio", "numero_apolice", "parceiro",
+    "numero_apolice", "parceiro",
     "hs_v2_date_entered_14038792",
     "closedate",
 ]
@@ -144,7 +144,10 @@ def _fetch_tickets(client):
     - hs_pipeline = PLACEMENT_PIPELINE_ID
     - hs_pipeline_stage = GONGO_STAGE_ID
     - closed_date >= GONGO_DATE_FLOOR
-    - time_solicitante = "Vendas"
+
+    Team-level filtering (e.g. solicitante = Vendas) is intentionally not
+    applied here — the binding constraint is "ticket has a default-pipeline
+    deal" enforced in _resolve_ticket_deals.
 
     Full-fetch every run — apólice stage transitions don't bump the ticket's
     hs_lastmodifieddate, so an incremental cursor would silently miss them.
@@ -153,7 +156,6 @@ def _fetch_tickets(client):
         {"propertyName": "hs_pipeline", "operator": "EQ", "value": PLACEMENT_PIPELINE_ID},
         {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": GONGO_STAGE_ID},
         {"propertyName": "closed_date", "operator": "GTE", "value": GONGO_DATE_FLOOR.isoformat()},
-        {"propertyName": "time_solicitante", "operator": "EQ", "value": TIME_SOLICITANTE_VENDAS},
     ]
 
     tickets = []
@@ -175,10 +177,14 @@ def _resolve_ticket_deals(client, tickets, summary):
     """Phase 2 — for each ticket, identify (apólice, default_deal) pair.
 
     Selection rules:
-    - apólice deal: pipeline=APOLICE_PIPELINE_ID, valid benefit, entered
-      pré-ativação >= 2024-09-01. If multiple match, first one is used and
+    - ticket-level benefit: beneficio_a_ser_cotado must be in
+      VALID_BENEFITS_HUBSPOT, otherwise the entire ticket is skipped
+      (invalid_benefit). Benefit lives on the ticket, not the apólice.
+    - apólice deal: pipeline=APOLICE_PIPELINE_ID, entered pré-ativação
+      >= 2024-09-01. If multiple match, first one is used and
       summary["skipped"]["multiple_apolices"] is bumped (warning, not skip).
     - default deal: pipeline=DEFAULT_DEAL_PIPELINE_ID. First match used.
+      Required — replaces the previous time_solicitante=Vendas filter.
 
     Tickets without a valid apólice OR without a default deal are skipped.
     Returns dict {ticket_id: {"apolice": dict, "default_deal": dict}}.
@@ -186,12 +192,18 @@ def _resolve_ticket_deals(client, tickets, summary):
     if not tickets:
         return {}
     ticket_ids = [t["id"] for t in tickets]
+    ticket_props_by_id = {t["id"]: t.get("properties", {}) for t in tickets}
     ticket_to_deals = client.batch_read_associations("tickets", "deals", ticket_ids)
     all_deal_ids = list({d for deals in ticket_to_deals.values() for d in deals})
     deal_props = client.batch_read_objects("deals", all_deal_ids, DEAL_PROPERTIES)
 
     out = {}
     for ticket_id in ticket_ids:
+        t_props = ticket_props_by_id.get(ticket_id, {})
+        if t_props.get("beneficio_a_ser_cotado") not in VALID_BENEFITS_HUBSPOT:
+            summary["skipped"]["invalid_benefit"] += 1
+            continue
+
         deals_for_ticket = ticket_to_deals.get(ticket_id, [])
         apolices_in_pre_ativacao = []
         default_deal = None
@@ -199,8 +211,6 @@ def _resolve_ticket_deals(client, tickets, summary):
             props = deal_props.get(d, {})
             pipeline = props.get("pipeline")
             if pipeline == APOLICE_PIPELINE_ID:
-                if props.get("apolice___beneficio") not in VALID_BENEFITS_HUBSPOT:
-                    continue
                 entered = parse_date(props.get("hs_v2_date_entered_14038792"))
                 if entered is None or entered < PRE_ATIVACAO_DATE_FLOOR:
                     continue
@@ -226,7 +236,7 @@ def _resolve_ticket_deals(client, tickets, summary):
         }
     logger.info(
         f"_resolve_ticket_deals: {len(out)}/{len(ticket_ids)} tickets resolved "
-        f"(have apólice in pré-ativação + default deal)"
+        f"(valid benefit + apólice in pré-ativação + default deal)"
     )
     return out
 
@@ -273,7 +283,7 @@ def _upsert_policy(ticket_id, ticket_props, apolice, default_deal, owner_map,
     policy.numero_apolice = apolice_props.get("numero_apolice") or None
     parceiro = apolice_props.get("parceiro")
     policy.partner_operator = parceiro.strip() if parceiro else None
-    benefit_raw = map_benefit_type(apolice_props.get("apolice___beneficio"))
+    benefit_raw = map_benefit_type(ticket_props.get("beneficio_a_ser_cotado"))
     policy.benefit_type = BenefitType(benefit_raw) if benefit_raw else None
     policy.mrr_projected = parse_decimal(ticket_props.get("mrr___receita_mensal"))
 
@@ -349,6 +359,7 @@ def _new_summary():
         "updated": 0,
         "deleted": 0,
         "skipped": {
+            "invalid_benefit": 0,
             "no_apolice_pre_ativacao": 0,
             "no_default_deal": 0,
             "multiple_apolices": 0,
@@ -381,19 +392,21 @@ def run_sync():
     client = HubSpotClient()
     summary = _new_summary()
 
+    # Match EVs against the platform's full user list (active + inactive).
+    # Historical apólices owned by deactivated EVs must keep syncing —
+    # otherwise their commissions/validations silently drift out of sync.
     from app.models import UserRole
-    active_evs = User.query.filter(
+    evs = User.query.filter(
         User.role.in_([UserRole.EV, UserRole.CN]),
-        User.active.is_(True),
     ).all()
-    ev_lookup = _build_ev_lookup(active_evs)
-    ev_name_lookup = _build_ev_name_lookup(active_evs)
-    logger.info(f"Active EVs in platform: {len(ev_lookup)}")
+    ev_lookup = _build_ev_lookup(evs)
+    ev_name_lookup = _build_ev_name_lookup(evs)
+    logger.info(f"EVs in platform (active + inactive): {len(ev_lookup)}")
 
     if not ev_lookup:
-        logger.warning("No active EVs found — nothing to sync")
+        logger.warning("No EVs found in platform — nothing to sync")
         summary["timestamp"] = datetime.now(timezone.utc).isoformat()
-        summary["errors"].append("No active EVs in platform")
+        summary["errors"].append("No EVs in platform")
         summary["error_count"] = 1
         _persist_last_sync(summary)
         return summary
@@ -406,7 +419,7 @@ def run_sync():
         if u:
             ev_override_lookup[str(oid)] = u
         else:
-            logger.warning(f"hubspot_owner_map: {oid}→{email!r} doesn't match any active EV")
+            logger.warning(f"hubspot_owner_map: {oid}→{email!r} doesn't match any EV in platform")
     if ev_override_lookup:
         logger.info(f"Manual owner overrides loaded: {list(ev_override_lookup.keys())}")
 
@@ -460,7 +473,7 @@ def run_sync():
         # PlatformSetting "hubspot_owner_map". Sorted by frequency descending.
         ranked = sorted(unmatched_owners.items(), key=lambda kv: -kv[1])
         logger.warning(
-            "Skipped %d ticket(s) with no matching active EV. "
+            "Skipped %d ticket(s) with no matching EV. "
             "Top unmatched solicitante_demanda values: %s",
             sum(unmatched_owners.values()),
             ", ".join(f"{raw}({count})" for raw, count in ranked[:10]),
