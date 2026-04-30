@@ -169,3 +169,55 @@ def test_validate_tickets_empty_input():
     result = _fetch_and_validate_tickets(client, [], summary)
     assert result == {}
     client.batch_read_objects.assert_not_called()
+
+
+# Task 10: _filter_tickets_with_default_deal
+from app.modules.hubspot_sync.sync import _filter_tickets_with_default_deal
+
+
+def test_filter_tickets_keeps_those_with_default_deal():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {
+        "T1": ["D1"],
+        "T2": ["D2", "D3"],
+    }
+    client.batch_read_objects.return_value = {
+        "D1": {"hs_pipeline": "default"},
+        "D2": {"hs_pipeline": "999999"},  # not default
+        "D3": {"hs_pipeline": "default"},
+    }
+    summary = _new_summary()
+    result = _filter_tickets_with_default_deal(client, ["T1", "T2"], summary)
+    assert result == {"T1", "T2"}  # T2 has at least one default deal
+    assert summary["skipped"]["no_default_deal"] == 0
+
+
+def test_filter_tickets_drops_those_without_default_deal():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {
+        "T1": ["D1"],
+    }
+    client.batch_read_objects.return_value = {
+        "D1": {"hs_pipeline": "999999"},
+    }
+    summary = _new_summary()
+    result = _filter_tickets_with_default_deal(client, ["T1"], summary)
+    assert result == set()
+    assert summary["skipped"]["no_default_deal"] == 1
+
+
+def test_filter_tickets_drops_those_without_any_deal():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {}  # T1 has no deals
+    summary = _new_summary()
+    result = _filter_tickets_with_default_deal(client, ["T1"], summary)
+    assert result == set()
+    assert summary["skipped"]["no_default_deal"] == 1
+
+
+def test_filter_tickets_empty_input():
+    client = MagicMock()
+    summary = _new_summary()
+    result = _filter_tickets_with_default_deal(client, [], summary)
+    assert result == set()
+    client.batch_read_associations.assert_not_called()

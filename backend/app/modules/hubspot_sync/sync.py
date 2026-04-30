@@ -117,3 +117,30 @@ def _fetch_and_validate_tickets(client, ticket_ids, summary):
         out[ticket_id] = props
     logger.info(f"_fetch_and_validate_tickets: {len(out)}/{len(unique_ids)} tickets valid")
     return out
+
+
+def _filter_tickets_with_default_deal(client, ticket_ids, summary):
+    """Phase 4 — verify each ticket has at least one associated deal in the
+    default pipeline. Returns set of ticket_ids that pass.
+    """
+    ticket_ids = list(ticket_ids)
+    if not ticket_ids:
+        return set()
+    ticket_to_deals = client.batch_read_associations("tickets", "deals", ticket_ids)
+    all_deal_ids = list({d for deals in ticket_to_deals.values() for d in deals})
+    deal_props = client.batch_read_objects(
+        "deals", all_deal_ids, DEAL_VALIDATION_PROPERTIES
+    )
+    valid = set()
+    for ticket_id in ticket_ids:
+        deals_for_ticket = ticket_to_deals.get(ticket_id, [])
+        has_default = any(
+            deal_props.get(d, {}).get("hs_pipeline") == DEFAULT_DEAL_PIPELINE_ID
+            for d in deals_for_ticket
+        )
+        if has_default:
+            valid.add(ticket_id)
+        else:
+            summary["skipped"]["no_default_deal"] += 1
+    logger.info(f"_filter_tickets_with_default_deal: {len(valid)}/{len(ticket_ids)} tickets pass")
+    return valid
