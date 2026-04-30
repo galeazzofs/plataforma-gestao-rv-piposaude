@@ -56,6 +56,7 @@ class Policy(db.Model):
     )
     partner_operator = db.Column(db.String(255), nullable=True)
     deal_stage = db.Column(db.String(100), nullable=True)
+    commission_paid_legacy = db.Column(db.Numeric(12, 2), nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -89,3 +90,51 @@ class Policy(db.Model):
             return None, None
         q = (self.closed_date.month - 1) // 3 + 1
         return q, self.closed_date.year
+
+    @property
+    def commission_paid_total(self):
+        """Sum of total_actual across this policy's commissions, plus the
+        legacy manual amount for policies that pre-date the platform."""
+        from decimal import Decimal
+        total = Decimal("0")
+        for c in self.commissions or []:
+            if c.total_actual is not None:
+                total += c.total_actual
+        if self.commission_paid_legacy is not None:
+            total += self.commission_paid_legacy
+        return total
+
+    @property
+    def commission_potential(self):
+        """MRR x 12 x commission_pct.
+
+        % cascade: if any apuração already produced a commission_pct for
+        this policy, use the most recent one. Otherwise look up the base
+        rate for this segment at 100% achievement (the floor a fully
+        on-target EV would receive)."""
+        from decimal import Decimal
+        from app.models import CommissionPctTable
+
+        mrr = self.mrr_for_commission
+        if mrr is None:
+            return None
+
+        pct = None
+        if self.commissions:
+            latest = max(
+                (c for c in self.commissions if c.commission_pct is not None),
+                key=lambda c: (c.year, c.quarter),
+                default=None,
+            )
+            if latest is not None:
+                pct = latest.commission_pct
+
+        if pct is None and self.segment is not None:
+            row = CommissionPctTable.lookup(self.segment.value, Decimal("1.0"))
+            if row is not None:
+                pct = row.commission_pct
+
+        if pct is None:
+            return None
+
+        return (Decimal(str(mrr)) * Decimal("12") * Decimal(str(pct))).quantize(Decimal("0.01"))

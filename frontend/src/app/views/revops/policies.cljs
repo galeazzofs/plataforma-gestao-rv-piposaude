@@ -52,27 +52,20 @@
   [{:key :client_name      :label "Cliente"       :sortable true}
    {:key :ev_name          :label "EV"            :sortable true :width "140px"
     :render (fn [row] (or-dash (:ev_name row)))}
-   {:key :benefit_type     :label "Benefício"     :sortable true :width "90px"
+   {:key :benefit_type     :label "Benefício"     :sortable true :width "100px"
     :render (fn [row] (fmt-benefit (:benefit_type row)))}
-   {:key :segment          :label "Seg."          :sortable true :width "70px"}
+   {:key :partner_operator :label "Operadora"     :sortable true :width "140px"
+    :render (fn [row] (or-dash (:partner_operator row)))}
    {:key :mrr_for_commission :label "MRR"         :sortable true :width "120px"
     :render (fn [row] (fmt-brl (:mrr_for_commission row)))}
-   {:key :mrr_post_deploy  :label "MRR Pós-Impl." :sortable false :width "130px"
-    :render (fn [row] (or (fmt-brl (:mrr_post_deploy row)) "—"))}
-   {:key :deal_stage       :label "Estágio"       :sortable true :width "130px"
-    :render (fn [row] (or-dash (:deal_stage row)))}
-   {:key :closed_date      :label "Gongo"         :sortable true :width "100px"
-    :render (fn [row] (fmt-date (:closed_date row)))}
-   {:key :deploy_date      :label "Implantação"   :sortable false :width "110px"
-    :render (fn [row] (fmt-date (:deploy_date row)))}
-   {:key :first_payment_prev :label "Prev. 1º Pag." :sortable false :width "110px"
-    :render (fn [row] (fmt-date (:first_payment_prev row)))}
+   {:key :commission_potential :label "Comissão Potencial" :sortable false :width "150px"
+    :render (fn [row] (or (fmt-brl (:commission_potential row)) "—"))}
+   {:key :commission_paid_total :label "Total Pago" :sortable false :width "130px"
+    :render (fn [row] (or (fmt-brl (:commission_paid_total row)) "—"))}
    {:key :installments_paid :label "Meses"        :sortable true :width "90px"
     :render (fn [row]
               (let [paid (or (:installments_paid row) 0)]
                 (str paid "/12")))}
-   {:key :commission_status :label "Status"       :sortable true :width "130px"
-    :render (fn [row] [badge/status-badge {:status (:commission_status row)}])}
    {:key :edit :label "" :sortable false :width "90px"
     :render (fn [row]
               [btn/button {:variant :secondary :size :sm

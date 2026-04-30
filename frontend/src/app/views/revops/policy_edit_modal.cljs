@@ -18,7 +18,8 @@
      :initial_installments_paid (or (:initial_installments_paid policy) 0)
      :segment                   seg-str
      :partner_operator          (or (:partner_operator policy) "")
-     :client_id                 (or (:client_id policy) "")}))
+     :client_id                 (or (:client_id policy) "")
+     :commission_paid_legacy    (or (:commission_paid_legacy policy) "")}))
 
 (defn- payload [form]
   ;; Strip empty strings before sending
@@ -88,6 +89,12 @@
              {:label "Operadora"
               :value (:partner_operator @form)
               :on-change #(swap! form assoc :partner_operator %)}]
+
+            [inputs/input
+             {:label "Comissão paga antes da plataforma (R$)"
+              :type "number"
+              :value (str (:commission_paid_legacy @form))
+              :on-change #(swap! form assoc :commission_paid_legacy %)}]
 
             [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"
                            :padding-top "8px"

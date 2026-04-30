@@ -25,6 +25,7 @@ EDITABLE_FIELDS = {
     "segment",
     "partner_operator",
     "client_id",
+    "commission_paid_legacy",
 }
 
 
@@ -40,6 +41,9 @@ def _coerce_field(field, value):
         return Segment(value)
     if field == "initial_installments_paid":
         return int(value)
+    if field == "commission_paid_legacy":
+        from decimal import Decimal
+        return Decimal(str(value))
     return value
 
 
@@ -215,6 +219,8 @@ def update_policy(policy_id):
 
 
 def _serialize_policy(policy, detail=False):
+    potential = policy.commission_potential
+    paid_total = policy.commission_paid_total
     data = {
         "id": str(policy.id),
         "hubspot_ticket_id": policy.hubspot_ticket_id,
@@ -224,9 +230,13 @@ def _serialize_policy(policy, detail=False):
         "client_name": policy.client.name if policy.client else None,
         "benefit_type": policy.benefit_type.value if policy.benefit_type else None,
         "segment": policy.segment.value if policy.segment else None,
+        "partner_operator": policy.partner_operator,
         "mrr_projected": str(policy.mrr_projected) if policy.mrr_projected else None,
         "mrr_post_deploy": str(policy.mrr_post_deploy) if policy.mrr_post_deploy else None,
         "mrr_for_commission": str(policy.mrr_for_commission) if policy.mrr_for_commission else None,
+        "commission_potential": str(potential) if potential is not None else None,
+        "commission_paid_total": str(paid_total) if paid_total is not None else None,
+        "commission_paid_legacy": str(policy.commission_paid_legacy) if policy.commission_paid_legacy is not None else None,
         "closed_date": policy.closed_date.isoformat() if policy.closed_date else None,
         "deploy_date": policy.deploy_date.isoformat() if policy.deploy_date else None,
         "first_payment_prev": policy.first_payment_prev.isoformat() if policy.first_payment_prev else None,
@@ -241,6 +251,5 @@ def _serialize_policy(policy, detail=False):
             "headcount": policy.headcount,
             "mrr_actual": str(policy.mrr_actual) if policy.mrr_actual else None,
             "first_payment_real": policy.first_payment_real.isoformat() if policy.first_payment_real else None,
-            "partner_operator": policy.partner_operator,
         })
     return data
