@@ -46,32 +46,12 @@ def test_fetch_tickets_builds_correct_search_filters_full_fetch():
     assert set(call_kwargs["properties"]) == set(TICKET_PROPERTIES)
 
 
-def test_fetch_tickets_adds_modified_since_filter_when_incremental():
-    client = MagicMock()
-    client.search_tickets.return_value = {"results": [], "paging": {}}
-
-    _fetch_tickets(client, since="2026-04-01T00:00:00+00:00")
-
-    filters = client.search_tickets.call_args.kwargs["filters"]
-    assert len(filters) == 4
-    modified_f = next(f for f in filters if f["propertyName"] == "hs_lastmodifieddate")
-    assert modified_f["operator"] == "GTE"
-    assert modified_f["value"] == "2026-04-01T00:00:00+00:00"
-
-
-def test_fetch_tickets_normalizes_datetime_since_to_iso():
-    from datetime import datetime, timezone
-    client = MagicMock()
-    client.search_tickets.return_value = {"results": [], "paging": {}}
-    dt = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
-
-    _fetch_tickets(client, since=dt)
-
-    modified_f = next(
-        f for f in client.search_tickets.call_args.kwargs["filters"]
-        if f["propertyName"] == "hs_lastmodifieddate"
-    )
-    assert modified_f["value"] == dt.isoformat()
+def test_fetch_tickets_no_longer_accepts_since_argument():
+    """_fetch_tickets perdeu o parâmetro `since` — full-fetch sempre."""
+    import inspect
+    from app.modules.hubspot_sync.sync import _fetch_tickets
+    sig = inspect.signature(_fetch_tickets)
+    assert "since" not in sig.parameters
 
 
 def test_fetch_tickets_paginates_until_exhausted():

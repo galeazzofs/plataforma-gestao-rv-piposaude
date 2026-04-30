@@ -1,18 +1,18 @@
-"""HubSpot sync — ticket-anchored, incremental.
+"""HubSpot sync — ticket-anchored, full-fetch.
 
 Starts from tickets in the placement pipeline at the gongo stage, fetches
 their associated apolice deals, and upserts one row in `policies` per
 apolice. A single ticket can drive multiple apolices (e.g. saude + odonto
 for the same client) — all are captured.
 
-Optimization vs the previous apolice-anchored flow:
-- Filter at the source: the most restrictive criteria (pipeline + stage +
-  closed_date) live on tickets, so we search there first instead of
-  pulling 9k+ apolices and filtering after.
-- Incremental: subsequent syncs add `hs_lastmodifieddate >= last_success`
-  to the ticket search, so steady-state runs only fetch deltas. The cursor
-  bumps only on a zero-error run — failed runs full-fetch on the next
-  attempt to avoid silent gaps.
+Filter at the source: the most restrictive criteria (pipeline + stage +
+closed_date) live on tickets, so we search there first instead of
+pulling 9k+ apolices and filtering after.
+
+Full-fetch every run: apólice deal stage changes (e.g. moving into
+Pré-ativação) don't bump the ticket's hs_lastmodifieddate, so an
+incremental cursor on tickets would silently miss them. Delete-by-absence
+(handled in a later phase) keeps the row count bounded against drift.
 
 Only syncs apolices whose linked ticket's solicitante_demanda matches an
 active EV/CN user in the platform. Matching cascade: email local part →
@@ -59,8 +59,6 @@ DEAL_PROPERTIES = [
     "apolice___beneficio", "numero_apolice", "parceiro",
     "hs_v2_date_entered_14038792",
 ]
-
-LAST_SUCCESS_KEY = "hubspot_sync_last_success_at"
 
 
 # --- EV / owner resolution helpers ---
@@ -143,14 +141,16 @@ def _resolve_ev(ticket_props, owner_map, ev_lookup, ev_name_lookup, ev_override_
 
 # --- Sync phases ---
 
-def _fetch_tickets(client, since=None):
+def _fetch_tickets(client):
     """Phase 1 — search tickets matching all gating criteria upfront.
 
     Filters applied at source:
     - hs_pipeline = PLACEMENT_PIPELINE_ID    (placement / sales pipeline)
     - hs_pipeline_stage = GONGO_STAGE_ID     (gongo stage = closed-won)
     - closed_date >= GONGO_DATE_FLOOR        (project-defined recent floor)
-    - hs_lastmodifieddate >= since           (when provided — incremental)
+
+    Full-fetch every run — apólice deal stage changes don't update the ticket's
+    hs_lastmodifieddate, so an incremental cursor on tickets would miss them.
 
     Returns the raw list of ticket dicts (each with `id` and `properties`).
     """
@@ -159,12 +159,6 @@ def _fetch_tickets(client, since=None):
         {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": GONGO_STAGE_ID},
         {"propertyName": "closed_date", "operator": "GTE", "value": GONGO_DATE_FLOOR.isoformat()},
     ]
-    if since is not None:
-        if hasattr(since, "isoformat"):
-            since = since.isoformat()
-        filters.append(
-            {"propertyName": "hs_lastmodifieddate", "operator": "GTE", "value": since}
-        )
 
     tickets = []
     after = None
@@ -177,8 +171,7 @@ def _fetch_tickets(client, since=None):
         if not next_cursor:
             break
         after = next_cursor
-    mode = f"incremental since {since}" if since else "full fetch"
-    logger.info(f"_fetch_tickets: {len(tickets)} tickets matched ({mode})")
+    logger.info(f"_fetch_tickets: {len(tickets)} tickets matched (full fetch)")
     return tickets
 
 
@@ -344,17 +337,14 @@ def run_sync():
     """Main sync job: pull tickets matching gating criteria, resolve their
     apolice + default deals, and upsert into `policies`.
 
-    Steady-state runs are incremental — only tickets modified since the last
-    successful sync are fetched. The cursor (`hubspot_sync_last_success_at`
-    in PlatformSetting) is bumped only on a zero-error run; partial-failure
-    runs trigger a full re-fetch next time so transient errors don't leave
-    silent gaps.
+    Every run is a full fetch from `GONGO_DATE_FLOOR` forward — apólice deal
+    stage changes don't update ticket hs_lastmodifieddate, so an incremental
+    cursor would miss them.
 
     Returns summary dict.
     """
     client = HubSpotClient()
     summary = _new_summary()
-    sync_started_at = datetime.now(timezone.utc)
 
     # Pre-load active EV/CN users from platform DB
     from app.models import UserRole
@@ -395,11 +385,8 @@ def run_sync():
         logger.warning(f"Could not load owners: {e}")
         owner_map = {}
 
-    # Incremental cursor — None on first run triggers a full fetch.
-    last_success = PlatformSetting.get(LAST_SUCCESS_KEY) or None
-
     try:
-        tickets = _fetch_tickets(client, since=last_success)
+        tickets = _fetch_tickets(client)
         ticket_to_apolices = _resolve_ticket_apolices(client, tickets, summary)
     except Exception as e:
         logger.error(f"HubSpot fetch failed: {e}")
@@ -436,12 +423,6 @@ def run_sync():
     db.session.commit()
     summary["error_count"] = len(summary["errors"])
     summary["timestamp"] = datetime.now(timezone.utc).isoformat()
-
-    # Bump the incremental cursor only on a clean run. Partial failures
-    # full-fetch on retry rather than silently miss the failed records.
-    if summary["error_count"] == 0:
-        PlatformSetting.set(LAST_SUCCESS_KEY, sync_started_at.isoformat(), user_id=None)
-        db.session.commit()
 
     logger.info(f"HubSpot sync completed: {summary}")
     _persist_last_sync(summary)
