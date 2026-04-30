@@ -49,3 +49,32 @@ def test_fetch_apolices_empty_first_page_returns_empty():
     client = MagicMock()
     client.search_deals.return_value = {"results": [], "paging": {}}
     assert _fetch_apolices(client) == []
+
+
+# Task 8: _fetch_apolice_tickets
+from app.modules.hubspot_sync.sync import _fetch_apolice_tickets
+
+
+def test_fetch_apolice_tickets_returns_first_ticket_per_apolice():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {
+        "A1": ["T1"],
+        "A2": ["T2", "T2-extra"],  # multiple tickets — take first, log warn
+    }
+    summary = {"skipped": {"no_ticket": 0}}
+    apolices = [{"id": "A1"}, {"id": "A2"}, {"id": "A3"}]
+
+    result = _fetch_apolice_tickets(client, apolices, summary)
+
+    assert result == {"A1": "T1", "A2": "T2"}
+    # A3 had no associations
+    assert summary["skipped"]["no_ticket"] == 1
+    client.batch_read_associations.assert_called_once_with("deals", "tickets", ["A1", "A2", "A3"])
+
+
+def test_fetch_apolice_tickets_empty_input():
+    client = MagicMock()
+    summary = {"skipped": {"no_ticket": 0}}
+    result = _fetch_apolice_tickets(client, [], summary)
+    assert result == {}
+    assert summary["skipped"]["no_ticket"] == 0

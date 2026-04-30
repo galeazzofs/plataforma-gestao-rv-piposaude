@@ -61,3 +61,31 @@ def _fetch_apolices(client):
         after = next_cursor
     logger.info(f"_fetch_apolices: {len(apolices)} apolices found")
     return apolices
+
+
+def _fetch_apolice_tickets(client, apolices, summary):
+    """Phase 2 — batch fetch ticket associations for all apolices.
+
+    Returns dict {apolice_id: first_ticket_id}. Apolices without any ticket
+    are skipped (counted in summary["skipped"]["no_ticket"]). When an apolice
+    has multiple tickets, takes the first and logs a warning.
+    """
+    if not apolices:
+        return {}
+    apolice_ids = [a["id"] for a in apolices]
+    associations = client.batch_read_associations("deals", "tickets", apolice_ids)
+    out = {}
+    for apolice_id in apolice_ids:
+        ticket_ids = associations.get(apolice_id, [])
+        if not ticket_ids:
+            summary["skipped"]["no_ticket"] += 1
+            logger.warning(f"Apolice {apolice_id} has no associated ticket — skipped")
+            continue
+        if len(ticket_ids) > 1:
+            logger.warning(
+                f"Apolice {apolice_id} has {len(ticket_ids)} associated tickets; "
+                f"using first ({ticket_ids[0]})"
+            )
+        out[apolice_id] = ticket_ids[0]
+    logger.info(f"_fetch_apolice_tickets: {len(out)}/{len(apolice_ids)} apolices linked to tickets")
+    return out
