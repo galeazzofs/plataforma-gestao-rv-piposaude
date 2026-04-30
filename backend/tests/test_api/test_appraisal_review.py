@@ -50,6 +50,7 @@ def review_setup():
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id=f"A-REV-T-{suffix}",
         hubspot_ticket_id=f"REV-T-{suffix}",
         ev_id=ev.id, client_id=client.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,

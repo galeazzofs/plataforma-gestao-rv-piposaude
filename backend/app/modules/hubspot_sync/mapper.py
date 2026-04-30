@@ -38,6 +38,8 @@ BENEFIT_MAP = {
     "odontológico": "ODONTO",
     "odontologico": "ODONTO",
     "vida": "VIDA",
+    "saúde e odonto": "SAUDE_ODONTO",
+    "saude e odonto": "SAUDE_ODONTO",
 }
 
 

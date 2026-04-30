@@ -2,16 +2,16 @@
 
 When is_locked=True, fields ev_id, closed_date, segment, and client_id
 must NOT be overwritten by the sync. Non-lockable fields like mrr_projected,
-deal_id, and deal_stage are still updated regardless.
+partner_operator, numero_apolice, and benefit_type are still updated.
 """
 from datetime import date
-from unittest.mock import patch, MagicMock
+from decimal import Decimal
 
 from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, Segment, BenefitType,
 )
-from app.modules.hubspot_sync.sync import _process_ticket
+from app.modules.hubspot_sync.sync import _upsert_policy
 
 
 def _ev(email):
@@ -21,17 +21,40 @@ def _ev(email):
     return u
 
 
+def _apolice(apolice_id, beneficio="ODONTO", parceiro="OpA"):
+    return {
+        "id": apolice_id,
+        "properties": {
+            "apolice___beneficio": beneficio,
+            "numero_apolice": f"AP-{apolice_id}",
+            "parceiro": parceiro,
+        },
+    }
+
+
+def _ticket_props(ev_email, client_name, segment="G", mrr="5000",
+                  closed="2026-01-15T00:00:00Z"):
+    return {
+        "solicitante_demanda": ev_email,
+        "cliente___nome_da_empresa": client_name,
+        "cotar___segmentacao_pipo": segment,
+        "mrr___receita_mensal": mrr,
+        "closed_date": closed,
+        "hs_pipeline": "651307",
+        "hs_pipeline_stage": "11947921",
+    }
+
+
 def test_sync_preserves_locked_fields(db_session):
     """A locked policy keeps its ev_id, closed_date, segment, and client_id
-    intact when the sync re-processes its ticket with different values."""
-    # Original state
+    intact when the sync re-processes its apolice with different values."""
     old_ev = _ev("old-ev@x")
-    new_ev = _ev("new-ev@x")
+    _ev("new-ev@x")
     old_client = Client.find_or_create("OldClient")
-    new_client_name = "NewClient"
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="LOCK-A1",
         hubspot_ticket_id="LOCK-T1",
         ev_id=old_ev.id,
         client_id=old_client.id,
@@ -43,23 +66,11 @@ def test_sync_preserves_locked_fields(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    # HubSpot returns different values
-    ticket = {
-        "id": "LOCK-T1",
-        "properties": {
-            "solicitante_demanda": "new-ev@x",
-            "cliente___nome_da_empresa": new_client_name,
-            "cotar___segmentacao_pipo": "G",  # would map to Segment.G
-            "apolice___beneficio": "ODONTO",
-            "mrr___receita_mensal": "5000",
-            "closed_date": "2026-01-15",
-        },
-    }
+    apolice = _apolice("LOCK-A1", beneficio="Odonto")
+    ticket = _ticket_props(ev_email="new-ev@x", client_name="NewClient",
+                           segment="G", closed="2026-01-15T00:00:00Z")
 
-    mock_client = MagicMock()
-    mock_client.get_associations.return_value = {"results": []}
-
-    _process_ticket(mock_client, ticket, {})
+    _upsert_policy(apolice, ticket, {}, ticket_id="LOCK-T1")
     db.session.flush()
     db.session.refresh(policy)
 
@@ -68,17 +79,19 @@ def test_sync_preserves_locked_fields(db_session):
     assert policy.client_id == old_client.id
     assert policy.segment == Segment.M
     assert policy.closed_date == date(2025, 6, 1)
+    # Non-lockable: updated
+    assert policy.benefit_type == BenefitType.ODONTO
 
 
 def test_sync_updates_unlocked_policy_normally(db_session):
-    """Unlocked policies get all fields updated from HubSpot."""
-    ev1 = _ev("unlocked-ev1@x")
+    _ev("unlocked-ev1@x")
     ev2 = _ev("unlocked-ev2@x")
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="UNLOCK-A1",
         hubspot_ticket_id="UNLOCK-T1",
-        ev_id=ev1.id,
+        ev_id=ev2.id,  # will be re-resolved
         segment=Segment.M,
         benefit_type=BenefitType.SAUDE,
         closed_date=date(2025, 6, 1),
@@ -87,37 +100,26 @@ def test_sync_updates_unlocked_policy_normally(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    ticket = {
-        "id": "UNLOCK-T1",
-        "properties": {
-            "solicitante_demanda": "unlocked-ev2@x",
-            "cliente___nome_da_empresa": "SomeClient",
-            "cotar___segmentacao_pipo": "G",
-            "apolice___beneficio": "ODONTO",
-            "mrr___receita_mensal": "5000",
-            "closed_date": "2026-01-15",
-        },
-    }
+    apolice = _apolice("UNLOCK-A1", beneficio="Odonto")
+    ticket = _ticket_props(ev_email="unlocked-ev2@x", client_name="SomeClient",
+                           segment="G", closed="2026-01-15T00:00:00Z")
 
-    mock_client = MagicMock()
-    mock_client.get_associations.return_value = {"results": []}
-
-    _process_ticket(mock_client, ticket, {})
+    _upsert_policy(apolice, ticket, {}, ticket_id="UNLOCK-T1")
     db.session.flush()
     db.session.refresh(policy)
 
-    # Ev updated to the new one
     assert policy.ev_id == ev2.id
     assert policy.closed_date == date(2026, 1, 15)
+    assert policy.segment == Segment.G
 
 
 def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
-    """Even when is_locked=True, mrr_projected and deal_* are still updated."""
     old_ev = _ev("mrr-ev@x")
     old_client = Client.find_or_create("MrrClient")
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="MRR-A1",
         hubspot_ticket_id="MRR-T1",
         ev_id=old_ev.id,
         client_id=old_client.id,
@@ -130,25 +132,16 @@ def test_sync_updates_non_lockable_fields_on_locked_policy(db_session):
     db.session.add(policy)
     db.session.flush()
 
-    ticket = {
-        "id": "MRR-T1",
-        "properties": {
-            "solicitante_demanda": "mrr-ev@x",  # same EV (locked anyway)
-            "cliente___nome_da_empresa": "MrrClient",
-            "mrr___receita_mensal": "9999",  # new mrr!
-            "closed_date": "2026-02-01",  # different but locked
-        },
-    }
+    apolice = _apolice("MRR-A1", beneficio="Saúde", parceiro="NewPartner")
+    ticket = _ticket_props(ev_email="mrr-ev@x", client_name="MrrClient",
+                           mrr="9999", closed="2026-02-01T00:00:00Z")
 
-    mock_client = MagicMock()
-    mock_client.get_associations.return_value = {"results": []}
-
-    _process_ticket(mock_client, ticket, {})
+    _upsert_policy(apolice, ticket, {}, ticket_id="MRR-T1")
     db.session.flush()
     db.session.refresh(policy)
 
     # Non-lockable: updated
-    from decimal import Decimal
     assert policy.mrr_projected == Decimal("9999")
+    assert policy.partner_operator == "NewPartner"
     # Lockable: preserved
     assert policy.closed_date == date(2025, 6, 1)

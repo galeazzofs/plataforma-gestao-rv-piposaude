@@ -45,12 +45,42 @@ class HubSpotClient:
             body["after"] = after
         return self._request("POST", "/crm/v3/objects/tickets/search", json=body)
 
+    def search_deals(self, filters, properties, limit=100, after=None):
+        """Search deals via CRM search API."""
+        body = {
+            "filterGroups": [{"filters": filters}],
+            "properties": properties,
+            "limit": limit,
+        }
+        if after:
+            body["after"] = after
+        return self._request("POST", "/crm/v3/objects/deals/search", json=body)
+
     def get_associations(self, object_type, object_id, to_type):
         """Get associations for an object."""
         return self._request(
             "GET",
             f"/crm/v4/objects/{object_type}/{object_id}/associations/{to_type}",
         )
+
+    def batch_read_associations(self, from_type, to_type, ids):
+        """POST /crm/v4/associations/{from}/{to}/batch/read.
+
+        Returns dict mapping each from_id (str) to a list of to_ids (str).
+        IDs without associations are omitted from the result. Returns {}
+        for empty input without making any API call.
+        """
+        if not ids:
+            return {}
+        body = {"inputs": [{"id": str(i)} for i in ids]}
+        path = f"/crm/v4/associations/{from_type}/{to_type}/batch/read"
+        result = self._request("POST", path, json=body)
+        out = {}
+        for entry in result.get("results", []):
+            from_id = str(entry["from"]["id"])
+            to_ids = [str(t["toObjectId"]) for t in entry.get("to", [])]
+            out[from_id] = to_ids
+        return out
 
     def get_deal(self, deal_id, properties):
         """Get a deal by ID."""
@@ -81,3 +111,26 @@ class HubSpotClient:
             if not after:
                 break
         return owner_map
+
+    def batch_read_objects(self, object_type, ids, properties):
+        """POST /crm/v3/objects/{type}/batch/read in chunks of 100.
+
+        Returns dict mapping id (str) to its properties dict. Returns {}
+        for empty input without making any API call. Caller is responsible
+        for deduplicating ids before calling.
+        """
+        if not ids:
+            return {}
+        out = {}
+        chunk_size = 100
+        path = f"/crm/v3/objects/{object_type}/batch/read"
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i:i + chunk_size]
+            body = {
+                "properties": properties,
+                "inputs": [{"id": str(x)} for x in chunk],
+            }
+            result = self._request("POST", path, json=body)
+            for entry in result.get("results", []):
+                out[str(entry["id"])] = entry.get("properties", {})
+        return out

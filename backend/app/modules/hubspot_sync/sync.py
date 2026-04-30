@@ -1,8 +1,15 @@
+"""HubSpot sync — apolice-anchored.
+
+Orchestrates pulling apolices (deals in pipeline 2453678), validating their
+ticket+default-deal linkage, and upserting one row in `policies` per apolice.
+
+See docs/superpowers/specs/2026-04-29-policy-sync-from-apolices-pipeline-design.md
+"""
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+
 from app.extensions import db
-from app.models import User, Policy, Client
-from app.models.client import normalize_client_name
+from app.models import User, Policy, Client, BenefitType, Segment
 from app.modules.hubspot_sync.client import HubSpotClient
 from app.modules.hubspot_sync.mapper import (
     map_segment, map_benefit_type, parse_date, parse_decimal,
@@ -10,28 +17,219 @@ from app.modules.hubspot_sync.mapper import (
 
 logger = logging.getLogger(__name__)
 
+# --- HubSpot pipeline / stage IDs ---
+APOLICE_PIPELINE_ID = "2453678"
+PLACEMENT_PIPELINE_ID = "651307"
+GONGO_STAGE_ID = "11947921"
+DEFAULT_DEAL_PIPELINE_ID = "default"  # TBD: confirm slug
+GONGO_DATE_FLOOR = date(2024, 9, 1)
+
+VALID_BENEFITS_HUBSPOT = ["Saúde", "Odonto", "Vida", "Saúde e Odonto"]
+
+APOLICE_PROPERTIES = ["apolice___beneficio", "numero_apolice", "parceiro"]
 TICKET_PROPERTIES = [
     "solicitante_demanda", "cotar___segmentacao_pipo",
     "mrr___receita_mensal", "closed_date",
-    "apolice___beneficio", "cliente___nome_da_empresa",
+    "cliente___nome_da_empresa",
+    "hs_pipeline", "hs_pipeline_stage",
 ]
+DEAL_VALIDATION_PROPERTIES = ["hs_pipeline"]
 
-DEAL_PROPERTIES = ["dealstage", "hs_v2_date_entered_8438574"]
 
-TICKET_IMPLANT_PROPERTIES = ["previsao_primeiro_pagamento", "mrr_pos_implantacao"]
+def _fetch_apolices(client):
+    """Phase 1 — search apolices in the apolice pipeline filtered by benefit.
+
+    Returns list of apolice dicts as returned by HubSpot search
+    (each has at least `id` and `properties`).
+    """
+    filters = [
+        {"propertyName": "hs_pipeline", "operator": "EQ", "value": APOLICE_PIPELINE_ID},
+        {"propertyName": "apolice___beneficio", "operator": "IN", "values": VALID_BENEFITS_HUBSPOT},
+    ]
+    apolices = []
+    after = None
+    while True:
+        result = client.search_deals(
+            filters=filters,
+            properties=APOLICE_PROPERTIES,
+            after=after,
+        )
+        apolices.extend(result.get("results", []))
+        next_cursor = result.get("paging", {}).get("next", {}).get("after")
+        if not next_cursor:
+            break
+        after = next_cursor
+    logger.info(f"_fetch_apolices: {len(apolices)} apolices found")
+    return apolices
+
+
+def _fetch_apolice_tickets(client, apolices, summary):
+    """Phase 2 — batch fetch ticket associations for all apolices.
+
+    Returns dict {apolice_id: first_ticket_id}. Apolices without any ticket
+    are skipped (counted in summary["skipped"]["no_ticket"]). When an apolice
+    has multiple tickets, takes the first and logs a warning.
+    """
+    if not apolices:
+        return {}
+    apolice_ids = [a["id"] for a in apolices]
+    associations = client.batch_read_associations("deals", "tickets", apolice_ids)
+    out = {}
+    for apolice_id in apolice_ids:
+        ticket_ids = associations.get(apolice_id, [])
+        if not ticket_ids:
+            summary["skipped"]["no_ticket"] += 1
+            logger.warning(f"Apolice {apolice_id} has no associated ticket — skipped")
+            continue
+        if len(ticket_ids) > 1:
+            logger.warning(
+                f"Apolice {apolice_id} has {len(ticket_ids)} associated tickets; "
+                f"using first ({ticket_ids[0]})"
+            )
+        out[apolice_id] = ticket_ids[0]
+    logger.info(f"_fetch_apolice_tickets: {len(out)}/{len(apolice_ids)} apolices linked to tickets")
+    return out
+
+
+def _fetch_and_validate_tickets(client, ticket_ids, summary):
+    """Phase 3 — batch fetch tickets and filter by pipeline/stage/date.
+
+    `ticket_ids` is an iterable; duplicates are deduped before the API call.
+    Returns dict {ticket_id: properties_dict} for tickets that pass all filters.
+    Skipped tickets are counted in summary by reason.
+    """
+    unique_ids = list(set(ticket_ids))
+    if not unique_ids:
+        return {}
+    all_props = client.batch_read_objects("tickets", unique_ids, TICKET_PROPERTIES)
+    out = {}
+    for ticket_id, props in all_props.items():
+        if props.get("hs_pipeline") != PLACEMENT_PIPELINE_ID:
+            summary["skipped"]["wrong_pipeline"] += 1
+            continue
+        if props.get("hs_pipeline_stage") != GONGO_STAGE_ID:
+            summary["skipped"]["not_gongo"] += 1
+            continue
+        closed = parse_date(props.get("closed_date"))
+        if closed is None or closed < GONGO_DATE_FLOOR:
+            summary["skipped"]["too_old"] += 1
+            continue
+        out[ticket_id] = props
+    logger.info(f"_fetch_and_validate_tickets: {len(out)}/{len(unique_ids)} tickets valid")
+    return out
+
+
+def _upsert_policy(apolice, ticket_props, owner_map, ticket_id=None):
+    """Phase 5 — create or update one Policy row from an apolice + its ticket.
+
+    Args:
+        apolice: dict from HubSpot search (has `id` and `properties`)
+        ticket_props: dict of ticket properties (already validated/filtered)
+        owner_map: dict {owner_id_str: email}
+        ticket_id: HubSpot ticket id; pulled from caller's apolice→ticket map.
+                   Optional for backward-compat in tests but production passes it.
+
+    Returns True if a new row was created, False if updated.
+    Respects Policy.is_locked: locked rows keep ev_id, client_id, segment, closed_date.
+    """
+    apolice_id = apolice["id"]
+    apolice_props = apolice.get("properties", {})
+
+    # Resolve EV: solicitante_demanda may be an owner_id (lookup in map) or already an email
+    raw_ev = ticket_props.get("solicitante_demanda")
+    ev_email = owner_map.get(str(raw_ev), raw_ev) if raw_ev else None
+    ev = User.query.filter_by(email=ev_email).first() if ev_email else None
+
+    # Upsert client (always — even when locked we may need it)
+    client_name = ticket_props.get("cliente___nome_da_empresa") or ""
+    client_obj = None
+    if client_name:
+        client_obj = Client.find_or_create(client_name, ev_id=ev.id if ev else None)
+        db.session.flush()
+
+    # Find or create policy
+    policy = Policy.query.filter_by(hubspot_apolice_id=str(apolice_id)).first()
+    is_new = policy is None
+    if is_new:
+        policy = Policy(hubspot_apolice_id=str(apolice_id))
+        db.session.add(policy)
+
+    locked = bool(getattr(policy, "is_locked", False))
+
+    # Always update (non-lockable):
+    policy.hubspot_ticket_id = str(ticket_id) if ticket_id else policy.hubspot_ticket_id
+    policy.numero_apolice = apolice_props.get("numero_apolice") or None
+    policy.partner_operator = apolice_props.get("parceiro") or None
+    benefit_raw = map_benefit_type(apolice_props.get("apolice___beneficio"))
+    policy.benefit_type = BenefitType(benefit_raw) if benefit_raw else None
+    policy.mrr_projected = parse_decimal(ticket_props.get("mrr___receita_mensal"))
+
+    # Lockable — only update if not locked
+    if not locked:
+        if ev:
+            policy.ev_id = ev.id
+        if client_obj:
+            policy.client_id = client_obj.id
+        segment_raw = map_segment(ticket_props.get("cotar___segmentacao_pipo"))
+        policy.segment = Segment(segment_raw) if segment_raw else None
+        policy.closed_date = parse_date(ticket_props.get("closed_date"))
+
+    db.session.flush()
+    return is_new
+
+
+def _filter_tickets_with_default_deal(client, ticket_ids, summary):
+    """Phase 4 — verify each ticket has at least one associated deal in the
+    default pipeline. Returns set of ticket_ids that pass.
+    """
+    ticket_ids = list(ticket_ids)
+    if not ticket_ids:
+        return set()
+    ticket_to_deals = client.batch_read_associations("tickets", "deals", ticket_ids)
+    all_deal_ids = list({d for deals in ticket_to_deals.values() for d in deals})
+    deal_props = client.batch_read_objects(
+        "deals", all_deal_ids, DEAL_VALIDATION_PROPERTIES
+    )
+    valid = set()
+    for ticket_id in ticket_ids:
+        deals_for_ticket = ticket_to_deals.get(ticket_id, [])
+        has_default = any(
+            deal_props.get(d, {}).get("hs_pipeline") == DEFAULT_DEAL_PIPELINE_ID
+            for d in deals_for_ticket
+        )
+        if has_default:
+            valid.add(ticket_id)
+        else:
+            summary["skipped"]["no_default_deal"] += 1
+    logger.info(f"_filter_tickets_with_default_deal: {len(valid)}/{len(ticket_ids)} tickets pass")
+    return valid
+
+
+def _new_summary():
+    return {
+        "timestamp": None,
+        "created": 0,
+        "updated": 0,
+        "skipped": {
+            "no_ticket": 0,
+            "wrong_pipeline": 0,
+            "not_gongo": 0,
+            "too_old": 0,
+            "no_default_deal": 0,
+        },
+        "errors": [],
+        "error_count": 0,
+    }
 
 
 def run_sync():
-    """Main sync job: pull gongoed tickets from HubSpot, upsert into policies.
+    """Main sync job: pull apolices from HubSpot, validate linkage, upsert into policies.
 
     Returns summary dict.
     """
     client = HubSpotClient()
-    created = 0
-    updated = 0
-    errors = []
+    summary = _new_summary()
 
-    # Pre-load owner map (owner_id → email) for EV resolution
     try:
         owner_map = client.get_all_owners()
         logger.info(f"Loaded {len(owner_map)} HubSpot owners")
@@ -39,120 +237,42 @@ def run_sync():
         logger.warning(f"Could not load owners: {e}")
         owner_map = {}
 
-    # Search gongoed tickets (Placement pipeline → Gongo stage)
-    filters = [
-        {"propertyName": "hs_pipeline_stage", "operator": "EQ", "value": "11947921"},
-    ]
+    try:
+        apolices = _fetch_apolices(client)
+        apolice_to_ticket = _fetch_apolice_tickets(client, apolices, summary)
+        tickets = _fetch_and_validate_tickets(
+            client, apolice_to_ticket.values(), summary
+        )
+        valid_ticket_ids = _filter_tickets_with_default_deal(
+            client, tickets.keys(), summary
+        )
+    except Exception as e:
+        logger.error(f"HubSpot fetch failed: {e}")
+        summary["errors"].append(f"Fetch failed: {e}")
+        summary["error_count"] = len(summary["errors"])
+        summary["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return summary
 
-    after = None
-    while True:
+    for apolice in apolices:
+        apolice_id = apolice["id"]
+        ticket_id = apolice_to_ticket.get(apolice_id)
+        if not ticket_id or ticket_id not in valid_ticket_ids:
+            continue
         try:
-            result = client.search_tickets(
-                filters=filters,
-                properties=TICKET_PROPERTIES,
-                after=after,
+            was_created = _upsert_policy(
+                apolice, tickets[ticket_id], owner_map, ticket_id=ticket_id
             )
+            if was_created:
+                summary["created"] += 1
+            else:
+                summary["updated"] += 1
         except Exception as e:
-            logger.error(f"HubSpot search failed: {e}")
-            errors.append(f"Search failed: {e}")
-            break
-
-        for ticket in result.get("results", []):
-            try:
-                was_created = _process_ticket(client, ticket, owner_map)
-                if was_created:
-                    created += 1
-                else:
-                    updated += 1
-            except Exception as e:
-                db.session.rollback()
-                ticket_id = ticket.get("id", "unknown")
-                logger.error(f"Error processing ticket {ticket_id}: {e}")
-                errors.append(f"Ticket {ticket_id}: {e}")
-
-        # Pagination
-        paging = result.get("paging", {})
-        next_page = paging.get("next", {})
-        after = next_page.get("after")
-        if not after:
-            break
+            db.session.rollback()
+            logger.error(f"Error processing apolice {apolice_id}: {e}")
+            summary["errors"].append(f"Apolice {apolice_id}: {e}")
 
     db.session.commit()
-
-    summary = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "created": created,
-        "updated": updated,
-        "errors": errors,
-        "error_count": len(errors),
-    }
+    summary["error_count"] = len(summary["errors"])
+    summary["timestamp"] = datetime.now(timezone.utc).isoformat()
     logger.info(f"HubSpot sync completed: {summary}")
     return summary
-
-
-def _process_ticket(hs_client, ticket, owner_map=None):
-    """Process a single HubSpot ticket into a policy. Returns True if created.
-
-    Respects Policy.is_locked: when set, lockable fields (ev_id, client_id,
-    segment, closed_date, first_payment_real, initial_installments_paid,
-    partner_operator) are NOT overwritten. Non-lockable fields (mrr_projected,
-    benefit_type, deal_*) are always updated.
-    """
-    owner_map = owner_map or {}
-    props = ticket.get("properties", {})
-    ticket_id = ticket["id"]
-
-    # Resolve EV: owner_id → email → user OR direct email fallback
-    owner_id_or_email = props.get("solicitante_demanda")
-    if owner_id_or_email:
-        ev_email = owner_map.get(str(owner_id_or_email), owner_id_or_email)
-    else:
-        ev_email = None
-    ev = User.query.filter_by(email=ev_email).first() if ev_email else None
-
-    # Upsert client (we need the client to link, regardless of lock state)
-    client_name = props.get("cliente___nome_da_empresa", "")
-    client_obj = None
-    if client_name:
-        client_obj = Client.find_or_create(client_name, ev_id=ev.id if ev else None)
-        db.session.flush()
-
-    # Find or create policy
-    policy = Policy.query.filter_by(hubspot_ticket_id=str(ticket_id)).first()
-    is_new = policy is None
-    if is_new:
-        policy = Policy(hubspot_ticket_id=str(ticket_id))
-        db.session.add(policy)
-
-    locked = bool(getattr(policy, "is_locked", False))
-
-    # Lockable fields — only update if not locked
-    if not locked:
-        if ev:
-            policy.ev_id = ev.id
-        if client_obj:
-            policy.client_id = client_obj.id
-        policy.segment = map_segment(props.get("cotar___segmentacao_pipo"))
-        policy.closed_date = parse_date(props.get("closed_date"))
-
-    # Non-lockable fields — always update
-    policy.benefit_type = map_benefit_type(props.get("apolice___beneficio"))
-    policy.mrr_projected = parse_decimal(props.get("mrr___receita_mensal"))
-
-    # Fetch deal associations (non-lockable — always refresh)
-    try:
-        assoc = hs_client.get_associations("tickets", ticket_id, "deals")
-        deal_ids = [r["toObjectId"] for r in assoc.get("results", [])]
-        if deal_ids:
-            policy.deal_id = str(deal_ids[0])
-            deal = hs_client.get_deal(deal_ids[0], DEAL_PROPERTIES)
-            deal_props = deal.get("properties", {})
-            policy.deal_stage = deal_props.get("dealstage")
-            if not locked:
-                # deploy_date from the deal is also considered lockable context
-                policy.deploy_date = parse_date(deal_props.get("hs_v2_date_entered_8438574"))
-    except Exception as e:
-        logger.warning(f"Deal association fetch failed for ticket {ticket_id}: {e}")
-
-    db.session.flush()
-    return is_new

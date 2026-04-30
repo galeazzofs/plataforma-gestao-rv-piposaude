@@ -6,6 +6,7 @@ from app.models import Policy, CommissionStatus
 def test_mrr_for_commission_prefers_actual(db_session):
     """MRR cascade: actual > post_deploy > projected."""
     policy = Policy(
+        hubspot_apolice_id="A-TEST-1",
         hubspot_ticket_id="TEST-1",
         ev_id=None,
         client_id=None,
@@ -18,6 +19,7 @@ def test_mrr_for_commission_prefers_actual(db_session):
 
 def test_mrr_for_commission_falls_back_to_post_deploy(db_session):
     policy = Policy(
+        hubspot_apolice_id="A-TEST-2",
         hubspot_ticket_id="TEST-2",
         ev_id=None,
         client_id=None,
@@ -30,6 +32,7 @@ def test_mrr_for_commission_falls_back_to_post_deploy(db_session):
 
 def test_mrr_for_commission_falls_back_to_projected(db_session):
     policy = Policy(
+        hubspot_apolice_id="A-TEST-3",
         hubspot_ticket_id="TEST-3",
         ev_id=None,
         client_id=None,
@@ -42,6 +45,7 @@ def test_mrr_for_commission_falls_back_to_projected(db_session):
 
 def test_quarter_closed_from_date(db_session):
     policy = Policy(
+        hubspot_apolice_id="A-TEST-4",
         hubspot_ticket_id="TEST-4",
         ev_id=None,
         client_id=None,

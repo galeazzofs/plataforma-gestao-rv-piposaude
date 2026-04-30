@@ -9,6 +9,7 @@ class BenefitType(str, enum.Enum):
     SAUDE = "SAUDE"
     ODONTO = "ODONTO"
     VIDA = "VIDA"
+    SAUDE_ODONTO = "SAUDE_ODONTO"
 
 
 class Segment(str, enum.Enum):
@@ -29,7 +30,9 @@ class Policy(db.Model):
     __tablename__ = "policies"
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
-    hubspot_ticket_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    hubspot_apolice_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    hubspot_ticket_id = db.Column(db.String(100), nullable=False, index=True)
+    numero_apolice = db.Column(db.String(100), nullable=True, index=True)
     ev_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=True)
     client_id = db.Column(GUID, db.ForeignKey("clients.id"), nullable=True)
     deal_id = db.Column(db.String(100), nullable=True)
@@ -68,7 +71,7 @@ class Policy(db.Model):
     commissions = db.relationship("Commission", back_populates="policy")
 
     def __repr__(self):
-        return f"<Policy {self.hubspot_ticket_id} ({self.commission_status})>"
+        return f"<Policy apolice={self.hubspot_apolice_id} ticket={self.hubspot_ticket_id} ({self.commission_status})>"
 
     @property
     def mrr_for_commission(self):

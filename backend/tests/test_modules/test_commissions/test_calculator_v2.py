@@ -38,6 +38,7 @@ def _setup_basic_scenario():
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="A-T1",
         hubspot_ticket_id="T1",
         ev_id=ev.id,
         client_id=client.id,
@@ -347,14 +348,14 @@ def test_multi_policy_picks_most_recent_within_window(db_session):
     db.session.flush()
 
     p_old = Policy(
-        hubspot_ticket_id="OLD", ev_id=ev.id, client_id=client.id,
+        hubspot_apolice_id="A-OLD", hubspot_ticket_id="OLD", ev_id=ev.id, client_id=client.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,
         partner_operator="SulAmerica",
         closed_date=date(2025, 3, 1),
         first_payment_real=date(2025, 4, 1),
     )
     p_new = Policy(
-        hubspot_ticket_id="NEW", ev_id=ev.id, client_id=client.id,
+        hubspot_apolice_id="A-NEW", hubspot_ticket_id="NEW", ev_id=ev.id, client_id=client.id,
         segment=Segment.M, benefit_type=BenefitType.SAUDE,
         partner_operator="SulAmerica",
         closed_date=date(2025, 12, 1),

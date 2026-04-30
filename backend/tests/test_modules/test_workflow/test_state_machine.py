@@ -83,6 +83,7 @@ def test_lock_marks_all_quarter_commissions_as_final(db_session):
     db.session.flush()
 
     policy = Policy(
+        hubspot_apolice_id="A-LOCK-T1",
         hubspot_ticket_id="LOCK-T1",
         ev_id=ev.id,
         client_id=client.id,
