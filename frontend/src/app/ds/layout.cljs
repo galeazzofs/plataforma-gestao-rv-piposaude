@@ -1,235 +1,122 @@
 (ns app.ds.layout
-  (:require [app.ds.tokens :as t]
-            [re-frame.core :as rf]
-            [reagent.core :as r]
-            [clojure.string :as str]))
+  (:require [re-frame.core :as rf]
+            [clojure.string :as str]
+            [app.ds.nav :as nav]))
 
 ;; ============================================
 ;; Pipo design shell — sidebar + topbar + page-shell.
-;; Mirrors the layout from the "Todas as Telas" handoff while keeping the
-;; existing sidebar-items contract used across views (key/label/icon/route).
+;; Render the same HTML markup used by the design (.app/.sidebar/.brand/.nav/
+;; .topbar/.page) so all the rules in pipo-design.css apply.
 ;; ============================================
 
-;; Legacy emoji glyphs used by views' :icon fields are mapped to the Pipo
-;; design's monochrome SVG symbol set defined in index.html. New code should
-;; pass keywords (e.g. :dashboard) instead of emojis.
-(def ^:private emoji->symbol
-  {"📊" "i-dashboard"  "📈" "i-trend"      "🏠" "i-dashboard"
-   "📅" "i-clock"      "✓"  "i-check"     "✔" "i-check"
-   "💰" "i-money"      "🎯" "i-target"
-   "👤" "i-users"      "👥" "i-team"
-   "📄" "i-doc"        "📁" "i-upload"     "📋" "i-list"
-   "⚙" "i-cog"        "⚙️" "i-cog"
-   "⚠" "i-alert"      "⚠️" "i-alert"      "!" "i-alert"
-   "🔄" "i-refresh"    "↻" "i-refresh"
-   "🧮" "i-percent"    "%" "i-percent"})
+(defn icon
+  "Inline SVG icon, referencing a <symbol> defined in index.html.
+   Accepts a name like \"money\" or \":money\" or \"i-money\"."
+  ([name] (icon name nil))
+  ([name {:keys [width height class]}]
+   (let [s (cond (keyword? name) (clojure.core/name name)
+                 :else            name)
+         id (cond
+              (str/starts-with? s "i-") s
+              :else (str "i-" s))]
+     [:svg (cond-> {:width (or width 16) :height (or height 16) :aria-hidden true}
+             class (assoc :class class))
+      [:use {:href (str "#" id)}]])))
 
-(defn- svg-icon
-  "Renders a sidebar/topbar icon. Accepts:
-   - keyword like :i-dashboard / :dashboard -> <use href=\"#i-...\">
-   - string starting with \"i-\" -> same
-   - emoji string in the legacy map -> mapped to its design symbol
-   - other plain string -> rendered as text (last-resort fallback)
-   - a hiccup vector -> rendered as-is"
-  [icon size]
+(defn- avatar-of [user]
+  (let [n (or (:name user) "")
+        first-letter (when (seq n) (subs n 0 1))]
+    [:div.avatar (or (some-> first-letter str/upper-case) "?")]))
+
+(defn nav-item-link
+  "Single sidebar nav-item — either a route link or a section header."
+  [{:keys [item active-key]}]
   (cond
-    (vector? icon) icon
-    (or (keyword? icon) (string? icon))
-    (let [s (if (keyword? icon) (name icon) icon)
-          symbol-id (cond
-                      (str/starts-with? s "i-") s
-                      (contains? emoji->symbol s) (get emoji->symbol s)
-                      (re-matches #"[a-z][a-z0-9-]+" s) (str "i-" s)
-                      :else nil)]
-      (if symbol-id
-        [:svg {:width size :height size :aria-hidden true
-               :style {:flex-shrink 0}}
-         [:use {:href (str "#" symbol-id)}]]
-        [:span {:style {:font-size (str size "px") :line-height "1"}} s]))
-    :else nil))
+    (:section item)
+    [:div.nav-section (:section item)]
 
-(defn- nav-item
-  [{:keys [label icon active? on-click badge]}]
-  (let [hovered? (r/atom false)]
-    (fn [{:keys [label icon active? on-click badge]}]
-      [:div {:style (cond-> {:display "flex" :align-items "center" :gap "10px"
-                             :padding "8px 12px"
-                             :border-radius (:sm t/border-radius)
-                             :cursor "pointer" :user-select "none"
-                             :font-family t/font-ui
-                             :font-size "13.5px"
-                             :font-weight (if active? (:semibold t/font-weights) (:medium t/font-weights))
-                             :color (if active? t/text-primary t/text-secondary)
-                             :background (cond
-                                           active?   t/beige-100
-                                           @hovered? t/bg-main
-                                           :else     "transparent")
-                             :border-left (if active?
-                                            (str "2px solid " t/color-primary)
-                                            "2px solid transparent")
-                             :transition (str "background " t/transition-fast ", color " t/transition-fast)})
-             :on-mouse-enter #(reset! hovered? true)
-             :on-mouse-leave #(reset! hovered? false)
-             :on-click on-click}
-       [:span {:style {:width "18px" :height "18px" :flex-shrink "0"
-                       :display "inline-flex" :align-items "center" :justify-content "center"
-                       :color (if active? t/text-primary t/text-tertiary)}}
-        (svg-icon icon 18)]
-       [:span {:style {:flex 1 :white-space "nowrap" :overflow "hidden" :text-overflow "ellipsis"}}
-        label]
-       (when badge
-         [:span {:style {:font-family t/font-mono :font-size "11px" :font-weight "600"
-                         :background t/error-light :color t/error-dark
-                         :padding "1px 6px" :border-radius (:full t/border-radius)}}
-          badge])])))
-
-(defn- sidebar-section-label [text]
-  [:div {:style {:font-family t/font-mono :font-size "10px"
-                 :text-transform "uppercase" :letter-spacing "0.08em"
-                 :color t/text-disabled
-                 :padding "14px 12px 6px"}}
-   text])
+    :else
+    (let [active? (= (:key item) active-key)]
+      [:a {:class (str "nav-item" (when active? " active"))
+           :href "#"
+           :on-click (fn [e]
+                       (.preventDefault e)
+                       (rf/dispatch [:navigate (:route item)]))}
+       [icon (:icon item) {:width 18 :height 18}]
+       [:span {:style {:flex 1}} (:label item)]
+       (when (:badge item)
+         [:span.badge (:badge item)])])))
 
 (defn sidebar
-  "Left sidebar navigation.
-   items can be either a flat list of {:key :label :icon :route :badge}
-   or a list with section markers: {:section \"OPERAÇÃO\"} interleaved."
-  [{:keys [items current-route user]}]
-  [:nav {:style {:width "240px" :height "100vh" :flex-shrink "0"
-                 :background t/bg-card
-                 :border-right (str "1px solid " t/border-default)
-                 :position "sticky" :top 0
-                 :display "flex" :flex-direction "column"
-                 :font-family t/font-body}}
-   ;; Brand
-   [:div {:style {:padding "22px 20px 18px"
-                  :border-bottom (str "1px solid " t/border-default)
-                  :display "flex" :gap "12px" :align-items "center"}}
-    [:div {:style {:width "34px" :height "34px" :border-radius "10px"
-                   :background t/color-primary :color t/color-white
-                   :display "flex" :align-items "center" :justify-content "center"
-                   :font-family t/font-display :font-size "22px" :line-height 1}}
-     "P"]
-    [:div {:style {:display "flex" :flex-direction "column" :gap "1px"}}
-     [:strong {:style {:font-family t/font-heading :font-size "15px" :font-weight (:semibold t/font-weights)
-                       :color t/text-primary :letter-spacing "-0.01em"}}
-      "Pipo Saúde"]
-     [:span {:style {:font-family t/font-mono :font-size "10px" :color t/text-tertiary
-                     :letter-spacing "0.04em" :text-transform "lowercase"}}
-      "comissões"]]]
-
-   ;; Items
-   [:div {:style {:flex 1 :padding "14px 12px" :overflow-y "auto"
-                  :display "flex" :flex-direction "column" :gap "2px"}}
+  "Left sidebar.
+   Props: items (vector of nav items / sections), active-key, user."
+  [{:keys [items active-key user]}]
+  [:aside.sidebar
+   [:div.brand
+    [:div.brand-mark "P"]
+    [:div.brand-name
+     [:strong "Pipo Saúde"]
+     [:span "plataforma · rv"]]]
+   [:div.nav
     (for [[idx item] (map-indexed vector items)]
-      ^{:key (or (:key item) (str "section-" idx))}
-      (cond
-        (:section item)
-        [sidebar-section-label (:section item)]
-
-        :else
-        [nav-item {:label    (:label item)
-                   :icon     (:icon item)
-                   :active?  (= (:key item) current-route)
-                   :badge    (:badge item)
-                   :on-click #(rf/dispatch [:navigate (:route item)])}]))]
-
-   ;; Footer with user identity
+      ^{:key (or (:key item) (str "sec-" idx))}
+      [nav-item-link {:item item :active-key active-key}])]
    (when user
-     [:div {:style {:padding "14px 16px"
-                    :border-top (str "1px solid " t/border-default)
-                    :display "flex" :align-items "center" :gap "10px"}}
-      [:div {:style {:width "34px" :height "34px" :border-radius "50%"
-                     :background t/beige-300 :color t/text-secondary
-                     :display "flex" :align-items "center" :justify-content "center"
-                     :font-family t/font-ui :font-size "13px" :font-weight (:bold t/font-weights)
-                     :flex-shrink "0"}}
-       (-> (:name user "?") first str .toUpperCase)]
-      [:div {:style {:display "flex" :flex-direction "column" :min-width 0}}
-       [:strong {:style {:font-family t/font-ui :font-size "13px"
-                         :color t/text-primary :font-weight (:semibold t/font-weights)
-                         :white-space "nowrap" :overflow "hidden" :text-overflow "ellipsis"}}
-        (:name user)]
-       [:span {:style {:font-family t/font-mono :font-size "11px" :color t/text-tertiary}}
-        (:role user)]]])])
+     [:div.sidebar-foot
+      [avatar-of user]
+      [:div.user-meta
+       [:strong (:name user)]
+       [:span (some-> (:role user) str/lower-case (str " · pipo"))]]])])
 
-(defn- icon-btn
-  "Pill icon button used in topbar (notifications, etc.)."
+(defn search-input
+  "Pipo search pill. opts: {:placeholder ... :value ... :on-change ...}"
+  [{:keys [placeholder value on-change]}]
+  [:div.search
+   [icon "search" {:width 14 :height 14}]
+   [:input {:placeholder (or placeholder "Buscar")
+            :value (or value "")
+            :on-change (fn [e]
+                         (when on-change
+                           (on-change (.. e -target -value))))}]])
+
+(defn icon-btn
+  "Topbar icon button. opts: {:icon \"bell\" :on-click ... :dot? true}"
   [{:keys [icon on-click dot? aria-label]}]
-  [:button {:on-click on-click :aria-label aria-label
-            :style {:width "36px" :height "36px" :border-radius (:full t/border-radius)
-                    :background t/bg-card :border (str "1px solid " t/border-default)
-                    :display "inline-flex" :align-items "center" :justify-content "center"
-                    :color t/text-secondary :position "relative" :cursor "pointer"
-                    :transition (str "box-shadow " t/transition-fast)}}
-   [:span {:style {:width "16px" :height "16px" :display "inline-flex"}}
-    (svg-icon icon 16)]
-   (when dot?
-     [:span {:style {:position "absolute" :top "8px" :right "8px"
-                     :width "7px" :height "7px" :border-radius "50%"
-                     :background t/error-default
-                     :border (str "1.5px solid " t/bg-card)}}])])
+  [:button.icon-btn {:on-click on-click :aria-label aria-label}
+   [app.ds.layout/icon icon {:width 16 :height 16}]
+   (when dot? [:span.dot])])
 
-(defn- search-pill []
-  [:div {:style {:display "flex" :align-items "center" :gap "8px"
-                 :background t/bg-main :border (str "1px solid " t/border-default)
-                 :padding "7px 12px" :border-radius (:full t/border-radius)
-                 :width "260px" :font-size "13px" :color t/text-tertiary}}
-   [:span {:style {:width "14px" :height "14px" :display "inline-flex" :color t/text-tertiary}}
-    (svg-icon :search 14)]
-   [:input {:placeholder "Buscar"
-            :style {:flex 1 :border 0 :outline 0 :background "transparent"
-                    :color t/text-primary :font-family t/font-body :font-size "13px"}}]])
-
-(defn- crumbs-row [crumbs]
-  (when (seq crumbs)
-    [:div {:style {:display "flex" :align-items "center" :gap "6px"
-                   :font-family t/font-mono :font-size "11px"
-                   :color t/text-tertiary :text-transform "lowercase"}}
-     (interpose
-       [:span {:style {:color t/text-disabled :margin "0 2px"}} "/"]
-       (for [c crumbs] ^{:key c} [:span c]))]))
-
-(defn header
-  "Topbar with breadcrumbs, display title, optional subtitle and right-side
-   action children (search/icons/buttons). When no children are supplied, the
-   default search + bell + cog cluster is rendered."
-  [{:keys [title subtitle crumbs]} & children]
-  [:header {:style {:display "flex" :align-items "center" :justify-content "space-between"
-                    :background t/bg-card
-                    :border-bottom (str "1px solid " t/border-default)
-                    :padding "18px 32px" :min-height "72px"
-                    :position "sticky" :top 0 :z-index 10}}
-   [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}
-    [crumbs-row (or crumbs ["pipo" "rv"])]
-    [:div {:style {:display "flex" :align-items "baseline" :gap "14px"}}
-     [:h1 {:style {:font-family t/font-display :font-weight "400"
-                   :font-size "30px" :line-height "1"
-                   :letter-spacing "-0.005em" :color t/text-primary
-                   :margin 0}}
-      title]
-     (when subtitle
-       [:span {:style {:font-size "13px" :color t/text-tertiary}} subtitle])]]
-   (into [:div {:style {:display "flex" :align-items "center" :gap "10px"}}]
-         (if (seq children)
-           children
-           [[search-pill]
-            [icon-btn {:icon :bell :aria-label "Notificações" :dot? true}]
-            [icon-btn {:icon :cog  :aria-label "Configurações"}]]))])
+(defn topbar
+  "Topbar with crumbs, title, subtitle and right-side actions.
+   Props: crumbs (seq), title, subtitle, actions (hiccup)."
+  [{:keys [crumbs title subtitle actions]}]
+  [:header.topbar
+   [:div.topbar-l
+    (when (seq crumbs)
+      (into [:div.crumbs] (for [c crumbs] [:span c])))
+    [:div.title-row
+     [:h1 title]
+     (when subtitle [:span.subtitle subtitle])]]
+   [:div.topbar-r actions]])
 
 (defn page-shell
-  "Main page layout: sidebar + header + content."
-  [{:keys [sidebar-items current-route user title subtitle crumbs header-actions]} & children]
-  [:div {:style {:display "grid" :grid-template-columns "240px 1fr"
-                 :min-height "100vh" :background t/bg-main}}
-   [sidebar {:items sidebar-items :current-route current-route :user user}]
-   [:div {:style {:display "flex" :flex-direction "column" :min-width 0
-                  :background t/bg-main}}
-    (if (vector? header-actions)
-      [header {:title title :subtitle subtitle :crumbs crumbs}
-       header-actions]
-      [header {:title title :subtitle subtitle :crumbs crumbs}])
-    (into [:main {:style {:flex 1 :padding "28px 32px 80px"
-                          :display "flex" :flex-direction "column" :gap "24px"
-                          :max-width "1480px"}}]
-          children)]])
+  "Main page wrapper.
+   Props: sidebar-items (overrides default), current-route, user, title,
+          subtitle, crumbs, header-actions (hiccup vector to render in topbar-r).
+   Children become the contents of the .page area."
+  [{:keys [sidebar-items current-route user title subtitle crumbs header-actions]}
+   & children]
+  (let [items (or sidebar-items (nav/items-for-role (:role user)))]
+    [:div.app
+     [sidebar {:items items :active-key current-route :user user}]
+     [:main.main
+      [:section.view.active
+       [topbar {:crumbs crumbs :title title :subtitle subtitle :actions header-actions}]
+       (into [:div.page] children)]]]))
+
+;; --- Compatibility re-exports for legacy callers --------------------------------
+
+(defn header
+  "Legacy header signature — forwards to topbar."
+  [{:keys [title subtitle crumbs]} & children]
+  [topbar {:title title :subtitle subtitle :crumbs crumbs :actions (vec children)}])

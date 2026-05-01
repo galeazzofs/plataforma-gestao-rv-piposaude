@@ -1,15 +1,9 @@
 (ns app.views.revops.leadership-appraisal
-  (:require [re-frame.core :as rf]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
             [app.ds.inputs :as inputs]
-            [app.ds.buttons :as btn]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
 
 (rf/reg-event-fx
@@ -63,8 +57,18 @@
 (rf/reg-sub :revops/leadership-appraisals (fn [db _] (get-in db [:admin :leadership-appraisals] [])))
 (rf/reg-sub :revops/leadership-loading? (fn [db _] (get-in db [:admin :leadership-loading?])))
 
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
+
+(defn- pct [v]
+  (when v (-> v js/parseFloat (* 100) (.toFixed 0))))
+
+(defn- mult [v]
+  (when v (-> v js/parseFloat (.toFixed 2)
+              (clojure.string/replace "." ","))))
+
 (defn page []
-  (let [filter-s    (r/atom {:quarter "1" :year "2026"})
+  (let [filter-s    (r/atom {:quarter "2" :year "2026"})
         form-inputs (r/atom {})]
     (fn []
       (let [preview  @(rf/subscribe [:revops/leadership-preview])
@@ -73,35 +77,56 @@
             user     @(rf/subscribe [:auth/current-user])
             route    @(rf/subscribe [:current-route-name])]
         [layout/page-shell
-         {:sidebar-items revops-shell/sidebar-items
-          :current-route route
-          :user          user
-          :title         "Apuração Liderança — GERENTEs"}
-         [cards/card {}
-          [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :margin-bottom "16px"}}
-           [inputs/select {:label "Trimestre" :value (:quarter @filter-s)
-                           :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
-                                     {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
-                           :on-change #(swap! filter-s assoc :quarter %)}]
-           [inputs/select {:label "Ano" :value (:year @filter-s)
-                           :options [{:value "2026" :label "2026"} {:value "2025" :label "2025"}]
-                           :on-change #(swap! filter-s assoc :year %)}]
-           [btn/button {:variant :secondary
-                        :on-click #(rf/dispatch [:revops/fetch-leadership-preview
-                                                 (:quarter @filter-s) (:year @filter-s)])}
-            "Carregar"]]
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "gestão de time" "apuração liderança"]
+          :title "Apuração Liderança · Gerentes"
+          :subtitle (str (count (or preview [])) " gerentes")
+          :header-actions
+          [[:button.btn.btn-secondary
+            {:on-click #(rf/dispatch [:revops/fetch-leadership-preview
+                                      (:quarter @filter-s) (:year @filter-s)])}
+            [layout/icon "refresh" {:width 14 :height 14}] "Carregar"]
+           [:button.btn.btn-primary
+            {:disabled (empty? preview)
+             :on-click (fn []
+                         (rf/dispatch
+                           [:revops/run-leadership-appraisal
+                            {:quarter (:quarter @filter-s)
+                             :year (:year @filter-s)
+                             :inputs (mapv (fn [[gid vals]] (merge {:gerente_id gid} vals))
+                                            @form-inputs)}]))}
+            [layout/icon "target" {:width 14 :height 14}] "Calcular bônus"]]}
 
-          (when (seq preview)
-            [:div {:style {:margin-bottom "16px"}}
-             [:p {:style {:font-size "13px" :font-weight "600" :margin-bottom "8px"}}
-              "Preencha os valores realizados:"]
+         [:div.filter-row
+          (for [q ["1" "2" "3" "4"]]
+            ^{:key q}
+            [:div {:class (str "chip" (when (= q (:quarter @filter-s)) " active"))
+                   :on-click #(swap! filter-s assoc :quarter q)}
+             (str "Q" q)])
+          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          (for [y ["2025" "2026"]]
+            ^{:key y}
+            [:div {:class (str "chip" (when (= y (:year @filter-s)) " active"))
+                   :on-click #(swap! filter-s assoc :year y)}
+             y])]
+
+         (when (seq preview)
+           [:div.card
+            [:div.card-head
+             [:div [:h3 "Inputs por gerente"]
+              [:div.card-sub "Preencha os valores realizados antes de calcular"]]]
+            [:div {:style {:display "flex" :flex-direction "column" :gap "12px"}}
              (for [{:keys [gerente_id gerente_name meta_mrr]} preview]
                ^{:key gerente_id}
-               [:div {:style {:display "flex" :gap "12px" :align-items "center"
-                              :margin-bottom "8px"}}
-                [:span {:style {:width "140px" :font-size "13px"}} gerente_name]
-                [:span {:style {:width "120px" :font-size "12px" :color t/text-secondary}}
-                 (str "Meta MRR: R$ " meta_mrr " (auto)")]
+               [:div {:style {:display "grid" :grid-template-columns "180px 200px 1fr 1fr 1fr"
+                              :gap "12px" :align-items "end"
+                              :padding "12px 0" :border-bottom "1px solid var(--border-subtle)"}}
+                [:div
+                 [:div.name gerente_name]
+                 [:div.muted {:style {:font-family "var(--font-mono)" :font-size "11px"}}
+                  (str "id " gerente_id)]]
+                [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
+                 (str "Meta MRR (auto): R$ " (or (fmt-int meta_mrr) "—"))]
                 [inputs/input
                  {:label "MRR Realizado"
                   :value (get-in @form-inputs [gerente_id :realizado_mrr] "")
@@ -113,43 +138,40 @@
                 [inputs/input
                  {:label "SQL Realizado" :type "number"
                   :value (get-in @form-inputs [gerente_id :realizado_sql] "")
-                  :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_sql] %)}]])])
+                  :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_sql] %)}]])]])
 
-          (when (seq preview)
-            [btn/button
-             {:variant :primary
-              :on-click (fn []
-                          (rf/dispatch
-                           [:revops/run-leadership-appraisal
-                            {:quarter (:quarter @filter-s)
-                             :year    (:year @filter-s)
-                             :inputs  (mapv (fn [[gid vals]]
-                                              (merge {:gerente_id gid} vals))
-                                            @form-inputs)}]))}
-             "Calcular Bônus"])
+         (cond
+           (and loading? (empty? results))
+           [:div.card [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"}} "Carregando…"]]
 
-          (when (seq results)
-            [:div {:style {:margin-top "24px"}}
-             (if loading?
-               [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}}
-                "Carregando..."]
-               [tbl/data-table
-                {:columns  [{:key :gerente_name  :label "Gerente"}
-                            {:key :meta_mrr     :label "Meta MRR"}
-                            {:key :pct_mrr      :label "% MRR"}
-                            {:key :pct_sql      :label "% SQL"}
-                            {:key :multiplicador :label "Mult."}
-                            {:key :bonus_amount  :label "Bônus (R$)"}
-                            {:key :is_final      :label "Status"
-                             :render (fn [row]
-                                       (if (:is_final row)
-                                         [badge/badge {:variant :success} "Final"]
-                                         [btn/button
-                                          {:variant :primary :size :sm
-                                           :on-click #(rf/dispatch
-                                                       [:revops/finalize-leadership
-                                                        (:id row)
-                                                        (:quarter @filter-s)
-                                                        (:year @filter-s)])}
-                                          "Finalizar"]))}]
-                 :rows     results}])])]]))))
+           (seq results)
+           [:div.card {:style {:padding 0}}
+            [:div {:style {:padding "18px 20px 0"}}
+             [:h3 "Resultados"]
+             [:div.card-sub (str (count results) " gerentes apurados")]]
+            [:table.table
+             [:thead
+              [:tr
+               [:th "Gerente"]
+               [:th.right "Meta MRR"]
+               [:th.right "% MRR"]
+               [:th.right "% SQL"]
+               [:th.right "Mult."]
+               [:th.right "Bônus"]
+               [:th "Status"]]]
+             [:tbody
+              (for [row results]
+                ^{:key (:id row)}
+                [:tr
+                 [:td.name (:gerente_name row)]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:meta_mrr row)) "—"))]
+                 [:td.right.num (str (or (pct (:pct_mrr row)) "—") "%")]
+                 [:td.right.num (str (or (pct (:pct_sql row)) "—") "%")]
+                 [:td.right.num (str (or (mult (:multiplicador row)) "—") "x")]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:bonus_amount row)) "—"))]
+                 [:td (if (:is_final row)
+                        [:span.badge.badge-paid "Final"]
+                        [:button.btn.btn-primary.btn-sm
+                         {:on-click #(rf/dispatch [:revops/finalize-leadership
+                                                    (:id row) (:quarter @filter-s) (:year @filter-s)])}
+                         "Finalizar"])]])]]])]))))

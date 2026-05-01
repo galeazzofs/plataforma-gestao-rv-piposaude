@@ -1,131 +1,35 @@
 (ns app.views.revops.policies
-  (:require [re-frame.core :as rf]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
+            [clojure.string :as str]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
-            [app.ds.inputs :as inputs]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
             [app.views.revops.policy-edit-modal :as edit-modal]
             [app.auth.subs]))
 
-(defn fmt-brl [v]
+(defn- fmt-brl-int [v]
   (when v
     (let [n (if (string? v) (js/parseFloat v) v)]
       (when-not (js/isNaN n)
-        (str "R$ " (.toLocaleString n "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))))
+        (str "R$ " (.toLocaleString (js/Math.round n) "pt-BR"))))))
+
+(defn- or-dash [v] (if (or (nil? v) (= v "")) "—" v))
 
 (def benefit-labels
-  {"SAUDE"  "Saúde"
-   "ODONTO" "Odonto"
-   "VIDA"   "Vida"})
+  {"SAUDE" "Saúde" "ODONTO" "Odonto" "VIDA" "Vida"})
 
-(defn fmt-benefit [v]
-  (or (get benefit-labels v) v "—"))
-
-(defn fmt-date [iso]
-  (if (and iso (string? iso) (>= (count iso) 10))
-    (let [[y m d] (clojure.string/split (subs iso 0 10) #"-")]
-      (str d "/" m "/" y))
-    "—"))
-
-(defn or-dash [v] (if (or (nil? v) (= v "")) "—" v))
-
-(def status-filter-options
-  [{:value ""            :label "Todos"}
-   {:value "PROJECTED"   :label "Projetado"}
-   {:value "IN_PAYMENT"  :label "Em Pagamento"}
-   {:value "SETTLED"     :label "Quitado"}
-   {:value "CANCELLED"   :label "Cancelado"}])
-
-(def segment-filter-options
-  [{:value "" :label "Todos"}
-   {:value "PP" :label "PP"}
-   {:value "P"  :label "P"}
-   {:value "M"  :label "M"}
-   {:value "G"  :label "G"}])
-
-(defn build-columns [open-edit]
-  [{:key :numero_apolice   :label "Nº Apólice"    :sortable true :width "120px"
-    :render (fn [row] (or-dash (:numero_apolice row)))}
-   {:key :client_name      :label "Cliente"       :sortable true}
-   {:key :ev_name          :label "EV"            :sortable true :width "140px"
-    :render (fn [row] (or-dash (:ev_name row)))}
-   {:key :benefit_type     :label "Benefício"     :sortable true :width "100px"
-    :render (fn [row] (fmt-benefit (:benefit_type row)))}
-   {:key :partner_operator :label "Operadora"     :sortable true :width "140px"
-    :render (fn [row] (or-dash (:partner_operator row)))}
-   {:key :mrr_for_commission :label "MRR"         :sortable true :width "120px"
-    :render (fn [row] (fmt-brl (:mrr_for_commission row)))}
-   {:key :commission_potential :label "Comissão Potencial" :sortable false :width "150px"
-    :render (fn [row] (or (fmt-brl (:commission_potential row)) "—"))}
-   {:key :commission_paid_total :label "Total Pago" :sortable false :width "130px"
-    :render (fn [row] (or (fmt-brl (:commission_paid_total row)) "—"))}
-   {:key :installments_paid :label "Meses"        :sortable true :width "90px"
-    :render (fn [row]
-              (let [paid (or (:installments_paid row) 0)]
-                (str paid "/12")))}
-   {:key :edit :label "" :sortable false :width "90px"
-    :render (fn [row]
-              [btn/button {:variant :secondary :size :sm
-                           :on-click #(open-edit row)}
-               [:<> [:span {:aria-hidden "true"} "✏️ "] "Editar"]])}])
-
-(defn filters-bar [filters on-change]
-  (let [users @(rf/subscribe [:revops/users])
-        ev-options (into [{:value "" :label "Todos"}]
-                         (->> users
-                              (filter #(= (:role %) "EV"))
-                              (sort-by :name)
-                              (map #(hash-map :value (:id %) :label (:name %)))))]
-    [:div {:style {:display "flex" :gap "12px" :align-items "flex-end" :flex-wrap "wrap" :margin-bottom "16px"}}
-     [:div {:style {:width "200px"}}
-      [inputs/select {:label "EV"
-                      :value (or (:ev_id @filters) "")
-                      :options ev-options
-                      :on-change #(do (swap! filters assoc :ev_id %)
-                                      (on-change))}]]
-     [:div {:style {:width "200px"}}
-      [inputs/select {:label "Status"
-                      :value (or (:status @filters) "")
-                      :options status-filter-options
-                      :on-change #(do (swap! filters assoc :status %)
-                                      (on-change))}]]
-     [:div {:style {:width "120px"}}
-      [inputs/select {:label "Segmento"
-                      :value (or (:segment @filters) "")
-                      :options segment-filter-options
-                      :on-change #(do (swap! filters assoc :segment %)
-                                      (on-change))}]]
-     [:div {:style {:width "100px"}}
-      [inputs/input {:label "Trimestre"
-                     :type "number"
-                     :placeholder "1-4"
-                     :value (or (:quarter @filters) "")
-                     :on-change #(do (swap! filters assoc :quarter %)
-                                      (on-change))}]]
-     [:div {:style {:width "100px"}}
-      [inputs/input {:label "Ano"
-                     :type "number"
-                     :placeholder "2026"
-                     :value (or (:year @filters) "")
-                     :on-change #(do (swap! filters assoc :year %)
-                                      (on-change))}]]
-     [btn/button {:variant :ghost :size :sm
-                  :on-click #(do (reset! filters {:status "" :segment "" :quarter "" :year "" :ev_id "" :page 1})
-                                 (on-change))}
-      "Limpar filtros"]]))
+(defn- status->badge [s]
+  (case s
+    "PROJECTED"  [:span.badge.badge-paid "Ativa"]
+    "IN_PAYMENT" [:span.badge.badge-validating "Em validação"]
+    "SETTLED"    [:span.badge.badge-paid "Ativa"]
+    "CANCELLED"  [:span.badge.badge-locked "Suspensa"]
+    [:span.badge.badge-paid "Ativa"]))
 
 (defn policies-page []
-  (let [filters (r/atom {:status "" :segment "" :quarter "" :year "" :ev_id "" :page 1})
+  (let [filters (r/atom {:status "" :segment "" :ev_id "" :page 1 :search ""})
         modal-open? (r/atom false)
-        selected-policy (r/atom nil)
-        open-edit (fn [row]
-                    (reset! selected-policy row)
-                    (reset! modal-open? true))
+        selected (r/atom nil)
+        open-edit (fn [row] (reset! selected row) (reset! modal-open? true))
         close-edit #(reset! modal-open? false)]
     (rf/dispatch [:revops/fetch-policies @filters])
     (rf/dispatch [:revops/fetch-users])
@@ -135,35 +39,105 @@
             loading? @(rf/subscribe [:revops/policies-loading?])
             user     @(rf/subscribe [:auth/current-user])
             route    @(rf/subscribe [:current-route-name])
-            fetch-fn #(rf/dispatch [:revops/fetch-policies
-                                    (-> @filters
-                                        (update :status (fn [v] (when-not (= v "") v)))
-                                        (update :segment (fn [v] (when-not (= v "") v)))
-                                        (update :quarter (fn [v] (when-not (= v "") v)))
-                                        (update :year (fn [v] (when-not (= v "") v)))
-                                        (update :ev_id (fn [v] (when-not (= v "") v))))])]
+            total    (or (:total meta) (count policies))
+            actives  (count (filter #(= (:commission_status %) "PROJECTED") (or policies [])))
+            in-validation (count (filter #(= (:commission_status %) "IN_PAYMENT") (or policies [])))
+            suspended (count (filter #(= (:commission_status %) "CANCELLED") (or policies [])))
+            fetch-fn (fn [] (rf/dispatch [:revops/fetch-policies @filters]))]
         [layout/page-shell
-         {:sidebar-items revops-shell/sidebar-items
-          :current-route route
-          :user          user
-          :title         "Apólices"
-          :subtitle      (str (or (:total meta) 0) " apólices encontradas")}
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "configuração" "apólices"]
+          :title "Apólices"
+          :subtitle (str total " apólices · " (count (->> policies (map :partner_operator) (filter some?) distinct)) " operadoras")
+          :header-actions
+          [[:div.search
+            [layout/icon "search" {:width 14 :height 14}]
+            [:input {:placeholder "PIP-XXXX, CNPJ, cliente…"
+                     :value (:search @filters)
+                     :on-change (fn [e]
+                                  (swap! filters assoc :search (.. e -target -value))
+                                  (fetch-fn))}]]
+           [:button.btn.btn-secondary
+            [layout/icon "filter" {:width 14 :height 14}] "Filtros"]
+           [:button.btn.btn-primary
+            {:on-click #(do (reset! selected nil) (reset! modal-open? true))}
+            [layout/icon "plus" {:width 14 :height 14}] "Nova apólice"]]}
 
-         [cards/card {}
-          [filters-bar filters fetch-fn]
-          (if loading?
-            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
-            [tbl/data-table
-             {:columns       (build-columns open-edit)
-              :rows          (or policies [])
-              :page          (:page meta)
-              :total-pages   (:total_pages meta)
-              :on-page-change (fn [p]
-                                (swap! filters assoc :page p)
-                                (fetch-fn))
-              :empty-message "Nenhuma apólice encontrada"}])]
+         ;; Filter chips
+         [:div.filter-row
+          [:div {:class (str "chip" (when (= "" (:status @filters)) " active"))
+                 :on-click #(do (swap! filters assoc :status "") (fetch-fn))}
+           (str "Todas (" total ")")]
+          [:div {:class (str "chip" (when (= "PROJECTED" (:status @filters)) " active"))
+                 :on-click #(do (swap! filters assoc :status "PROJECTED") (fetch-fn))}
+           (str "Ativas (" actives ")")]
+          [:div {:class (str "chip" (when (= "CANCELLED" (:status @filters)) " active"))
+                 :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
+           (str "Suspensas (" suspended ")")]
+          [:div {:class (str "chip" (when (= "IN_PAYMENT" (:status @filters)) " active"))
+                 :on-click #(do (swap! filters assoc :status "IN_PAYMENT") (fetch-fn))}
+           (str "Em validação (" in-validation ")")]
+          [:div {:style {:margin-left "auto" :font-family "var(--font-mono)" :font-size "11px"
+                         :color "var(--fg-3)"}}
+           "última sync: há 12 min"]]
+
+         ;; Table
+         [:div.card {:style {:padding 0}}
+          [:table.table
+           [:thead
+            [:tr
+             [:th "Apólice"]
+             [:th "Cliente"]
+             [:th "Operadora"]
+             [:th "EV"]
+             [:th.center "Vidas"]
+             [:th.right "MRR"]
+             [:th "Vigência"]
+             [:th "Status"]
+             [:th.right ""]]]
+           [:tbody
+            (cond
+              loading?
+              [:tr [:td {:col-span 9 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                    "Carregando…"]]
+
+              (empty? policies)
+              [:tr [:td {:col-span 9 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+                    "Nenhuma apólice encontrada"]]
+
+              :else
+              (for [p policies]
+                ^{:key (or (:id p) (:numero_apolice p))}
+                [:tr
+                 [:td.name.num (or-dash (:numero_apolice p))]
+                 [:td (or (:client_name p) "—")
+                  (when (:client_cnpj p)
+                    [:span.muted (str " · " (:client_cnpj p))])]
+                 [:td.muted (or-dash (:partner_operator p))]
+                 [:td (or-dash (:ev_name p))]
+                 [:td.center.num (str (or (:lives p) "—"))]
+                 [:td.right.strong-num (or (fmt-brl-int (:mrr_for_commission p)) "—")]
+                 [:td.num.muted (or (:vigencia p) "—")]
+                 [:td [status->badge (:commission_status p)]]
+                 [:td.right
+                  [:button.btn.btn-ghost.btn-sm
+                   {:on-click #(open-edit p)}
+                   [layout/icon "edit" {:width 12 :height 12}]]]]))]]
+          [:div {:style {:padding "12px 20px" :border-top "1px solid var(--border-subtle)"
+                         :display "flex" :justify-content "space-between"
+                         :font-family "var(--font-mono)" :font-size "11px" :color "var(--fg-3)"}}
+           [:span (str "1–" (count policies) " de " total)]
+           [:div {:style {:display "flex" :gap "8px"}}
+            [:button.btn.btn-secondary.btn-sm
+             {:disabled (<= (or (:page meta) 1) 1)
+              :on-click #(do (swap! filters update :page (fnil dec 1)) (fetch-fn))}
+             "‹"]
+            [:button.btn.btn-secondary.btn-sm
+             {:disabled (>= (or (:page meta) 1) (or (:total_pages meta) 1))
+              :on-click #(do (swap! filters update :page (fnil inc 1)) (fetch-fn))}
+             "›"]]]]
 
          [edit-modal/policy-edit-modal
           {:open? @modal-open?
-           :policy @selected-policy
+           :policy @selected
            :on-close close-edit}]]))))

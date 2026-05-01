@@ -2,17 +2,9 @@
   (:require [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.tokens :as t]
             [app.auth.subs]))
 
-(def sidebar-items
-  [{:key :cn/dashboard  :label "Apurações" :icon "📊" :route :cn/dashboard}
-   {:key :cn/simulator  :label "Simulador" :icon "🧮" :route :cn/simulator}
-   {:key :ev/dashboard  :label "Dashboard" :icon "📈" :route :ev/dashboard}
-   {:key :ev/history    :label "Histórico" :icon "📅" :route :ev/history}
-   {:key :ev/validation :label "Validação" :icon "✓"  :route :ev/validation}])
+;; CN · Dashboard de apurações — design layout: KPIs + table.
 
 ;; ── Events ──────────────────────────────────────────────────────────────────
 
@@ -36,12 +28,22 @@
  :cn/appraisals-error
  (fn [db _] (assoc-in db [:cn :appraisals-loading?] false)))
 
-;; ── Subs ─────────────────────────────────────────────────────────────────────
+;; ── Subs ────────────────────────────────────────────────────────────────────
 
 (rf/reg-sub :cn/appraisals (fn [db _] (get-in db [:cn :appraisals] [])))
 (rf/reg-sub :cn/appraisals-loading? (fn [db _] (get-in db [:cn :appraisals-loading?])))
 
-;; ── View ─────────────────────────────────────────────────────────────────────
+;; ── Helpers ─────────────────────────────────────────────────────────────────
+
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
+
+(defn- pct [v]
+  (when v (-> v js/parseFloat (* 100) (.toFixed 0))))
+
+(defn- mult [v]
+  (when v (-> v js/parseFloat (.toFixed 2)
+              (clojure.string/replace "." ","))))
 
 (defn page []
   (rf/dispatch [:cn/fetch-appraisals])
@@ -49,24 +51,73 @@
     (let [items    @(rf/subscribe [:cn/appraisals])
           loading? @(rf/subscribe [:cn/appraisals-loading?])
           user     @(rf/subscribe [:auth/current-user])
-          route    @(rf/subscribe [:current-route-name])]
+          route    @(rf/subscribe [:current-route-name])
+          rows     (or items [])
+          total    (reduce + 0 (map #(or (:commission_amount %) 0) rows))
+          months   (count rows)
+          finals   (count (filter :is_final rows))
+          avg-pct  (when (seq rows)
+                     (-> (/ (reduce + 0 (map #(or (:score_final %) 0) rows))
+                            (count rows))
+                         (* 100)))]
       [layout/page-shell
-       {:sidebar-items sidebar-items
-        :current-route route
-        :user          user
-        :title         "Minhas Apurações"}
-       (if loading?
-         [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}}
-          "Carregando..."]
-         [tbl/data-table
-          {:columns [{:key :month       :label "Mês"}
-                     {:key :year        :label "Ano"}
-                     {:key :score_final :label "Score"}
-                     {:key :multiplicador :label "Mult."}
-                     {:key :commission_amount :label "Comissão (R$)"}
-                     {:key :is_final    :label "Status"
-                      :render (fn [row]
-                                (if (:is_final row)
-                                  [badge/badge {:variant :success} "Final"]
-                                  [badge/badge {:variant :warning} "Rascunho"]))}]
-           :rows    items}])])))
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "cn" "apurações"]
+        :title "Minhas Apurações"
+        :subtitle (str months " ciclos · " finals " finalizados")
+        :header-actions
+        [[:button.btn.btn-secondary
+          {:on-click #(rf/dispatch [:navigate :cn/simulator])}
+          [layout/icon "target" {:width 14 :height 14}] "Simulador"]
+         [:button.btn.btn-secondary
+          [layout/icon "download" {:width 14 :height 14}] "Exportar"]]}
+
+       ;; KPIs
+       [:div.kpi-grid.-three
+        [:div.kpi
+         [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "total apurado"]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "—")]
+         [:div.kpi-foot (str months " ciclos")]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "score médio"]
+         [:div.kpi-value (str (or (some-> avg-pct (.toFixed 0)) "—"))
+          [:span.frac "%"]]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "check" {:width 14 :height 14}] "ciclos finais"]
+         [:div.kpi-value (str finals)]
+         [:div.kpi-foot (str (- months finals) " em rascunho")]]]
+
+       ;; Table
+       [:div.card {:style {:padding 0}}
+        [:div {:style {:padding "18px 20px 0"}}
+         [:h3 "Apurações mensais"]
+         [:div.card-sub "Score, multiplicador e valor final por mês"]]
+        [:table.table
+         [:thead
+          [:tr
+           [:th "Período"]
+           [:th.center "Score"]
+           [:th.right "Multipl."]
+           [:th.right "Comissão"]
+           [:th "Status"]]]
+         [:tbody
+          (cond
+            loading?
+            [:tr [:td {:col-span 5 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                  "Carregando…"]]
+
+            (empty? rows)
+            [:tr [:td {:col-span 5 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+                  "Nenhuma apuração disponível"]]
+
+            :else
+            (for [r rows]
+              ^{:key (str (:year r) "-" (:month r))}
+              [:tr
+               [:td.name.num (str (:month r) "/" (:year r))]
+               [:td.center.num (str (or (pct (:score_final r)) "—") "%")]
+               [:td.right.num (str (or (mult (:multiplicador r)) "—") "x")]
+               [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount r)) "—"))]
+               [:td (if (:is_final r)
+                      [:span.badge.badge-paid "Final"]
+                      [:span.badge.badge-review "Rascunho"])]]))]]]])))

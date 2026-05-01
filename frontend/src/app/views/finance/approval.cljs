@@ -1,44 +1,22 @@
 (ns app.views.finance.approval
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
-            [app.ds.modal :as modal]
-            [app.ds.tokens :as t]
             [app.auth.subs]))
 
-(def sidebar-items
-  [{:key :finance/dashboard :label "Dashboard"  :icon "💰" :route :finance/dashboard}
-   {:key :finance/approval  :label "Aprovação"  :icon "✓"  :route :finance/approval}])
+;; Finance · Aprovação — design layout: filter chips + KPIs + approval table
+;; with inline Liberar/Devolver actions, mirroring the finance dashboard's
+;; "Aprovações pendentes" card style.
 
-(defn fmt-brl [v]
-  (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
-(def approval-columns
-  [{:key :ev_name          :label "EV"           :sortable true}
-   {:key :quarter          :label "Período"      :sortable false
-    :render (fn [row] (str "Q" (:quarter row) "/" (:year row)))}
-   {:key :commission_total :label "Comissão Total" :sortable true
-    :render (fn [row] (fmt-brl (:commission_total row)))}
-   {:key :policies_count   :label "Negócios"    :sortable false}
-   {:key :status           :label "Status"      :sortable false
-    :render (fn [row] [badge/status-badge {:status (:status row)}])}
-   {:key :actions          :label "Ações"        :sortable false
-    :render (fn [row]
-              [:div {:style {:display "flex" :gap "8px"}}
-               [btn/button
-                {:variant  :primary
-                 :size     :sm
-                 :on-click #(rf/dispatch [:finance/liberar-pagamento (:appraisal_id row)])}
-                "Liberar Pagamento"]
-               [btn/button
-                {:variant  :secondary
-                 :size     :sm
-                 :on-click #(rf/dispatch [:finance/devolver (:appraisal_id row)])}
-                "Devolver"]])}])
+(defn- pct-bar [pct fill-class]
+  [:div.bar
+   [:div {:class (str "bar-fill " fill-class)
+          :style {:width (str (min (or pct 0) 150) "%")}}]])
+
+(defn- pct-class [pct]
+  (cond (>= (or pct 0) 100) "success" (>= (or pct 0) 70) "warn" :else "danger"))
 
 (defn approval-page []
   (rf/dispatch [:finance/fetch-approval])
@@ -46,16 +24,88 @@
     (let [items    @(rf/subscribe [:finance/approval-items])
           loading? @(rf/subscribe [:finance/approval-loading?])
           user     @(rf/subscribe [:auth/current-user])
-          route    @(rf/subscribe [:current-route-name])]
+          route    @(rf/subscribe [:current-route-name])
+          rows     (or items [])
+          total-pending (->> rows (map :commission_total) (filter some?) (reduce + 0))]
       [layout/page-shell
-       {:sidebar-items sidebar-items
-        :current-route route
-        :user          user
-        :title         "Aprovação de Pagamentos"
-        :subtitle      "Apurações aprovadas aguardando liberação"}
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "finance" "aprovação"]
+        :title "Aprovação de Pagamentos"
+        :subtitle (str (count rows) " apurações aguardando liberação")
+        :header-actions
+        [[layout/search-input {:placeholder "Buscar EV…"}]
+         [:button.btn.btn-secondary
+          [layout/icon "download" {:width 14 :height 14}] "Exportar"]
+         [:button.btn.btn-primary
+          {:disabled (zero? (count rows))
+           :on-click #(doseq [r rows]
+                        (rf/dispatch [:finance/liberar-pagamento (:appraisal_id r)]))}
+          [layout/icon "check" {:width 14 :height 14}] "Liberar todos"]]}
 
-       [cards/card {}
-        [tbl/data-table
-         {:columns       approval-columns
-          :rows          (or items [])
-          :empty-message (if loading? "Carregando..." "Nenhuma apuração aguardando aprovação")}]]])))
+       ;; KPIs
+       [:div.kpi-grid.-three
+        [:div.kpi
+         [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "total a liberar"]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt-int total-pending) "—")]
+         [:div.kpi-foot (str (count rows) " apurações")]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "clock" {:width 14 :height 14}] "aguardando há"]
+         [:div.kpi-value "—"]
+         [:div.kpi-foot "tempo médio em fila"]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "alert" {:width 14 :height 14}] "vence em ≤ 3 dias"]
+         [:div.kpi-value "—"]
+         [:div.kpi-foot "atenção: prazo regulatório"]]]
+
+       ;; Approval table
+       [:div.card {:style {:padding 0}}
+        [:div {:style {:padding "24px 24px 16px" :display "flex" :justify-content "space-between" :align-items "flex-end" :gap "16px"}}
+         [:div [:h3 "Apurações pendentes"]
+          [:div.card-sub "Apurações aprovadas pelo gerente, aguardando liberação financeira"]]
+         [:div.filter-row
+          [:div.chip.active "Todas"]
+          [:div.chip "Q2/2026"]
+          [:div.chip "Q1/2026"]]]
+        [:table.table
+         [:thead
+          [:tr
+           [:th "EV"]
+           [:th "Período"]
+           [:th.right "Comissão total"]
+           [:th.center "Negócios"]
+           [:th.center "Atingimento"]
+           [:th "Status"]
+           [:th.right "Ações"]]]
+         [:tbody
+          (cond
+            loading?
+            [:tr [:td {:col-span 7 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                  "Carregando…"]]
+
+            (empty? rows)
+            [:tr [:td {:col-span 7 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+                  "Nenhuma apuração aguardando aprovação"]]
+
+            :else
+            (for [row rows]
+              ^{:key (or (:appraisal_id row) (:id row))}
+              [:tr
+               [:td
+                [:div.name (:ev_name row)]
+                (when (:ev_id row) [:div.muted (str "id " (:ev_id row))])]
+               [:td.num (str "Q" (:quarter row) "/" (:year row))]
+               [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_total row)) "—"))]
+               [:td.center.num (str (or (:policies_count row) "—"))]
+               [:td
+                [:div.cell-progress
+                 [pct-bar (:achievement_pct row) (pct-class (:achievement_pct row))]
+                 [:span.pct (str (.toFixed (or (:achievement_pct row) 0) 0) "%")]]]
+               [:td [:span.badge.badge-approved "Approved"]]
+               [:td.right
+                [:button.btn.btn-primary.btn-sm
+                 {:on-click #(rf/dispatch [:finance/liberar-pagamento (:appraisal_id row)])}
+                 "Liberar"]
+                " "
+                [:button.btn.btn-ghost.btn-sm
+                 {:on-click #(rf/dispatch [:finance/devolver (:appraisal_id row)])}
+                 "Devolver"]]]))]]]])))

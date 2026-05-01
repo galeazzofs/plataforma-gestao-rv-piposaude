@@ -1,15 +1,11 @@
 (ns app.views.revops.users
-  (:require [re-frame.core :as rf]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
+            [clojure.string :as str]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
             [app.ds.modal :as modal]
             [app.ds.inputs :as inputs]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
+            [app.ds.buttons :as btn]
             [app.auth.subs]))
 
 (def role-options
@@ -19,137 +15,151 @@
    {:value "FINANCE" :label "Financeiro"}
    {:value "ADMIN"   :label "Admin (RevOps)"}])
 
-(def role-badge-variant
-  {"EV"      :success
-   "CN"      :warning
-   "GERENTE" :info
-   "FINANCE" :info
-   "ADMIN"   :default})
-
-(defn empty-form [] {:name "" :email "" :role "" :team_id ""})
+(defn- empty-form [] {:name "" :email "" :role "" :team_id ""})
 
 (defn- form-from-user [user-data]
   (merge (empty-form)
          (select-keys (or user-data {}) [:name :email :role :team_id])
          (when (:team_id user-data) {:team_id (str (:team_id user-data))})))
 
-(defn user-modal [{:keys [user-data]}]
-  ;; Form-2: seed the local form atom from props on mount. The parent
-  ;; passes a :key so this remounts (and re-seeds) when the target row changes.
-  (let [form (r/atom (form-from-user user-data))]
-    (fn [{:keys [open? on-close user-data teams]}]
-      (let [editing? (some? (:id user-data))]
-        [modal/modal {:open?    open?
-                      :on-close on-close
-                      :title    (if editing? "Editar Usuário" "Novo Usuário")
-                      :size     :md}
-         [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-          [inputs/input
-           {:label     "Nome"
-            :value     (:name @form)
-            :required  true
-            :on-change #(swap! form assoc :name %)}]
-          [inputs/input
-           {:label     "E-mail"
-            :value     (:email @form)
-            :type      "email"
-            :required  true
-            :on-change #(swap! form assoc :email %)}]
-          [inputs/select
-           {:label     "Role"
-            :value     (:role @form)
-            :options   role-options
-            :required  true
-            :on-change #(swap! form assoc :role %)}]
-          [inputs/select
-           {:label     "Time"
-            :value     (or (:team_id @form) "")
-            :options   (into [{:value "" :label "Sem time"}]
-                             (map #(hash-map :value (str (:id %)) :label (:name %))
-                                  (or teams [])))
-            :on-change #(swap! form assoc :team_id %)}]
-          [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
-           [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
-           [btn/button
-            {:variant  :primary
-             :disabled (or (clojure.string/blank? (:name @form))
-                           (clojure.string/blank? (:email @form))
-                           (clojure.string/blank? (:role @form)))
-             :on-click (fn []
-                         (let [payload (-> @form
-                                           ;; "" → nil so the backend stores NULL, not ""
-                                           (update :team_id (fn [v] (when-not (clojure.string/blank? v) v))))]
-                           (if editing?
-                             (rf/dispatch [:revops/update-user (:id user-data) (dissoc payload :email)])
-                             (rf/dispatch [:revops/create-user payload])))
-                         (on-close))}
-            (if editing? "Salvar" "Criar")]]]]))))
+(defn- initials [name]
+  (let [parts (->> (str/split (or name "") #"\s+") (filter seq) (take 2))]
+    (->> parts (map (fn [p] (subs p 0 1))) (apply str) str/upper-case)))
+
+(defn user-modal []
+  (let [form (r/atom (empty-form))]
+    (r/create-class
+      {:component-did-mount
+       (fn [this]
+         (let [{:keys [user-data]} (-> this .-props .-argv second)]
+           (reset! form (form-from-user user-data))))
+       :reagent-render
+       (fn [{:keys [open? on-close user-data teams]}]
+         (let [editing? (some? (:id user-data))]
+           [modal/modal {:open? open? :on-close on-close
+                         :title (if editing? "Editar Usuário" "Novo Usuário") :size :md}
+            [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
+             [inputs/input {:label "Nome" :value (:name @form) :required true
+                            :on-change #(swap! form assoc :name %)}]
+             [inputs/input {:label "E-mail" :value (:email @form) :type "email" :required true
+                            :on-change #(swap! form assoc :email %)}]
+             [inputs/select {:label "Role" :value (:role @form) :options role-options :required true
+                             :on-change #(swap! form assoc :role %)}]
+             [inputs/select {:label "Time"
+                             :value (or (:team_id @form) "")
+                             :options (into [{:value "" :label "Sem time"}]
+                                            (map #(hash-map :value (str (:id %)) :label (:name %))
+                                                 (or teams [])))
+                             :on-change #(swap! form assoc :team_id %)}]
+             [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
+              [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
+              [btn/button
+               {:variant :primary
+                :disabled (or (str/blank? (:name @form))
+                              (str/blank? (:email @form))
+                              (str/blank? (:role @form)))
+                :on-click (fn []
+                            (let [payload (-> @form
+                                              (update :team_id #(when-not (str/blank? %) %)))]
+                              (if editing?
+                                (rf/dispatch [:revops/update-user (:id user-data) (dissoc payload :email)])
+                                (rf/dispatch [:revops/create-user payload])))
+                            (on-close))}
+               (if editing? "Salvar" "Criar")]]]]))})))
 
 (defn users-page []
   (rf/dispatch [:revops/fetch-users])
   (rf/dispatch [:revops/fetch-teams])
-  (let [modal-open?    (r/atom false)
-        editing-user   (r/atom nil)
-        confirm-open?  (r/atom false)
-        confirm-row    (r/atom nil)
-        user-columns [{:key :name  :label "Nome"  :sortable true}
-                      {:key :email :label "E-mail" :sortable false}
-                      {:key :role  :label "Role"  :sortable false  :width "120px"
-                       :render (fn [row]
-                                 [badge/badge
-                                  {:variant (get role-badge-variant (:role row) :default)}
-                                  (:role row)])}
-                      {:key :team_name :label "Time" :sortable false}
-                      {:key :actions   :label ""    :sortable false  :width "120px"
-                       :render (fn [row]
-                                 [:div {:style {:display "flex" :gap "6px"}}
-                                  [btn/button {:variant :ghost :size :sm
-                                               :on-click #(do (reset! editing-user row)
-                                                              (reset! modal-open? true))}
-                                   "Editar"]
-                                  [btn/button {:variant :danger :size :sm
-                                               :on-click #(do (reset! confirm-row row)
-                                                              (reset! confirm-open? true))}
-                                   "Remover"]])}]]
+  (let [modal-open?  (r/atom false)
+        editing-user (r/atom nil)
+        confirm-open?(r/atom false)
+        confirm-row  (r/atom nil)
+        active-role  (r/atom nil)]
     (fn []
-      (let [users    @(rf/subscribe [:revops/users])
-            teams    @(rf/subscribe [:revops/teams])
-            loading? @(rf/subscribe [:revops/users-loading?])
-            user     @(rf/subscribe [:auth/current-user])
-            route    @(rf/subscribe [:current-route-name])]
+      (let [users     @(rf/subscribe [:revops/users])
+            teams     @(rf/subscribe [:revops/teams])
+            loading?  @(rf/subscribe [:revops/users-loading?])
+            user      @(rf/subscribe [:auth/current-user])
+            route     @(rf/subscribe [:current-route-name])
+            counts    (frequencies (map :role (or users [])))
+            shown     (if @active-role
+                        (filter #(= (:role %) @active-role) (or users []))
+                        (or users []))]
         [layout/page-shell
-         {:sidebar-items revops-shell/sidebar-items
-          :current-route route
-          :user          user
-          :title         "Usuários"
-          :subtitle      "Gerenciar usuários da plataforma"
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "configuração" "usuários"]
+          :title "Usuários"
+          :subtitle (str (count users) " ativos · 5 perfis")
           :header-actions
-          [btn/button
-           {:variant  :primary
-            :on-click #(do (reset! editing-user nil)
-                           (reset! modal-open? true))}
-           "+ Novo Usuário"]}
+          [[layout/search-input {:placeholder "Nome, e-mail…"}]
+           [:button.btn.btn-primary
+            {:on-click #(do (reset! editing-user nil) (reset! modal-open? true))}
+            [layout/icon "plus" {:width 14 :height 14}] "Convidar usuário"]]}
 
-         [cards/card {}
-          [tbl/data-table
-           {:columns       user-columns
-            :rows          (or users [])
-            :empty-message (if loading? "Carregando..." "Nenhum usuário encontrado")}]]
+         [:div.filter-row
+          [:div {:class (str "chip" (when (nil? @active-role) " active"))
+                 :on-click #(reset! active-role nil)}
+           (str "Todos (" (count users) ")")]
+          (for [role ["EV" "CN" "GERENTE" "FINANCE" "ADMIN"]]
+            ^{:key role}
+            [:div {:class (str "chip" (when (= @active-role role) " active"))
+                   :on-click #(reset! active-role role)}
+             (str role " (" (or (counts role) 0) ")")])]
+
+         [:div.card {:style {:padding 0}}
+          [:table.table
+           [:thead
+            [:tr
+             [:th "Usuário"]
+             [:th "E-mail"]
+             [:th "Perfil"]
+             [:th "Time"]
+             [:th "Status"]
+             [:th.right "Ações"]]]
+           [:tbody
+            (cond
+              loading?
+              [:tr [:td {:col-span 6 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                    "Carregando…"]]
+
+              (empty? shown)
+              [:tr [:td {:col-span 6 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+                    "Nenhum usuário encontrado"]]
+
+              :else
+              (for [u shown]
+                ^{:key (:id u)}
+                [:tr
+                 [:td
+                  [:div {:style {:display "flex" :gap "10px" :align-items "center"}}
+                   [:div.avatar {:style {:width "28px" :height "28px" :font-size "11px"}}
+                    (initials (:name u))]
+                   [:div.name (:name u)]]]
+                 [:td.muted (:email u)]
+                 [:td [:span.badge.badge-locked (:role u)]]
+                 [:td (or (:team_name u) "—")]
+                 [:td [:span.badge.badge-approved "Ativo"]]
+                 [:td.right
+                  [:button.btn.btn-ghost.btn-sm
+                   {:on-click #(do (reset! editing-user u) (reset! modal-open? true))}
+                   [layout/icon "edit" {:width 12 :height 12}]]
+                  " "
+                  [:button.btn.btn-danger.btn-sm
+                   {:on-click #(do (reset! confirm-row u) (reset! confirm-open? true))}
+                   "Remover"]]]))]]]
 
          ^{:key (str "user-modal-" (or (:id @editing-user) "new") "-" @modal-open?)}
-         [user-modal {:open?     @modal-open?
-                      :on-close  #(reset! modal-open? false)
-                      :user-data @editing-user
-                      :teams     teams}]
+         [user-modal {:open? @modal-open? :on-close #(reset! modal-open? false)
+                      :user-data @editing-user :teams teams}]
 
          [modal/confirm-dialog
-          {:open?         @confirm-open?
-           :on-close      #(reset! confirm-open? false)
-           :on-confirm    (fn []
-                            (when-let [row @confirm-row]
-                              (rf/dispatch [:revops/delete-user (:id row)]))
-                            (reset! confirm-open? false))
-           :title         "Confirmar remoção"
-           :message       (str "Remover " (:name @confirm-row) "?")
+          {:open? @confirm-open?
+           :on-close #(reset! confirm-open? false)
+           :on-confirm (fn []
+                         (when-let [row @confirm-row]
+                           (rf/dispatch [:revops/delete-user (:id row)]))
+                         (reset! confirm-open? false))
+           :title "Confirmar remoção"
+           :message (str "Remover " (:name @confirm-row) "?")
            :confirm-label "Remover"
-           :variant       :danger}]]))))
+           :variant :danger}]]))))

@@ -1,56 +1,47 @@
 (ns app.views.revops.goals
-  (:require [re-frame.core :as rf]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
+            [clojure.string :as str]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.table :as tbl]
-            [app.ds.buttons :as btn]
-            [app.ds.inputs :as inputs]
             [app.ds.modal :as modal]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
+            [app.ds.inputs :as inputs]
+            [app.ds.buttons :as btn]
             [app.auth.subs]))
 
-(defn fmt-brl [v]
-  (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
-(defn goal-row [_]
+(defn- goal-row []
   (let [editing? (r/atom false)
         value    (r/atom 0)]
     (fn [{:keys [row on-edit]}]
-      [:tr {:style {:border-bottom (str "1px solid " t/border-default)}}
-       [:td {:style {:padding "12px 16px" :color t/text-primary}} (:ev_name row)]
-       [:td {:style {:padding "12px 16px" :color t/text-secondary :font-size (:sm t/font-sizes)}}
-        [:span {:style {:background t/beige-100 :color t/beige-700 :padding "2px 8px"
-                        :border-radius (:full t/border-radius) :font-size (:xs t/font-sizes)
-                        :font-weight (:semibold t/font-weights)}}
-         (str "Q" (:quarter row) "/" (:year row))]]
-       [:td {:style {:padding "12px 16px" :text-align "right"}}
+      [:tr
+       [:td.name (:ev_name row)]
+       [:td [:span.badge.badge-locked (str "Q" (:quarter row) "/" (:year row))]]
+       [:td.right
         (if @editing?
-          [:input {:type      "number"
-                   :value     @value
-                   :style     {:padding "6px 10px" :border (str "1px solid " t/border-default)
-                               :border-radius (:md t/border-radius) :width "140px"
-                               :font-size (:sm t/font-sizes) :text-align "right"}
-                   :on-change #(reset! value (js/parseFloat (.. % -target -value)))}]
-          [:span {:style {:font-weight (:semibold t/font-weights)}} (fmt-brl (:amount row))])]
-       [:td {:style {:padding "12px 16px" :text-align "right"}}
+          [:input.field-input
+           {:type "number"
+            :style {:width "140px" :text-align "right" :padding "6px 10px"}
+            :value @value
+            :on-change #(reset! value (js/parseFloat (.. % -target -value)))}]
+          [:span.strong-num (str "R$ " (or (fmt-int (:amount row)) "—"))])]
+       [:td.right
         (if @editing?
-          [:div {:style {:display "flex" :gap "6px" :justify-content "flex-end"}}
-           [btn/button {:variant :primary :size :sm
-                        :on-click (fn []
-                                    (on-edit (:id row) {:amount @value})
-                                    (reset! editing? false))}
+          [:<>
+           [:button.btn.btn-primary.btn-sm
+            {:on-click (fn []
+                         (on-edit (:id row) {:amount @value})
+                         (reset! editing? false))}
             "Salvar"]
-           [btn/button {:variant :secondary :size :sm
-                        :on-click #(reset! editing? false)}
-            "Cancelar"]]
-          [btn/button {:variant :ghost :size :sm
-                       :on-click #(reset! editing? true)}
-           "Editar"])]])))
+           " "
+           [:button.btn.btn-secondary.btn-sm
+            {:on-click #(reset! editing? false)} "Cancelar"]]
+          [:button.btn.btn-ghost.btn-sm
+           {:on-click #(do (reset! value (or (:amount row) 0)) (reset! editing? true))}
+           [layout/icon "edit" {:width 12 :height 12}] " Editar"])]])))
 
-(defn new-goal-modal [_]
+(defn- new-goal-modal []
   (let [form (r/atom {:ev_id "" :quarter "" :year "" :mrr_target ""})]
     (fn [{:keys [open? on-close users]}]
       (let [quarter-opts [{:value "" :label "Selecione"}
@@ -59,8 +50,8 @@
             ev-opts (into [{:value "" :label "Selecione o EV"}]
                           (map #(hash-map :value (str (:id %)) :label (:name %))
                                (filter #(#{"EV" "CN"} (:role %)) (or users []))))]
-        [app.ds.modal/modal {:open? open? :on-close on-close
-                             :title "Nova Meta" :size :sm}
+        [modal/modal {:open? open? :on-close on-close
+                      :title "Nova Meta" :size :sm}
          [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
           [inputs/select {:label "EV" :required true
                           :value (:ev_id @form) :options ev-opts
@@ -78,51 +69,18 @@
           [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
            [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
            [btn/button {:variant :primary
-                        :disabled (or (clojure.string/blank? (:ev_id @form))
-                                      (clojure.string/blank? (:quarter @form))
-                                      (clojure.string/blank? (:year @form))
-                                      (clojure.string/blank? (:mrr_target @form)))
+                        :disabled (or (str/blank? (:ev_id @form))
+                                      (str/blank? (:quarter @form))
+                                      (str/blank? (:year @form))
+                                      (str/blank? (:mrr_target @form)))
                         :on-click (fn []
                                     (rf/dispatch [:revops/create-goal
-                                                  {:ev_id      (:ev_id @form)
-                                                   :quarter    (js/parseInt (:quarter @form))
-                                                   :year       (js/parseInt (:year @form))
+                                                  {:ev_id (:ev_id @form)
+                                                   :quarter (js/parseInt (:quarter @form))
+                                                   :year (js/parseInt (:year @form))
                                                    :mrr_target (js/parseFloat (:mrr_target @form))}])
                                     (on-close))}
             "Criar Meta"]]]]))))
-
-(defn goals-table [goals loading?]
-  [cards/card {}
-   (if loading?
-     [:div {:style {:padding "64px" :text-align "center"}}
-      [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
-       [:span {:style {:font-size "32px"}} "⏳"]
-       [:span {:style {:color t/text-secondary}} "Carregando metas..."]]]
-     (if (empty? goals)
-       [:div {:style {:padding "64px" :text-align "center"}}
-        [:div {:style {:display "flex" :flex-direction "column" :align-items "center" :gap "8px"}}
-         [:span {:style {:font-size "32px"}} "🎯"]
-         [:span {:style {:color t/text-secondary}} "Nenhuma meta encontrada"]
-         [:span {:style {:color t/text-disabled :font-size (:xs t/font-sizes)}} "Crie uma meta para começar"]]]
-       [:div {:style {:overflow-x "auto"}}
-        [:table {:style {:width "100%" :border-collapse "collapse" :font-size (:sm t/font-sizes)}}
-         [:thead
-          [:tr {:style {:background t/bg-main :border-bottom (str "1px solid " t/border-default)}}
-           [:th {:style {:padding "10px 16px" :text-align "left" :color t/text-secondary
-                         :font-size (:xs t/font-sizes) :text-transform "uppercase"
-                         :letter-spacing "0.06em" :font-weight (:semibold t/font-weights)}} "EV"]
-           [:th {:style {:padding "10px 16px" :text-align "left" :color t/text-secondary
-                         :font-size (:xs t/font-sizes) :text-transform "uppercase"
-                         :letter-spacing "0.06em" :font-weight (:semibold t/font-weights)}} "Período"]
-           [:th {:style {:padding "10px 16px" :text-align "right" :color t/text-secondary
-                         :font-size (:xs t/font-sizes) :text-transform "uppercase"
-                         :letter-spacing "0.06em" :font-weight (:semibold t/font-weights)}} "Valor (Meta)"]
-           [:th {:style {:padding "10px 16px" :width "160px"}}]]]
-         [:tbody
-          (for [g (or goals [])]
-            ^{:key (:id g)}
-            [goal-row {:row g :on-edit (fn [id payload]
-                                          (rf/dispatch [:revops/update-goal id payload]))}])]]]))])
 
 (defn goals-page []
   (rf/dispatch [:revops/fetch-goals])
@@ -133,24 +91,60 @@
             loading? @(rf/subscribe [:revops/goals-loading?])
             users    @(rf/subscribe [:revops/users])
             user     @(rf/subscribe [:auth/current-user])
-            route    @(rf/subscribe [:current-route-name])]
-        [:<>
-         [layout/page-shell
-          {:sidebar-items revops-shell/sidebar-items
-           :current-route route
-           :user          user
-           :title         "Metas"
-           :subtitle      "Gerenciar metas por EV, trimestre e ano"
-           :header-actions
-           [:div {:style {:display "flex" :gap "10px" :align-items "center"}}
-            [inputs/file-upload
-             {:label  "Importar XLSX"
-              :accept ".xlsx,.xls"
-              :on-file #(rf/dispatch [:revops/import-goals %])}]
-            [btn/button {:variant :primary
-                         :on-click #(reset! modal-open? true)}
-             "+ Nova Meta"]]}
-          [goals-table goals loading?]]
-         [new-goal-modal {:open?    @modal-open?
+            route    @(rf/subscribe [:current-route-name])
+            total    (reduce + 0 (map #(or (:amount %) 0) (or goals [])))]
+        [layout/page-shell
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "configuração" "metas"]
+          :title "Metas"
+          :subtitle (str (count (or goals [])) " metas configuradas")
+          :header-actions
+          [[:label.btn.btn-secondary {:style {:cursor "pointer"}}
+            [layout/icon "upload" {:width 14 :height 14}] "Importar XLSX"
+            [:input {:type "file" :accept ".xlsx,.xls" :style {:display "none"}
+                     :on-change (fn [e]
+                                  (when-let [f (-> e .-target .-files (aget 0))]
+                                    (rf/dispatch [:revops/import-goals f])))}]]
+           [:button.btn.btn-primary
+            {:on-click #(reset! modal-open? true)}
+            [layout/icon "plus" {:width 14 :height 14}] "Nova meta"]]}
+
+         [:div.kpi-grid.-three
+          [:div.kpi
+           [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "metas configuradas"]
+           [:div.kpi-value (str (count (or goals [])))]]
+          [:div.kpi
+           [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "MRR meta total"]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "—")]]
+          [:div.kpi
+           [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs com meta"]
+           [:div.kpi-value (str (count (distinct (map :ev_id (or goals [])))))]]]
+
+         [:div.card {:style {:padding 0}}
+          [:table.table
+           [:thead
+            [:tr
+             [:th "EV"]
+             [:th "Período"]
+             [:th.right "Valor (Meta)"]
+             [:th.right "Ações"]]]
+           [:tbody
+            (cond
+              loading?
+              [:tr [:td {:col-span 4 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                    "Carregando…"]]
+
+              (empty? goals)
+              [:tr [:td {:col-span 4 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+                    "Nenhuma meta encontrada · crie a primeira para começar"]]
+
+              :else
+              (for [g goals]
+                ^{:key (:id g)}
+                [goal-row {:row g
+                           :on-edit (fn [id payload]
+                                      (rf/dispatch [:revops/update-goal id payload]))}]))]]]
+
+         [new-goal-modal {:open? @modal-open?
                           :on-close #(reset! modal-open? false)
-                          :users    users}]]))))
+                          :users users}]]))))

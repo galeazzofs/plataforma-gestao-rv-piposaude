@@ -1,38 +1,36 @@
 (ns app.views.revops.financial-upload
-  (:require [re-frame.core :as rf]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
+            [clojure.string :as str]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
             [app.ds.inputs :as inputs]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
 
-(defn upload-form []
-  (let [form (r/atom {:quarter 1 :year 2026 :file nil})]
-    (fn []
-      [:div {:style {:display "flex" :flex-direction "column" :gap "20px"}}
-       [:div {:style {:display "flex" :gap "16px" :padding "16px"
-                      :background t/beige-100
-                      :border-radius (:md t/border-radius)
-                      :align-items "flex-start"}}
-        [:span {:style {:font-size "20px"}} [:span {:aria-hidden "true"} "ℹ️"]]
-        [:div {:style {:flex 1}}
-         [:p {:style {:color t/text-primary :margin "0 0 8px 0"
-                      :font-size (:sm t/font-sizes)
-                      :line-height "1.6"}}
-          "Faça upload do arquivo XLSX no formato \"Consulta - Follow up Faturamento\". "
-          "O sistema vai detectar os cabeçalhos automaticamente."]
-         [:p {:style {:color t/text-secondary :margin "0"
-                      :font-size (:xs t/font-sizes)
-                      :line-height "1.5"}}
-          "Filtros aplicados: status RECEBIDO, dentro do trimestre escolhido, "
-          "Cliente \"Mãe\" e NF Líquido preenchidos. "
-          "Re-upload do mesmo trimestre substitui as linhas existentes "
-          "(salvo se a apuração já estiver LOCKED)."]]]
+;; Upload Financeiro — design's dropzone + history table.
 
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
+
+(defn- upload-result-stats [result]
+  (let [stats (or (:stats result) {})]
+    [:div.callout {:style {:border-color "var(--success-light)" :background "var(--success-lightest)"}}
+     [layout/icon "check" {:width 20 :height 20}]
+     [:div {:style {:flex 1}}
+      [:strong (str "Upload concluído — " (or (:rows_persisted result) 0) " linhas persistidas")]
+      [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
+       (str/join " · "
+                 (for [[k label] [[:total_lidas "lidas"] [:persistidas "persistidas"]
+                                  [:descartadas_status "status ≠ RECEBIDO"]
+                                  [:descartadas_periodo "fora do período"]
+                                  [:descartadas_vazias "vazias"]]
+                       :let [v (get stats k 0)]
+                       :when (some? v)]
+                   (str (or v 0) " " label)))]]]))
+
+(defn- upload-form []
+  (let [form (r/atom {:quarter 1 :year 2026 :file nil})]
+    (fn [{:keys [on-file kind]}]
+      [:div {:style {:display "flex" :flex-direction "column" :gap "20px"}}
        [:div {:style {:display "flex" :gap "12px"}}
         [:div {:style {:width "150px"}}
          [inputs/select
@@ -45,241 +43,119 @@
          [inputs/select
           {:label "Ano"
            :value (str (:year @form))
-           :options [{:value "2024" :label "2024"}
-                     {:value "2025" :label "2025"}
-                     {:value "2026" :label "2026"}
-                     {:value "2027" :label "2027"}]
+           :options [{:value "2024" :label "2024"} {:value "2025" :label "2025"}
+                     {:value "2026" :label "2026"} {:value "2027" :label "2027"}]
            :on-change #(swap! form assoc :year (js/parseInt %))}]]]
 
-       [inputs/file-upload
-        {:label "Arquivo Financeiro (.xlsx)"
-         :accept ".xlsx,.xls"
-         :on-file (fn [file]
-                    (swap! form assoc :file file)
-                    (rf/dispatch [:revops/upload-financial
-                                  file
-                                  (:quarter @form)
-                                  (:year @form)]))}]])))
-
-(defn result-view [result]
-  (let [stats (:stats result)]
-    [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-     [:div {:style {:padding "16px" :background t/success-light
-                    :border-radius (:md t/border-radius)
-                    :color t/success-dark}}
-      [:strong (str "✅ Upload concluído — "
-                    (:rows_persisted result) " linhas persistidas")]]
-
-     [:div {:style {:display "grid"
-                    :grid-template-columns "repeat(5, 1fr)"
-                    :gap "12px"}}
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Total lidas"]
-       [:div {:style {:font-size (:lg t/font-sizes)
-                      :font-weight (:semibold t/font-weights)}}
-        (str (:total_lidas stats 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Persistidas"]
-       [:div {:style {:font-size (:lg t/font-sizes)
-                      :font-weight (:semibold t/font-weights)
-                      :color t/success-default}}
-        (str (:persistidas stats 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Status ≠ RECEBIDO"]
-       [:div {:style {:font-size (:lg t/font-sizes)}}
-        (str (:descartadas_status stats 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Fora do período"]
-       [:div {:style {:font-size (:lg t/font-sizes)}}
-        (str (:descartadas_periodo stats 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Vazias / inválidas"]
-       [:div {:style {:font-size (:lg t/font-sizes)}}
-        (str (:descartadas_vazias stats 0))]]]
-
-     [:div {:style {:padding "12px" :background t/bg-main
-                    :border-radius (:md t/border-radius)
-                    :font-size (:sm t/font-sizes)
-                    :color t/text-secondary}}
-      "Próximo passo: vá para "
-      [:strong "Apuração"]
-      " e clique em ▶ Iniciar Cálculo. "
-      "O sistema vai matchear as NFs com as Apólices e gerar as comissões."]
-
-     [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
-      [btn/button {:variant :secondary
-                   :on-click #(rf/dispatch [:revops/upload-reset])}
-       "Novo Upload"]
-      [btn/button {:variant :primary
-                   :on-click #(rf/dispatch [:navigate! :revops/appraisal])}
-       "Ir para Apuração →"]]]))
-
-(defn perk-upload-form []
-  (let [form (r/atom {:quarter 1 :year 2026 :file nil})]
-    (fn []
-      [:div {:style {:display "flex" :flex-direction "column" :gap "20px"}}
-       [:div {:style {:display "flex" :gap "16px" :padding "16px"
-                      :background t/beige-100
-                      :border-radius (:md t/border-radius)
-                      :align-items "flex-start"}}
-        [:span {:style {:font-size "20px"}} [:span {:aria-hidden "true"} "ℹ️"]]
-        [:div {:style {:flex 1}}
-         [:p {:style {:color t/text-primary :margin "0 0 8px 0"
-                      :font-size (:sm t/font-sizes)
-                      :line-height "1.6"}}
-          "Faça upload da planilha de subsídios/perks. "
-          "O sistema vai detectar as colunas \"Cliente Pipo\", \"Valor\", "
-          "\"Mês (Competência)\" e \"Ano\" automaticamente."]
-         [:p {:style {:color t/text-secondary :margin "0"
-                      :font-size (:xs t/font-sizes)
-                      :line-height "1.5"}}
-          "Os subsídios serão somados por cliente e subtraídos do total "
-          "de NFs na apuração. Re-upload substitui os subsídios existentes "
-          "do trimestre."]]]
-
-       [:div {:style {:display "flex" :gap "12px"}}
-        [:div {:style {:width "150px"}}
-         [inputs/select
-          {:label "Trimestre"
-           :value (str (:quarter @form))
-           :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
-                     {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
-           :on-change #(swap! form assoc :quarter (js/parseInt %))}]]
-        [:div {:style {:width "150px"}}
-         [inputs/select
-          {:label "Ano"
-           :value (str (:year @form))
-           :options [{:value "2024" :label "2024"}
-                     {:value "2025" :label "2025"}
-                     {:value "2026" :label "2026"}
-                     {:value "2027" :label "2027"}]
-           :on-change #(swap! form assoc :year (js/parseInt %))}]]]
-
-       [inputs/file-upload
-        {:label "Planilha de Subsídios (.xlsx)"
-         :accept ".xlsx,.xls"
-         :on-file (fn [file]
-                    (swap! form assoc :file file)
-                    (rf/dispatch [:revops/upload-perks
-                                  file
-                                  (:quarter @form)
-                                  (:year @form)]))}]])))
-
-(defn perk-result-view [result]
-  (let [stats (:stats result)]
-    [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-     [:div {:style {:padding "16px" :background t/success-light
-                    :border-radius (:md t/border-radius)
-                    :color t/success-dark}}
-      [:strong (str "✅ Upload de subsídios concluído — "
-                    (:matched result) " matched, "
-                    (:missed result) " missed")]]
-
-     [:div {:style {:display "grid"
-                    :grid-template-columns "repeat(4, 1fr)"
-                    :gap "12px"}}
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Total lidas"]
-       [:div {:style {:font-size (:lg t/font-sizes)
-                      :font-weight (:semibold t/font-weights)}}
-        (str (:total_lidas stats 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Matched"]
-       [:div {:style {:font-size (:lg t/font-sizes)
-                      :font-weight (:semibold t/font-weights)
-                      :color t/success-default}}
-        (str (:matched result 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Fora do período"]
-       [:div {:style {:font-size (:lg t/font-sizes)}}
-        (str (:descartadas_periodo stats 0))]]
-      [:div {:style {:padding "12px" :background t/bg-card
-                     :border-radius (:md t/border-radius)
-                     :border (str "1px solid " t/border-default)}}
-       [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary}}
-        "Missed"]
-       [:div {:style {:font-size (:lg t/font-sizes)
-                      :color t/error-default}}
-        (str (:missed result 0))]]]
-
-     (when (seq (:missed_clients result))
-       [:div {:style {:padding "12px" :background "#FFF3CD"
-                      :border-radius (:md t/border-radius)
-                      :font-size (:sm t/font-sizes)}}
-        [:strong "Clientes não encontrados: "]
-        (clojure.string/join ", " (:missed_clients result))])
-
-     [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
-      [btn/button {:variant :secondary
-                   :on-click #(rf/dispatch [:revops/perk-upload-reset])}
-       "Novo Upload"]]]))
+       [:label.dropzone
+        [:input {:type "file"
+                 :accept ".xlsx,.xls,.csv"
+                 :style {:display "none"}
+                 :on-change (fn [e]
+                              (let [f (-> e .-target .-files (aget 0))]
+                                (when f
+                                  (swap! form assoc :file f)
+                                  (when on-file
+                                    (on-file f (:quarter @form) (:year @form))))))}]
+        [layout/icon "upload" {:width 36 :height 36}]
+        [:strong "Solte os arquivos aqui ou clique para selecionar"]
+        [:p {:style {:font-size "12px" :max-width "340px"}}
+         (case kind
+           :perks "Aceitamos XLSX com Cliente Pipo, Valor, Mês (Competência) e Ano. Re-upload substitui os subsídios existentes do trimestre."
+           "Aceitamos CSV, XLSX, PDF (NFs). Máx. 50MB por arquivo. Os campos serão validados antes do processamento.")]
+        [:button.btn.btn-primary.btn-sm {:style {:margin-top "8px"}}
+         "Selecionar arquivos"]]])))
 
 (defn financial-upload-page []
-  (fn []
-    (let [result       @(rf/subscribe [:revops/upload-result])
-          loading?     @(rf/subscribe [:revops/upload-loading?])
-          perk-result  @(rf/subscribe [:revops/perk-upload-result])
-          perk-loading? @(rf/subscribe [:revops/perk-upload-loading?])
-          user         @(rf/subscribe [:auth/current-user])
-          route        @(rf/subscribe [:current-route-name])]
-      [layout/page-shell
-       {:sidebar-items revops-shell/sidebar-items
-        :current-route route
-        :user          user
-        :title         "Upload Financeiro"
-        :subtitle      "Importar dados financeiros e subsídios via XLSX"}
+  (let [active-tab (r/atom :all)]
+    (fn []
+      (let [result       @(rf/subscribe [:revops/upload-result])
+            loading?     @(rf/subscribe [:revops/upload-loading?])
+            perk-result  @(rf/subscribe [:revops/perk-upload-result])
+            perk-loading? @(rf/subscribe [:revops/perk-upload-loading?])
+            user         @(rf/subscribe [:auth/current-user])
+            route        @(rf/subscribe [:current-route-name])
+            ;; Design fallback for the history table.
+            history [{:file "nfs_junho_2026.csv"        :type "NFs"      :user "Lucas Pereira" :date "30/06/2026 14:22" :rows 1842 :status "approved"}
+                     {:file "comissoes_q2_revops.xlsx"  :type "Comissão" :user "Ana Souza"     :date "29/06/2026 11:08" :rows 312  :status "approved"}
+                     {:file "nfs_maio_2026.csv"          :type "NFs"      :user "Lucas Pereira" :date "31/05/2026 16:50" :rows 1798 :status "approved"}
+                     {:file "comissoes_q1_revops.xlsx"  :type "Comissão" :user "Ana Souza"     :date "15/05/2026 09:30" :rows 294  :status "review"}
+                     {:file "nfs_abril_2026.csv"         :type "NFs"      :user "Lucas Pereira" :date "30/04/2026 18:11" :rows 1756 :status "contested"}]
+            shown (case @active-tab
+                    :ok      (filter #(= (:status %) "approved") history)
+                    :error   (filter #(= (:status %) "contested") history)
+                    history)]
+        [layout/page-shell
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "operação" "upload financeiro"]
+          :title "Upload Financeiro"
+          :subtitle "NFs e comprovantes · Q2/2026"
+          :header-actions
+          [[:button.btn.btn-secondary
+            [layout/icon "download" {:width 14 :height 14}] "Modelo CSV"]]}
 
-       [cards/card {}
-        [:h3 {:style {:margin "0 0 16px 0" :font-size (:md t/font-sizes)}} "Faturamento"]
-        (cond
-          loading?
-          [:div {:style {:padding "48px" :text-align "center"
-                         :color t/text-secondary}}
-           [:div {:style {:font-size "32px" :margin-bottom "12px"}} [:span {:aria-hidden "true"} "⚙️"]]
-           "Processando arquivo..."]
-
-          result
-          [result-view result]
-
-          :else
-          [upload-form])]
-
-       [:div {:style {:margin-top "24px"}}
-        [cards/card {}
-         [:h3 {:style {:margin "0 0 16px 0" :font-size (:md t/font-sizes)}} "Subsídios / Perks"]
          (cond
-           perk-loading?
-           [:div {:style {:padding "48px" :text-align "center"
-                          :color t/text-secondary}}
-            [:div {:style {:font-size "32px" :margin-bottom "12px"}} [:span {:aria-hidden "true"} "⚙️"]]
-            "Processando subsídios..."]
+           loading?
+           [:div.dropzone
+            [layout/icon "refresh" {:width 36 :height 36 :class "spin"}]
+            [:strong "Processando arquivo…"]]
 
-           perk-result
-           [perk-result-view perk-result]
+           result
+           [upload-result-stats result]
 
            :else
-           [perk-upload-form])]]])))
+           [upload-form
+            {:kind :financial
+             :on-file (fn [f q y]
+                        (rf/dispatch [:revops/upload-financial f q y]))}])
+
+         [:div.card
+          [:div.card-head
+           [:div [:h3 "Subsídios / Perks"]
+            [:div.card-sub "Soma por cliente, descontada das NFs na apuração"]]]
+          (cond
+            perk-loading?
+            [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"}} "Processando subsídios…"]
+            perk-result
+            [:div.callout {:style {:border-color "var(--success-light)" :background "var(--success-lightest)"}}
+             [layout/icon "check" {:width 20 :height 20}]
+             [:div {:style {:flex 1}}
+              [:strong (str "Subsídios aplicados — " (count (or (:items perk-result) [])) " clientes")]]]
+            :else
+            [upload-form
+             {:kind :perks
+              :on-file (fn [f q y]
+                         (rf/dispatch [:revops/upload-perks f q y]))}])]
+
+         [:div.card {:style {:padding 0}}
+          [:div {:style {:padding "18px 20px 0" :display "flex" :justify-content "space-between" :align-items "flex-end"}}
+           [:div [:h3 "Histórico de uploads"] [:div.card-sub "Últimos 30 dias"]]
+           [:div.filter-row
+            [:div {:class (str "chip" (when (= @active-tab :all) " active"))
+                   :on-click #(reset! active-tab :all)} "Todos"]
+            [:div {:class (str "chip" (when (= @active-tab :ok) " active"))
+                   :on-click #(reset! active-tab :ok)} "Processados"]
+            [:div {:class (str "chip" (when (= @active-tab :error) " active"))
+                   :on-click #(reset! active-tab :error)} "Com erro"]]]
+          [:table.table
+           [:thead
+            [:tr
+             [:th "Arquivo"] [:th "Tipo"] [:th "Enviado por"] [:th "Data"]
+             [:th.center "Linhas"] [:th "Status"] [:th.right "Ações"]]]
+           [:tbody
+            (for [r shown]
+              ^{:key (:file r)}
+              [:tr
+               [:td.name.num (:file r)]
+               [:td (:type r)]
+               [:td (:user r)]
+               [:td.num.muted (:date r)]
+               [:td.center.num (or (fmt-int (:rows r)) "—")]
+               [:td (case (:status r)
+                      "approved"  [:span.badge.badge-approved "Processado"]
+                      "review"    [:span.badge.badge-review "Em revisão"]
+                      "contested" [:span.badge.badge-contested "Erro"]
+                      [:span.badge.badge-locked (:status r)])]
+               [:td.right
+                [:button.btn.btn-ghost.btn-sm
+                 [layout/icon "eye" {:width 12 :height 12}]]]])]]]]))))
