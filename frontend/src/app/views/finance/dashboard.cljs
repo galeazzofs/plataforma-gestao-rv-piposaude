@@ -2,19 +2,12 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.auth.subs]))
+            [app.auth.subs]
+            [app.utils.format :as fmt]))
 
 ;; Finance dashboard — design from "Visão financeira". Renders only data
 ;; returned by the API (re-frame subs); empty states stand in until the
 ;; backend has values to show.
-
-(defn fmt-brl [v]
-  (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
-
-(defn fmt-int-brl [v]
-  (when v
-    (.toLocaleString (js/Math.round v) "pt-BR")))
 
 (defn- pct-class [pct]
   (cond
@@ -129,7 +122,7 @@
           [:div.dist-bar
            [:div {:class (str "dist-bar-fill" (when (and (number? year) (< year 2026)) " beige"))
                   :style {:width (str (* 100 (/ (or amount 0) max-v)) "%")}}]]
-          [:div.dist-amount (fmt-brl amount)]])])))
+          [:div.dist-amount (fmt/fmt-brl amount)]])])))
 
 (defn- approvals-table [rows]
   [:div.card {:style {:padding 0 :overflow "hidden"}}
@@ -160,7 +153,7 @@
                        (when (and (:quarter row) (:year row))
                          (str "Q" (:quarter row) "/" (:year row)))
                        "—")]
-          [:td.right.strong-num (or (fmt-brl (:commission_total row)) "—")]
+          [:td.right.strong-num (or (fmt/fmt-brl (:commission_total row)) "—")]
           [:td.center.num (str (or (:deals row) (:policies_count row) "—"))]
           [:td [cell-progress (:achievement_pct row)]]
           [:td [:span.badge.badge-approved "Approved"]]
@@ -209,7 +202,7 @@
        [:div.kpi-grid
         [kpi {:icon "money" :label "saldo devedor total"
               :value [:<> [:span.currency "R$"]
-                      (or (fmt-int-brl saldo-total) "—")]
+                      (or (fmt/int-brl saldo-total) "—")]
               :foot (when orcado-delta
                       [:<>
                        [:span {:class (str "delta " (if (neg? orcado-delta) "delta-down" "delta-up"))}
@@ -219,13 +212,13 @@
               :grafismo "grafismo" :grafismo-color "var(--beige-light)"}]
         [kpi {:icon "clock" :label "aguardando aprovação"
               :value [:<> [:span.currency "R$"]
-                      (or (fmt-int-brl aguardando) "0")]
+                      (or (fmt/int-brl aguardando) "0")]
               :foot [:span.badge.badge-pending
                      (str (count pending-rows) " apuraç" (if (= 1 (count pending-rows)) "ão" "ões"))]
               :grafismo "grafismo-listras" :grafismo-color "var(--warning-light)"}]
         [kpi {:icon "check" :label "liberado no mês"
               :value [:<> [:span.currency "R$"]
-                      (or (fmt-int-brl released) "0")]
+                      (or (fmt/int-brl released) "0")]
               :foot (when released-delta
                       [:<>
                        [:span {:class (str "delta " (if (neg? released-delta) "delta-down" "delta-up"))}

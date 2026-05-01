@@ -2,6 +2,7 @@
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.ds.nav :as nav]
+            [app.utils.format :as fmt]
             [app.auth.subs]))
 
 ;; Re-exported for legacy callers in other revops views that still reference
@@ -10,9 +11,6 @@
 
 ;; Admin / RevOps dashboard. Renders only data from re-frame subs; empty
 ;; states stand in until the API has values.
-
-(defn- fmt-brl-int [v]
-  (when v (str "R$ " (.toLocaleString (js/Math.round v) "pt-BR"))))
 
 (defn- status->badge [status]
   (case status
@@ -35,7 +33,7 @@
    [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
    [:td [status->badge (:status a)]]
    [:td.center.num (str (or (:ev_count a) "—"))]
-   [:td.right.strong-num (or (fmt-brl-int (:total_amount a)) "—")]
+   [:td.right.strong-num (or (fmt/fmt-brl-int (:total_amount a)) "—")]
    [:td.right
     (case (:status a)
       "REVIEWING"  [:button.btn.btn-primary.btn-sm

@@ -4,13 +4,8 @@
             [clojure.string :as str]
             [app.ds.layout :as layout]
             [app.views.revops.policy-edit-modal :as edit-modal]
+            [app.utils.format :as fmt]
             [app.auth.subs]))
-
-(defn- fmt-brl-int [v]
-  (when (some? v)
-    (let [n (if (string? v) (js/parseFloat v) v)]
-      (when-not (js/isNaN n)
-        (str "R$ " (.toLocaleString (js/Math.round n) "pt-BR"))))))
 
 (defn- or-dash [v] (if (or (nil? v) (= v "")) "—" v))
 
@@ -120,9 +115,9 @@
                  [:td.muted (or-dash (:partner_operator p))]
                  [:td.muted (fmt-benefit (:benefit_type p))]
                  [:td.num.muted (fmt-date (:closed_date p))]
-                 [:td.right.strong-num (or (fmt-brl-int (:mrr_for_commission p)) "—")]
-                 [:td.right.strong-num (or (fmt-brl-int (:commission_potential p)) "—")]
-                 [:td.right.strong-num (or (fmt-brl-int (:commission_paid_total p)) "—")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:mrr_for_commission p)) "—")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_potential p)) "—")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_paid_total p)) "—")]
                  [:td.center.num (str (or (:installments_paid p) 0) "/12")]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm
