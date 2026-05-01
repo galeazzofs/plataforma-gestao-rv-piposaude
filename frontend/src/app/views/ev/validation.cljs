@@ -63,9 +63,7 @@
           :title "Validação"
           :subtitle "Revise e aprove ou conteste os negócios calculados"
           :header-actions
-          [[:button.btn.btn-secondary
-            [layout/icon "download" {:width 14 :height 14}] "Exportar"]
-           [:button.btn.btn-primary
+          [[:button.btn.btn-primary
             {:disabled (empty? pending)
              :on-click #(doseq [r pending]
                           (rf/dispatch [:ev/approve-validation (:id r)]))}

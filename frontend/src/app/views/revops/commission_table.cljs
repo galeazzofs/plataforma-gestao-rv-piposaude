@@ -1,100 +1,88 @@
 (ns app.views.revops.commission-table
-  (:require [reagent.core :as r]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.auth.subs]))
 
-;; Tabela de comissão (rates) — matrix layout from the design.
+;; Tabela de comissão (rates) — exibe somente as faixas configuradas no
+;; backend. Cada linha vem de :revops/commission-table como
+;; {:segment "..." :achievement_min "0" :achievement_max "100" :commission_pct "8.5"}.
+
+(defn- pct-label [v]
+  (when (some? v)
+    (let [n (if (string? v) (js/parseFloat v) v)]
+      (when-not (js/isNaN n)
+        (str (.toFixed n (if (or (= n (js/Math.floor n)) (>= n 100)) 0 1)) "%")))))
+
+(defn- format-band-header [{:keys [achievement_min achievement_max]}]
+  (let [hi (when achievement_max (js/parseFloat achievement_max))]
+    (cond
+      (nil? achievement_max)        (str achievement_min "%+")
+      (and hi (>= hi 999))          (str achievement_min "%+")
+      :else                         (str achievement_min "–" achievement_max "%"))))
 
 (defn commission-table-page []
   (rf/dispatch [:revops/fetch-commission-table])
-  (let [year (r/atom "2026")]
-    (fn []
-      (let [ct-data @(rf/subscribe [:revops/commission-table])
-            ct-meta @(rf/subscribe [:revops/commission-table-meta])
-            user    @(rf/subscribe [:auth/current-user])
-            route   @(rf/subscribe [:current-route-name])
-            ;; Group rows from API by segment and band, falling back to design data.
-            multiplier-rows
-            (or (some->> ct-data
-                         (group-by :segment)
-                         (map (fn [[seg rows]]
-                                {:segment seg
-                                 :bands   (->> rows (map (juxt :achievement_min :achievement_max :commission_pct)))}))
-                         seq)
-                [{:segment "EV Júnior" :bands [["0" "60" "0.0"] ["60" "80" "0.5"] ["80" "100" "1.0"]
-                                                 ["100" "110" "1.15"] ["110" "120" "1.3"] ["120" "999" "1.5"]]}
-                 {:segment "EV Pleno"  :bands [["0" "60" "0.0"] ["60" "80" "0.6"] ["80" "100" "1.0"]
-                                                 ["100" "110" "1.2"] ["110" "120" "1.4"] ["120" "999" "1.6"]]}
-                 {:segment "EV Sênior" :bands [["0" "60" "0.0"] ["60" "80" "0.7"] ["80" "100" "1.0"]
-                                                 ["100" "110" "1.25"] ["110" "120" "1.5"] ["120" "999" "1.8"]]}
-                 {:segment "CN"        :bands [["0" "60" "0.0"] ["60" "80" "0.5"] ["80" "100" "1.0"]
-                                                 ["100" "110" "1.1"] ["110" "120" "1.2"] ["120" "999" "1.3"]]}])
-            band-headers ["0–60%" "60–80%" "80–100%" "100–110%" "110–120%" "120%+"]]
-        [layout/page-shell
-         {:current-route route :user user
-          :crumbs ["plataforma rv" "configuração" "tabela %"]
-          :title "Tabela de comissão"
-          :subtitle (str "Vigência " @year " · "
-                         (if (:version ct-meta) (str "v" (:version ct-meta) " · ativa") "ativa"))
-          :header-actions
-          [[:button.btn.btn-secondary
-            [layout/icon "eye" {:width 14 :height 14}] "Histórico"]
-           [:button.btn.btn-primary
-            {:on-click #(rf/dispatch [:revops/create-commission-version])}
-            [layout/icon "edit" {:width 14 :height 14}] "Editar tabela"]]}
+  (fn []
+    (let [ct-data  @(rf/subscribe [:revops/commission-table])
+          ct-meta  @(rf/subscribe [:revops/commission-table-meta])
+          loading? @(rf/subscribe [:revops/commission-table-loading?])
+          user     @(rf/subscribe [:auth/current-user])
+          route    @(rf/subscribe [:current-route-name])
+          rows     (or ct-data [])
+          ;; Group by segment, derive consistent band order.
+          by-segment (group-by :segment rows)
+          band-key   (juxt :achievement_min :achievement_max)
+          all-bands  (->> rows
+                          (map (fn [r] {:k (band-key r)
+                                         :label (format-band-header r)}))
+                          (distinct)
+                          (sort-by :k))
+          segments   (sort (keys by-segment))]
+      [layout/page-shell
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "configuração" "tabela %"]
+        :title "Tabela de comissão"
+        :subtitle (when (:version ct-meta)
+                    (str "Versão v" (:version ct-meta) " · ativa"))
+        :header-actions
+        [[:button.btn.btn-primary
+          {:on-click #(rf/dispatch [:revops/create-commission-version])}
+          [layout/icon "plus" {:width 14 :height 14}] "Nova versão"]]}
 
-         [:div.filter-row
-          (for [y ["2024" "2025" "2026"]]
-            ^{:key y}
-            [:div {:class (str "chip" (when (= y @year) " active"))
-                   :on-click #(reset! year y)}
-             y])]
+       [:div.card
+        [:div.card-head
+         [:div [:h3 "Faixas de comissão"]
+          [:div.card-sub "% sobre MRR por faixa de atingimento, dentro de cada segmento"]]]
+        (cond
+          (and loading? (empty? rows))
+          [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+           "Carregando…"]
 
-         [:div.card
-          [:div.card-head
-           [:div [:h3 "Multiplicador por atingimento"]
-            [:div.card-sub "× sobre comissão base, calculada por faixa de score"]]]
+          (empty? rows)
+          [:div.empty
+           [:div.empty-illus [layout/icon "percent" {:width 40 :height 40}]]
+           [:h4 "Nenhuma faixa configurada"]
+           [:p "Crie uma nova versão da tabela de comissão para começar."]
+           [:button.btn.btn-primary.btn-sm
+            {:style {:margin-top "8px"}
+             :on-click #(rf/dispatch [:revops/create-commission-version])}
+            "Nova versão"]]
+
+          :else
           [:table.matrix
            [:thead
-            [:tr (into [[:th "Faixa"]] (for [h band-headers] [:th h]))]]
+            [:tr
+             (into [[:th "Segmento"]]
+                   (for [b all-bands]
+                     ^{:key (:k b)} [:th (:label b)]))]]
            [:tbody
-            (for [{:keys [segment bands]} multiplier-rows]
-              ^{:key segment}
+            (for [seg segments]
+              ^{:key seg}
               [:tr
-               [:td segment]
-               (for [[i [lo hi v]] (map-indexed vector bands)]
-                 (let [;; Highlight the 100-110 band as "current" example
-                       cur? (and (= segment "EV Júnior") (= "100" lo))]
-                   ^{:key i}
-                   [:td (when cur? {:class "cur"})
-                    (str v "x")]))])]]]
-
-         [:div.two-col-eq
-          [:div.card
-           [:div.card-head
-            [:div [:h3 "% comissão base"]
-             [:div.card-sub "Sobre MRR vendido"]]]
-           [:table.matrix
-            [:thead [:tr [:th "Operadora"] [:th "1ª parcela"] [:th "Recorrência"]]]
-            [:tbody
-             [:tr [:td "Operadora X"] [:td "5,0%"] [:td "1,5%"]]
-             [:tr [:td "Operadora Y"] [:td "4,5%"] [:td "1,2%"]]
-             [:tr [:td "Operadora Z"] [:td "5,5%"] [:td "1,8%"]]]]]
-          [:div.card
-           [:div.card-head
-            [:div [:h3 "Pesos do score"]
-             [:div.card-sub "Como compor atingimento final"]]]
-           [:div {:style {:display "flex" :flex-direction "column" :gap "14px" :margin-top "4px"}}
-            [:div
-             [:div {:style {:display "flex" :justify-content "space-between" :margin-bottom "4px"}}
-              [:span {:style {:font-family "var(--font-ui)" :font-size "13px" :font-weight 600}} "% SAO (R$)"]
-              [:span {:style {:font-family "var(--font-mono)" :font-size "13px" :font-weight 600}} "60%"]]
-             [:div.bar {:style {:height "8px"}}
-              [:div.bar-fill {:style {:width "60%"}}]]]
-            [:div
-             [:div {:style {:display "flex" :justify-content "space-between" :margin-bottom "4px"}}
-              [:span {:style {:font-family "var(--font-ui)" :font-size "13px" :font-weight 600}} "% Vidas"]
-              [:span {:style {:font-family "var(--font-mono)" :font-size "13px" :font-weight 600}} "40%"]]
-             [:div.bar {:style {:height "8px"}}
-              [:div.bar-fill {:style {:width "40%" :background "var(--beige-light)"}}]]]]]]]))))
+               [:td seg]
+               (for [b all-bands
+                     :let [row (->> (get by-segment seg)
+                                    (filter #(= (band-key %) (:k b)))
+                                    first)]]
+                 ^{:key (:k b)}
+                 [:td (or (pct-label (:commission_pct row)) "—")])])]])]])))

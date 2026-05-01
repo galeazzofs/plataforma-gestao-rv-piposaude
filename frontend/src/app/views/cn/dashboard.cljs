@@ -68,9 +68,7 @@
         :header-actions
         [[:button.btn.btn-secondary
           {:on-click #(rf/dispatch [:navigate :cn/simulator])}
-          [layout/icon "target" {:width 14 :height 14}] "Simulador"]
-         [:button.btn.btn-secondary
-          [layout/icon "download" {:width 14 :height 14}] "Exportar"]]}
+          [layout/icon "target" {:width 14 :height 14}] "Simulador"]]}
 
        ;; KPIs
        [:div.kpi-grid.-three

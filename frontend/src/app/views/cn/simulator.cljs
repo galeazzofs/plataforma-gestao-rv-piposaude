@@ -178,15 +178,4 @@
              (str "você (" (or (mult (:multiplicador result)) "1,15") "x)")]]]
           [multiplier-curve (some-> result :score_final js/parseFloat (* 100))]]
 
-         ;; Empty state for saved scenarios
-         [:div.card
-          [:div.card-head
-           [:div [:h3 "Cenários salvos"] [:div.card-sub "Compare diferentes simulações"]]
-           [:button.btn.btn-secondary.btn-sm
-            [layout/icon "plus" {:width 12 :height 12}] "Salvar cenário atual"]]
-          [:div.empty
-           [:div.empty-illus [layout/icon "target" {:width 40 :height 40}]]
-           [:h4 "Nenhum cenário salvo ainda"]
-           [:p "Salve simulações com nomes diferentes (ex: \"meta otimista\", \"cenário base\") para comparar lado a lado."]
-           [:button.btn.btn-primary.btn-sm {:style {:margin-top "8px"}}
-            "Salvar cenário atual"]]]]))))
+         ]))))

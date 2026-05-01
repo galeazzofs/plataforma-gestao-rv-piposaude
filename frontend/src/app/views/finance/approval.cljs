@@ -33,39 +33,24 @@
         :title "Aprovação de Pagamentos"
         :subtitle (str (count rows) " apurações aguardando liberação")
         :header-actions
-        [[layout/search-input {:placeholder "Buscar EV…"}]
-         [:button.btn.btn-secondary
-          [layout/icon "download" {:width 14 :height 14}] "Exportar"]
-         [:button.btn.btn-primary
+        [[:button.btn.btn-primary
           {:disabled (zero? (count rows))
            :on-click #(doseq [r rows]
                         (rf/dispatch [:finance/liberar-pagamento (:appraisal_id r)]))}
           [layout/icon "check" {:width 14 :height 14}] "Liberar todos"]]}
 
-       ;; KPIs
+       ;; KPI — total a liberar (real, agregado)
        [:div.kpi-grid.-three
         [:div.kpi
          [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "total a liberar"]
-         [:div.kpi-value [:span.currency "R$"] (or (fmt-int total-pending) "—")]
-         [:div.kpi-foot (str (count rows) " apurações")]]
-        [:div.kpi
-         [:div.kpi-label [layout/icon "clock" {:width 14 :height 14}] "aguardando há"]
-         [:div.kpi-value "—"]
-         [:div.kpi-foot "tempo médio em fila"]]
-        [:div.kpi
-         [:div.kpi-label [layout/icon "alert" {:width 14 :height 14}] "vence em ≤ 3 dias"]
-         [:div.kpi-value "—"]
-         [:div.kpi-foot "atenção: prazo regulatório"]]]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt-int total-pending) "0")]
+         [:div.kpi-foot (str (count rows) " apuraç" (if (= 1 (count rows)) "ão" "ões"))]]]
 
        ;; Approval table
        [:div.card {:style {:padding 0}}
-        [:div {:style {:padding "24px 24px 16px" :display "flex" :justify-content "space-between" :align-items "flex-end" :gap "16px"}}
-         [:div [:h3 "Apurações pendentes"]
-          [:div.card-sub "Apurações aprovadas pelo gerente, aguardando liberação financeira"]]
-         [:div.filter-row
-          [:div.chip.active "Todas"]
-          [:div.chip "Q2/2026"]
-          [:div.chip "Q1/2026"]]]
+        [:div {:style {:padding "24px 24px 16px"}}
+         [:h3 "Apurações pendentes"]
+         [:div.card-sub "Apurações aprovadas pelo gerente, aguardando liberação financeira"]]
         [:table.table
          [:thead
           [:tr

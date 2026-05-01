@@ -14,31 +14,31 @@
           :style {:width (str (min (or pct 0) 150) "%")}}]])
 
 (defn- chart-quarters [items]
-  (let [pts (or (seq items)
-                [{:label "Q3/24" :amount 60}  {:label "Q4/24" :amount 90}
-                 {:label "Q1/25" :amount 75}  {:label "Q2/25" :amount 105}
-                 {:label "Q3/25" :amount 80}  {:label "Q4/25" :amount 118}
-                 {:label "Q1/26" :amount 95}  {:label "Q2/26" :amount 84 :current? true}])
-        n (count pts)
-        slot (/ 540 n)
-        max-v (or (->> pts (map :amount) (filter some?) (reduce max 1)) 1)
-        scale (fn [v] (* (/ (or v 0) max-v) 180))]
-    [:svg.chart {:viewBox "0 0 600 240" :preserveAspectRatio "none"}
-     [:g {:stroke "#E2E1DF"}
-      [:line {:x1 40 :y1 40 :x2 600 :y2 40}]
-      [:line {:x1 40 :y1 100 :x2 600 :y2 100}]
-      [:line {:x1 40 :y1 160 :x2 600 :y2 160}]
-      [:line {:x1 40 :y1 220 :x2 600 :y2 220}]]
-     (for [[i p] (map-indexed vector pts)
-           :let [h (scale (:amount p))
-                 x (+ 60 (* i slot))]]
-       ^{:key i}
-       [:rect {:x x :y (- 220 h) :width 44 :height h
-               :fill (if (:current? p) "#000" "#E6D9C2") :rx 2}])
-     [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
-      (for [[i p] (map-indexed vector pts)]
-        ^{:key i}
-        [:text {:x (+ 66 (* i slot)) :y 238} (:label p)])]]))
+  (if (empty? items)
+    [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
+                   :font-family "var(--font-mono)" :font-size "12px"}}
+     "Sem ciclos para exibir"]
+    (let [pts (vec items)
+          n (count pts)
+          slot (/ 540 n)
+          max-v (or (->> pts (map :amount) (filter some?) (reduce max 1)) 1)
+          scale (fn [v] (* (/ (or v 0) max-v) 180))]
+      [:svg.chart {:viewBox "0 0 600 240" :preserveAspectRatio "none"}
+       [:g {:stroke "#E2E1DF"}
+        [:line {:x1 40 :y1 40 :x2 600 :y2 40}]
+        [:line {:x1 40 :y1 100 :x2 600 :y2 100}]
+        [:line {:x1 40 :y1 160 :x2 600 :y2 160}]
+        [:line {:x1 40 :y1 220 :x2 600 :y2 220}]]
+       (for [[i p] (map-indexed vector pts)
+             :let [h (scale (:amount p))
+                   x (+ 60 (* i slot))]]
+         ^{:key i}
+         [:rect {:x x :y (- 220 h) :width 44 :height h
+                 :fill (if (:current? p) "#000" "#E6D9C2") :rx 2}])
+       [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
+        (for [[i p] (map-indexed vector pts)]
+          ^{:key i}
+          [:text {:x (+ 66 (* i slot)) :y 238} (:label p)])]])))
 
 (defn history-page []
   (let [filters (r/atom {:quarter nil :year nil :status nil})]
@@ -70,34 +70,33 @@
           :crumbs ["plataforma rv" "ev" "histórico"]
           :title "Meu histórico"
           :subtitle (str (or (:name user) "EV") " · todos os ciclos")
-          :header-actions
-          [[:button.btn.btn-secondary
-            [layout/icon "download" {:width 14 :height 14}] "Exportar"]
-           [:button.btn.btn-secondary
-            [layout/icon "calendar" {:width 14 :height 14}]
-            "2024 · 2025 · 2026"]]}
+          :header-actions nil}
 
-         ;; KPIs (3-up)
+         ;; KPIs (3-up) — only show numbers we actually have
          [:div.kpi-grid.-three
           [:div.kpi
-           [:div.kpi-label "total recebido (24m)"]
-           [:div.kpi-value [:span.currency "R$"] (or (fmt-int (when (pos? total-recv) total-recv)) "682.140")]]
+           [:div.kpi-label "total recebido"]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total-recv) "0")]
+           [:div.kpi-foot (str (count cycles) " ciclo" (when (not= 1 (count cycles)) "s"))]]
           [:div.kpi
-           [:div.kpi-label "média trimestral"]
-           [:div.kpi-value [:span.currency "R$"] (or (fmt-int avg-mrr) "85.260")]]
+           [:div.kpi-label "média trimestral (MRR)"]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int avg-mrr) "—")]]
           [:div.kpi
            [:div.kpi-label "atingimento médio"]
-           [:div.kpi-value (str (.toFixed (or avg-pct 102) 0)) [:span.frac "%"]]]]
+           [:div.kpi-value (if avg-pct
+                             [:<> (.toFixed avg-pct 0) [:span.frac "%"]]
+                             "—")]]]
 
          ;; Chart
          [:div.card
           [:div.card-head
            [:div [:h3 "Evolução"] [:div.card-sub "Comissão recebida por trimestre"]]]
           [chart-quarters
-           (when (seq cycles)
-             (map-indexed (fn [i c] (assoc c :amount (:commission c)
-                                            :current? (zero? i)))
-                          (reverse cycles)))]]
+           (->> cycles
+                reverse
+                (map-indexed (fn [i c] (assoc c :amount (:commission c)
+                                               :current? (= i (dec (count cycles))))))
+                vec)]]
 
          ;; Apurações table
          [:div.card {:style {:padding 0}}
