@@ -2,6 +2,7 @@
 
 ;; Auth
 (def auth-google    "/auth/google")
+(def auth-dev-login "/auth/dev-login")
 (def auth-refresh   "/auth/refresh")
 
 ;; Commissions
@@ -23,9 +24,7 @@
 ;; Appraisals
 (def appraisals (fn [] "/appraisals"))
 (def appraisal-detail (fn [id] (str "/appraisals/" id)))
-(def appraisal-run (fn [id] (str "/appraisals/" id "/run")))
 (def appraisal-recalculate (fn [id] (str "/appraisals/" id "/recalculate")))
-(def appraisal-approve-payment (fn [id] (str "/appraisals/" id "/approve-payment")))
 
 ;; Achievements (per EV per quarter — manual editor)
 (def achievements "/admin/ev-achievements")
@@ -40,8 +39,7 @@
 (def teams    "/admin/teams")
 (defn team-members [team-id] (str "/admin/teams/" team-id "/members"))
 (defn team-member  [team-id user-id] (str "/admin/teams/" team-id "/members/" user-id))
-(def commission-table        "/admin/commission-table")
-(def commission-table-import "/admin/commission-table/import")
+(def commission-table "/admin/commission-table")
 (def financial-upload "/financial/upload")
 (def perk-upload "/financial/upload-perks")
 (def settings "/admin/settings")

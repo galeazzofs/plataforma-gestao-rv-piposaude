@@ -1,10 +1,8 @@
 (ns app.views.ev.dashboard
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.auth.subs]))
-
-(defn- fmt-brl-int [v]
-  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
+            [app.auth.subs]
+            [app.utils.format :as fmt]))
 
 (defn- pct-bar [pct fill-class]
   [:div.bar
@@ -98,8 +96,8 @@
             [:td (:client_name row)]
             [:td.muted (or (:benefit_type row) "—")]
             [:td.center.num (str (or (:lives row) (:installments_paid row) "—"))]
-            [:td.right.strong-num (str "R$ " (or (fmt-brl-int (:mrr_projected row)) "—"))]
-            [:td.right.strong-num (str "R$ " (or (fmt-brl-int (:mrr_for_commission row)) "—"))]
+            [:td.right.strong-num (str "R$ " (or (fmt/int-brl (:mrr_projected row)) "—"))]
+            [:td.right.strong-num (str "R$ " (or (fmt/int-brl (:mrr_for_commission row)) "—"))]
             [:td [status->badge (:commission_status row)]]]))]]]))
 
 (defn dashboard-page []
@@ -138,7 +136,7 @@
           "saldo a receber"]
          [:div.kpi-value {:style {:color "#fff"}}
           [:span.currency {:style {:color "rgba(255,255,255,.65)"}} "R$"]
-          (or (fmt-brl-int balance) "—")]
+          (or (fmt/int-brl balance) "—")]
          [:div.kpi-foot {:style {:color "rgba(255,255,255,.65)"}}
           [:span.badge {:style {:background "rgba(255,255,255,.12)" :color "#fff"}}
            (str (count (or policies [])) " negócios")]
@@ -156,11 +154,11 @@
 
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "meta do período"]
-         [:div.kpi-value [:span.currency "R$"] (or (fmt-brl-int target) "—")]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt/int-brl target) "—")]
          [:div.kpi-foot
           (when mrr-sold
             [:<> "MRR vendido: "
-             [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt-brl-int mrr-sold))]])]]]
+             [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt/int-brl mrr-sold))]])]]]
 
        ;; Projection chart
        [:div.card

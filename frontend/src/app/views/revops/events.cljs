@@ -515,7 +515,7 @@
  (fn [{:keys [db]} _]
    {:db   (assoc-in db [:admin :contestations-loading?] true)
     :http {:method     :get
-           :url        "/validations?status=CONTESTED"
+           :url        (str ep/validations "?status=CONTESTED")
            :on-success [:revops/contestations-loaded]
            :on-failure [:revops/contestations-error]}}))
 
@@ -574,7 +574,7 @@
  (fn [{:keys [db]} _]
    {:db   (assoc-in db [:admin :sync-loading?] true)
     :http {:method     :post
-           :url        "/admin/sync-trigger"
+           :url        ep/sync-trigger
            :on-success [:revops/sync-triggered]
            :on-failure [:revops/sync-status-error]}}))
 

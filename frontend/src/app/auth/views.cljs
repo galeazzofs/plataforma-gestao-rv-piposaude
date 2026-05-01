@@ -164,13 +164,14 @@
                        :font-size "13px"}}
          error])
 
-      ;; Google SSO button (production)
+      ;; Google SSO requires Google Identity Services in index.html — not wired
+      ;; yet. Until that lands, keep the button visibly disabled so users fall
+      ;; through to the dev-login picker instead of clicking a dead control.
       [btn/button {:variant    :primary
                    :size       :lg
                    :full-width true
-                   :loading    loading?
-                   :on-click   #(js/console.log "Google SSO — configure GOOGLE_CLIENT_ID")}
-       "Entrar com SSO Google"]
+                   :disabled   true}
+       "Google SSO — em integração"]
 
       ;; Dev login picker
       [dev-login-picker]]]))

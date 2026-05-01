@@ -1,12 +1,13 @@
 (ns app.auth.events
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [app.api.endpoints :as ep]))
 
 (rf/reg-event-fx
  :auth/google-login
  (fn [{:keys [db]} [_ google-code]]
    {:db   (assoc-in db [:auth :loading?] true)
     :http {:method     :post
-           :url        "/auth/google"
+           :url        ep/auth-google
            :body       {:code google-code}
            :on-success [:auth/login-success]
            :on-failure [:auth/login-failure]}}))
@@ -16,7 +17,7 @@
  (fn [{:keys [db]} [_ email]]
    {:db   (assoc-in db [:auth :loading?] true)
     :http {:method     :post
-           :url        "/auth/dev-login"
+           :url        ep/auth-dev-login
            :body       {:email email}
            :on-success [:auth/login-success]
            :on-failure [:auth/login-failure]}}))
@@ -52,7 +53,7 @@
    (let [refresh-token (get-in db [:auth :refresh-token])]
      (when refresh-token
        {:http {:method     :post
-               :url        "/auth/refresh"
+               :url        ep/auth-refresh
                :body       {:refresh_token refresh-token}
                :on-success [:auth/refresh-success]
                :on-failure [:auth/logout]}}))))

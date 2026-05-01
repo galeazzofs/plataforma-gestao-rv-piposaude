@@ -1,10 +1,7 @@
 (ns app.views.finance.saldo-devedor
   (:require [app.ds.cards :as cards]
-            [app.ds.tokens :as t]))
-
-(defn fmt-brl [v]
-  (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+            [app.ds.tokens :as t]
+            [app.utils.format :as fmt]))
 
 (defn saldo-by-year
   "Renders stat cards for saldo devedor per year.
@@ -19,6 +16,6 @@
       ^{:key year}
       [cards/stat-card
        {:label    (str "Saldo " year)
-        :value    (fmt-brl amount)
+        :value    (fmt/fmt-brl amount)
         :subtitle "Total em aberto"
         :color    :default}])]])
