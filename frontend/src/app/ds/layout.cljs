@@ -88,7 +88,8 @@
 
 (defn topbar
   "Topbar with crumbs, title, subtitle and right-side actions.
-   Props: crumbs (seq), title, subtitle, actions (hiccup)."
+   Props: crumbs (seq), title, subtitle, actions (vector of hiccup children
+   to splice into .topbar-r)."
   [{:keys [crumbs title subtitle actions]}]
   [:header.topbar
    [:div.topbar-l
@@ -97,7 +98,14 @@
     [:div.title-row
      [:h1 title]
      (when subtitle [:span.subtitle subtitle])]]
-   [:div.topbar-r actions]])
+   ;; Splice each action element so Reagent treats them as siblings;
+   ;; passing the whole vector as a child makes Reagent try to call the
+   ;; first element as a component (PersistentVector -> Invalid arity: 2).
+   (into [:div.topbar-r] (cond
+                           (nil? actions)        nil
+                           (and (vector? actions)
+                                (keyword? (first actions))) [actions]
+                           :else                 actions))])
 
 (defn page-shell
   "Main page wrapper.
