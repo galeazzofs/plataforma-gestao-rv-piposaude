@@ -79,7 +79,7 @@
                  :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
            (str "Canceladas (" suspended ")")]]
 
-         ;; Table — original column set (Apólice / Cliente / Operadora /
+         ;; Table — original column set (Apólice / EV / Cliente / Operadora /
          ;; Benefício / Data Gongo / MRR / Comissão Potencial / Total Pago /
          ;; Meses) plus inline edit.
          [:div.card {:style {:padding 0}}
@@ -87,6 +87,7 @@
            [:thead
             [:tr
              [:th "Apólice"]
+             [:th "EV"]
              [:th "Cliente"]
              [:th "Operadora"]
              [:th "Benefício"]
@@ -99,11 +100,11 @@
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 10 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 11 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? policies)
-              [:tr [:td {:col-span 10 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 11 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhuma apólice encontrada"]]
 
               :else
@@ -111,6 +112,7 @@
                 ^{:key (or (:id p) (:numero_apolice p) (hash p))}
                 [:tr
                  [:td.name.num (or-dash (:numero_apolice p))]
+                 [:td (or (:ev_name p) "—")]
                  [:td (or (:client_name p) "—")]
                  [:td.muted (or-dash (:partner_operator p))]
                  [:td.muted (fmt-benefit (:benefit_type p))]
