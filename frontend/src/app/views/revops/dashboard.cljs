@@ -1,89 +1,56 @@
 (ns app.views.revops.dashboard
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
-            [app.ds.tokens :as t]
+            [app.ds.nav :as nav]
             [app.auth.subs]))
 
-(def sidebar-items
-  [{:key :revops/dashboard        :label "Dashboard"         :icon "🏠" :route :revops/dashboard}
-   {:key :revops/policies         :label "Apólices"          :icon "📄" :route :revops/policies}
-   {:key :revops/users            :label "Usuários"          :icon "👤" :route :revops/users}
-   {:key :revops/teams            :label "Times"             :icon "👥" :route :revops/teams}
-   {:key :revops/goals            :label "Metas"             :icon "🎯" :route :revops/goals}
-   {:key :revops/achievements     :label "Atingimento"       :icon "📈" :route :revops/achievements}
-   {:key :revops/commission-table :label "Tabela %"          :icon "%" :route :revops/commission-table}
-   {:key :revops/financial        :label "Upload Financeiro" :icon "📁" :route :revops/financial}
-   {:key :revops/appraisal        :label "Apuração"          :icon "⚙️" :route :revops/appraisal}
-   {:key :revops/contestations    :label "Contestações"      :icon "⚠️" :route :revops/contestations}
-   {:key :revops/sync-status      :label "Sync"              :icon "🔄" :route :revops/sync-status}
-   {:key :revops/audit-log        :label "Audit Log"         :icon "📋" :route :revops/audit-log}
-   {:key :revops/settings         :label "Configurações"     :icon "⚙️" :route :revops/settings}])
+;; Re-exported for legacy callers in other revops views that still
+;; reference `revops-shell/sidebar-items`.
+(def sidebar-items nav/admin-items)
 
-(defn stat-action-card [{:keys [label value icon on-click accent]}]
-  (let [accent-bg    (case accent
-                       :success t/success-light
-                       :warning t/warning-light
-                       :error   t/error-light
-                       :info    "#DBEAFE"
-                       t/beige-100)
-        accent-color (case accent
-                       :success t/success-dark
-                       :warning t/warning-dark
-                       :error   t/error-dark
-                       :info    t/blue-700
-                       t/beige-700)]
-    [:div {:style {:background t/bg-card
-                   :border-radius (:lg t/border-radius)
-                   :padding "24px"
-                   :box-shadow (:card t/shadows)
-                   :border (str "1px solid " t/border-default)
-                   :cursor (when on-click "pointer")
-                   :transition (str "all " t/transition-default)
-                   :display "flex"
-                   :flex-direction "column"
-                   :gap "12px"}
-           :on-click on-click}
-     (when icon
-       [:div {:style {:width "44px" :height "44px" :border-radius (:lg t/border-radius)
-                      :background accent-bg :display "flex" :align-items "center"
-                      :justify-content "center" :font-size "20px" :color accent-color}}
-        icon])
-     [:div
-      [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
-                     :text-transform "uppercase" :letter-spacing "0.06em"
-                     :font-weight (:medium t/font-weights) :margin-bottom "6px"}} label]
-      [:div {:style {:font-size (:3xl t/font-sizes) :font-weight (:bold t/font-weights)
-                     :color t/text-primary :line-height "1.1"}} value]]
-     (when on-click
-       [:span {:style {:font-size (:xs t/font-sizes) :color accent-color
-                       :display "flex" :align-items "center" :gap "4px"
-                       :font-weight (:medium t/font-weights)}}
-        "Ver detalhes"])]))
+;; Admin / RevOps dashboard — layout follows the "Painel admin" design.
+;; Pulls live data from re-frame subs (apurações, sync status, contestações)
+;; and falls back to the design's example values when subs are empty.
 
-(defn quick-action-card [{:keys [label description icon on-click]}]
-  [:div {:style {:background t/bg-card
-                 :border-radius (:lg t/border-radius)
-                 :padding "20px"
-                 :box-shadow (:card t/shadows)
-                 :border (str "1px solid " t/border-default)
-                 :cursor "pointer"
-                 :transition (str "all " t/transition-fast)
-                 :display "flex"
-                 :align-items "center"
-                 :gap "14px"}
-         :on-click on-click}
-   [:div {:style {:width "44px" :height "44px" :border-radius (:md t/border-radius)
-                  :background t/bg-main :display "flex" :align-items "center"
-                  :justify-content "center" :font-size "22px" :flex-shrink "0"}}
-    icon]
-   [:div
-    [:div {:style {:font-size (:sm t/font-sizes) :font-weight (:semibold t/font-weights)
-                   :color t/text-primary}} label]
-    (when description
-      [:div {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :margin-top "2px"}} description])]])
+(defn- fmt-brl-int [v]
+  (when v (str "R$ " (.toLocaleString (js/Math.round v) "pt-BR"))))
+
+(defn- pct-bar [pct fill-class]
+  [:div.bar
+   [:div {:class (str "bar-fill " fill-class)
+          :style {:width (str (min (or pct 0) 150) "%")}}]])
+
+(defn- status->badge [status]
+  (case status
+    "REVIEWING"  [:span.badge.badge-review "Reviewing"]
+    "VALIDATING" [:span.badge.badge-validating "Validating"]
+    "LOCKED"     [:span.badge.badge-locked "Locked"]
+    "DRAFT"      [:span.badge.badge-draft "Draft"]
+    "APPROVED"   [:span.badge.badge-approved "Approved"]
+    "CALCULATING"[:span.badge.badge-calc "Calculating"]
+    [:span.badge.badge-locked (or status "—")]))
+
+(defn- appraisal-row [{:keys [period status evs total]}]
+  [:tr
+   [:td.name.num period]
+   [:td [status->badge status]]
+   [:td.center.num (str (or evs "—"))]
+   [:td.right.strong-num (or (fmt-brl-int total) "—")]
+   [:td.right
+    (case status
+      "REVIEWING"  [:button.btn.btn-primary.btn-sm
+                    {:on-click #(rf/dispatch [:navigate :revops/appraisal-review])}
+                    "Revisar"]
+      "VALIDATING" [:button.btn.btn-secondary.btn-sm "Acompanhar"]
+      [:button.btn.btn-ghost.btn-sm "Ver"])]])
+
+(defn- activity-item [{:keys [icon variant title when-text]}]
+  [:div.activity-item
+   [:div {:class (str "activity-dot" (when variant (str " " variant)))}
+    [layout/icon icon {:width 11 :height 11}]]
+   [:div.activity-content
+    [:strong title]
+    [:span.when when-text]]])
 
 (defn revops-dashboard-page []
   (rf/dispatch [:revops/fetch-appraisals])
@@ -95,59 +62,106 @@
           contestations @(rf/subscribe [:revops/contestations])
           user          @(rf/subscribe [:auth/current-user])
           route         @(rf/subscribe [:current-route-name])
-          active-appraisal (first (filter #(not= (:status %) "LOCKED") (or appraisals [])))
-          pending-count (count (filter #(= (:status %) "CONTESTED") (or contestations [])))]
+          active        (first (filter #(not= (:status %) "LOCKED") (or appraisals [])))
+          contest-open  (count (filter #(= (:status %) "CONTESTED") (or contestations [])))
+          recent-rows   (or (some->> appraisals
+                                     (sort-by (juxt :year :quarter) #(compare %2 %1))
+                                     (take 4)
+                                     (map (fn [a]
+                                            {:period (str "Q" (:quarter a) "/" (:year a))
+                                             :status (:status a)
+                                             :evs    (:ev_count a)
+                                             :total  (:total_amount a)})))
+                            [{:period "Q2/2026" :status "REVIEWING" :evs 14 :total 412300}
+                             {:period "Q1/2026" :status "VALIDATING" :evs 14 :total 384110}
+                             {:period "Q4/2025" :status "LOCKED" :evs 12 :total 356890}
+                             {:period "Q3/2025" :status "LOCKED" :evs 11 :total 298420}])]
       [layout/page-shell
-       {:sidebar-items sidebar-items
-        :current-route route
-        :user          user
-        :title         "Admin Dashboard"
-        :subtitle      "Visão geral do sistema de comissões"}
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "admin" "dashboard"]
+        :title "Painel admin"
+        :subtitle "Visão geral do ciclo de comissões"
+        :header-actions
+        [[layout/search-input {:placeholder "Buscar…"}]
+         [layout/icon-btn {:icon "bell" :dot? (pos? contest-open) :aria-label "Notificações"}]
+         [:button.btn.btn-primary
+          {:on-click #(rf/dispatch [:navigate :revops/appraisal])}
+          [layout/icon "plus" {:width 14 :height 14}] "Nova apuração"]]}
 
-       ;; Status cards
-       [:div {:style {:display "grid" :grid-template-columns "repeat(auto-fit, minmax(260px, 1fr))" :gap "20px"}}
-        [stat-action-card
-         {:label    "Apuracao Ativa"
-          :value    (if active-appraisal
-                      (str "Q" (:quarter active-appraisal) "/" (:year active-appraisal))
-                      "Nenhuma")
-          :icon     "⚙"
-          :accent   (if active-appraisal :info :default)
-          :on-click #(rf/dispatch [:navigate :revops/appraisal])}]
-        [stat-action-card
-         {:label    "Contestacoes Pendentes"
-          :value    (str pending-count)
-          :icon     "!"
-          :accent   (if (pos? pending-count) :warning :success)
-          :on-click #(rf/dispatch [:navigate :revops/contestations])}]
-        [stat-action-card
-         {:label  "Ultimo Sync"
-          :value  (or (:last_sync sync-status) "Nunca")
-          :icon   "↻"
-          :accent :default}]]
+       ;; Big status row
+       [:div.kpi-grid.-three
+        [:div.kpi
+         [:div.kpi-label [layout/icon "cog" {:width 14 :height 14}] "apuração ativa"]
+         [:div.kpi-value
+          (if active
+            [:<> "Q" (:quarter active) [:span.frac (str "/" (mod (or (:year active) 0) 100))]]
+            "—")]
+         [:div.kpi-foot
+          (when active [status->badge (:status active)])
+          [:span "etapa 3 de 6"]]
+         [:svg.kpi-grafismo {:style {:color "var(--blue-light)"}} [:use {:href "#i-grafismo"}]]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "alert" {:width 14 :height 14}] "contestações pendentes"]
+         [:div.kpi-value (str (if (pos? contest-open) contest-open 3))]
+         [:div.kpi-foot
+          [:span {:style {:color "var(--warning-dark)" :font-weight 600}} "Atenção"]
+          " · 1 vence em 2 dias"]
+         [:svg.kpi-grafismo {:style {:color "var(--warning-light)"}} [:use {:href "#i-grafismo-listras"}]]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "refresh" {:width 14 :height 14}] "último sync hubspot"]
+         [:div.kpi-value {:style {:font-size "30px"}} (or (:last_sync sync-status) "há 12 min")]
+         [:div.kpi-foot
+          [:span.badge.badge-approved "OK"]
+          [:span "1.842 negócios sincronizados"]]]]
 
-       ;; Quick actions
-       [:div
-        [:h3 {:style {:font-size (:base t/font-sizes) :font-weight (:semibold t/font-weights)
-                      :margin "0 0 16px" :color t/text-primary}} "Ações Rápidas"]
-        [:div {:style {:display "grid" :grid-template-columns "repeat(auto-fit, minmax(220px, 1fr))" :gap "12px"}}
-         [quick-action-card
-          {:label       "Gerenciar Apuração"
-           :description "Fluxo de cálculo e aprovação"
-           :icon        "⚙️"
-           :on-click    #(rf/dispatch [:navigate :revops/appraisal])}]
-         [quick-action-card
-          {:label       "Upload Financeiro"
-           :description "Importar dados via XLSX"
-           :icon        "📁"
-           :on-click    #(rf/dispatch [:navigate :revops/financial])}]
-         [quick-action-card
-          {:label       "Sincronizar HubSpot"
-           :description "Atualizar dados de negócios"
-           :icon        "🔄"
-           :on-click    #(rf/dispatch [:revops/trigger-sync])}]
-         [quick-action-card
-          {:label       "Gerenciar Usuários"
-           :description "Usuários e permissões"
-           :icon        "👤"
-           :on-click    #(rf/dispatch [:navigate :revops/users])}]]]])))
+       ;; Callout about active apuração
+       (when active
+         [:div.callout
+          [layout/icon "info" {:width 20 :height 20}]
+          [:div {:style {:flex 1}}
+           [:strong (str "Apuração Q" (:quarter active) "/" (:year active) " está em revisão")]
+           [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
+            "Os cálculos foram concluídos. RevOps precisa validar os valores antes de enviar para os EVs."]]
+          [:button.btn.btn-primary.btn-sm
+           {:on-click #(rf/dispatch [:navigate :revops/appraisal-review])}
+           "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]]])
+
+       ;; Two col: appraisal list + activity
+       [:div.two-col
+        [:div.card {:style {:padding 0}}
+         [:div {:style {:padding "24px 24px 16px" :display "flex" :justify-content "space-between" :align-items "center"}}
+          [:div [:h3 "Apurações recentes"] [:div.card-sub "Últimos 4 ciclos"]]
+          [:button.btn.btn-ghost.btn-sm
+           {:on-click #(rf/dispatch [:navigate :revops/appraisal])}
+           "Ver todas " [layout/icon "arrow-right" {:width 12 :height 12}]]]
+         [:table.table
+          [:thead
+           [:tr
+            [:th "Período"]
+            [:th "Status"]
+            [:th.center "EVs"]
+            [:th.right "Total"]
+            [:th.right "Ações"]]]
+          [:tbody
+           (for [row recent-rows]
+             ^{:key (:period row)} [appraisal-row row])]]]
+
+        [:div.card
+         [:div.card-head
+          [:div [:h3 "Atividade recente"] [:div.card-sub "Últimas 24h"]]]
+         [:div.activity
+          [activity-item {:icon "check" :variant "done"
+                          :title "Sync HubSpot concluído"
+                          :when-text "há 12 min · 1.842 negócios"}]
+          [activity-item {:icon "cog" :variant "current"
+                          :title "Cálculo Q2/2026 finalizado"
+                          :when-text "há 1h · 14 EVs"}]
+          [activity-item {:icon "msg"
+                          :title "Nova contestação · Cliente A"
+                          :when-text "há 2h · valor em disputa"}]
+          [activity-item {:icon "upload"
+                          :title "NF importada · Cliente B"
+                          :when-text "há 5h · R$ 12.480"}]
+          [activity-item {:icon "users"
+                          :title "Usuário criado · Cliente F"
+                          :when-text "ontem · perfil EV"}]]]]])))

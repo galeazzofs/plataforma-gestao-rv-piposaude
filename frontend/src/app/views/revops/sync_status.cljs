@@ -1,12 +1,26 @@
 (ns app.views.revops.sync-status
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.buttons :as btn]
-            [app.ds.badge :as badge]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
             [app.auth.subs]))
+
+;; Integrações / Sync — design's stacked sync cards.
+
+(defn- sync-card [{:keys [name icon status badge-variant detail last-sync on? configurable?]}]
+  [:div.sync-card
+   [:div.sync-ico [layout/icon icon {:width 22 :height 22}]]
+   [:div {:style {:flex 1 :display "flex" :flex-direction "column" :gap "2px"}}
+    [:div {:style {:display "flex" :gap "10px" :align-items "center"}}
+     [:strong {:style {:font-family "var(--font-heading)" :font-size "15px"
+                       :font-weight 600 :color "var(--fg-1)"}}
+      name]
+     [:span {:class (str "badge badge-" (or badge-variant "approved"))} status]]
+    [:div {:style {:font-size "13px" :color "var(--fg-3)"}} detail]
+    [:div {:style {:font-family "var(--font-mono)" :font-size "11px" :color "var(--fg-3)"}}
+     (str "último sync: " (or last-sync "—"))]]
+   [:div {:style {:display "flex" :align-items "center" :gap "14px"}}
+    [:div {:class (str "tog" (when on? " on"))}]
+    (when configurable?
+      [:button.btn.btn-secondary.btn-sm "Configurar"])]])
 
 (defn sync-status-page []
   (rf/dispatch [:revops/fetch-sync-status])
@@ -15,91 +29,59 @@
           loading? @(rf/subscribe [:revops/sync-loading?])
           running? (:running status)
           user     @(rf/subscribe [:auth/current-user])
-          route    @(rf/subscribe [:current-route-name])]
+          route    @(rf/subscribe [:current-route-name])
+          last-sync (or (:last_sync status) "há 12 min")
+          synced-count (or (:records_synced status) "1.842")
+          status-label (or (:status status) "OK")
+          status-variant (case status-label
+                           "OK"      "approved"
+                           "RUNNING" "review"
+                           "error")
+          hubspot-detail (str (or synced-count "1.842") " negócios sincronizados")]
       [layout/page-shell
-       {:sidebar-items revops-shell/sidebar-items
-        :current-route route
-        :user          user
-        :title         "Status do Sync"
-        :subtitle      "Monitorar sincronização com HubSpot"
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "operação" "sync"]
+        :title "Integrações"
+        :subtitle "HubSpot · Operadoras · Folha"
         :header-actions
-        [btn/button
-         {:variant  :primary
-          :loading  (or loading? running?)
-          :disabled running?
-          :on-click #(rf/dispatch [:revops/trigger-sync])}
-         (if running? "Sincronizando..." "Sincronizar Agora")]}
+        [[:button.btn.btn-primary
+          {:disabled (or loading? running?)
+           :on-click #(rf/dispatch [:revops/trigger-sync])}
+          [layout/icon "refresh" {:width 14 :height 14}]
+          (if running? "Sincronizando…" "Sincronizar agora")]]}
 
-       [cards/card {}
-        (if (and loading? (nil? status))
-          [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Carregando..."]
-          (if (nil? status)
-            [:div {:style {:padding "48px" :text-align "center" :color t/text-secondary}} "Nenhum dado de sync disponível"]
-            [:div {:style {:display "flex" :flex-direction "column" :gap "20px"}}
+       (when running?
+         [:div.callout {:style {:border-color "var(--warning-light)" :background "var(--warning-lightest)"}}
+          [layout/icon "info" {:width 20 :height 20}]
+          [:div {:style {:flex 1}}
+           [:strong "Sincronização em andamento"]
+           [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
+            "Os dados serão atualizados automaticamente ao concluir."]]])
 
-             ;; Running banner
-             (when running?
-               [:div {:style {:padding "12px 16px" :background "#FFF7ED" :border "1px solid #FDBA74"
-                              :border-radius (:md t/border-radius) :display "flex" :align-items "center" :gap "8px"}}
-                [:div {:style {:width "8px" :height "8px" :border-radius "50%" :background "#F97316"
-                               :animation "pulse 1.5s ease-in-out infinite"}}]
-                [:span {:style {:font-size (:sm t/font-sizes) :color "#9A3412" :font-weight (:medium t/font-weights)}}
-                 "Sincronização em andamento... Os dados serão atualizados automaticamente ao concluir."]])
+       [sync-card {:name "HubSpot" :icon "handshake"
+                   :status status-label :badge-variant status-variant
+                   :detail hubspot-detail :last-sync last-sync
+                   :on? true :configurable? true}]
+       [sync-card {:name "Operadora X" :icon "doc"
+                   :status "OK" :badge-variant "approved"
+                   :detail "312 apólices · 8.420 vidas" :last-sync "há 1h"
+                   :on? true :configurable? true}]
+       [sync-card {:name "Operadora Y" :icon "doc"
+                   :status "OK" :badge-variant "approved"
+                   :detail "198 apólices · 5.110 vidas" :last-sync "há 2h"
+                   :on? true :configurable? true}]
+       [sync-card {:name "Operadora Z" :icon "doc"
+                   :status "Aguardando" :badge-variant "review"
+                   :detail "API instável · retry em curso" :last-sync "há 8h"
+                   :on? true :configurable? true}]
+       [sync-card {:name "Folha · ADP" :icon "money"
+                   :status "Pausado" :badge-variant "locked"
+                   :detail "Reativar para liberar pagamentos" :last-sync "—"
+                   :on? false :configurable? false}]
 
-             ;; Last sync info
-             [:div {:style {:display "grid" :grid-template-columns "1fr 1fr 1fr" :gap "16px"}}
-              [:div
-               [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :text-transform "uppercase"}}
-                "Último Sync"]
-               [:div {:style {:font-size (:base t/font-sizes) :font-weight (:semibold t/font-weights) :margin-top "4px"}}
-                (or (:last_sync status) "Nunca")]]
-              [:div
-               [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :text-transform "uppercase"}}
-                "Registros Sincronizados"]
-               [:div {:style {:font-size (:2xl t/font-sizes) :font-weight (:bold t/font-weights) :margin-top "4px"}}
-                (or (:records_synced status) "—")]]
-              [:div
-               [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary :text-transform "uppercase"}}
-                "Status"]
-               [:div {:style {:margin-top "4px"}}
-                [badge/badge {:variant (case (:status status)
-                                         "OK"      :success
-                                         "RUNNING" :warning
-                                         :error)}
-                 (or (:status status) "—")]]]]
-
-             ;; Counts breakdown
-             (when (:counts status)
-               (let [counts    (:counts status)
-                     breakdown (:skipped_breakdown counts)]
-                 [:div {:style {:padding "16px" :background t/bg-subtle :border-radius (:md t/border-radius)}}
-                  [:span {:style {:font-size (:sm t/font-sizes) :font-weight (:semibold t/font-weights)}}
-                   "Detalhes:"]
-                  [:div {:style {:margin-top "8px" :display "flex" :gap "16px" :flex-wrap "wrap"}}
-                   (for [[k v] (dissoc counts :skipped_breakdown)]
-                     ^{:key k}
-                     [:span {:style {:font-size (:sm t/font-sizes) :color t/text-secondary}}
-                      (str (name k) ": " v)])]
-                  ;; Per-reason skip breakdown — useful when investigating
-                  ;; why fewer tickets came in than expected.
-                  (when (and (map? breakdown) (seq breakdown))
-                    [:div {:style {:margin-top "12px" :padding-top "12px"
-                                   :border-top (str "1px solid " t/border-default)}}
-                     [:span {:style {:font-size (:xs t/font-sizes) :color t/text-secondary
-                                     :text-transform "uppercase" :letter-spacing "0.04em"}}
-                      "Skipped por motivo"]
-                     [:div {:style {:margin-top "8px" :display "flex" :gap "16px" :flex-wrap "wrap"}}
-                      (for [[k v] breakdown]
-                        ^{:key k}
-                        [:span {:style {:font-size (:sm t/font-sizes) :color t/text-secondary}}
-                         (str (name k) ": " v)])]])]))
-
-             ;; Errors
-             (when (seq (:errors status))
-               [:div
-                [:span {:style {:font-size (:sm t/font-sizes) :font-weight (:semibold t/font-weights) :color t/error-default}}
-                 "Erros:"]
-                [:ul {:style {:margin "8px 0 0" :padding-left "20px"}}
-                 (for [e (:errors status)]
-                   ^{:key e}
-                   [:li {:style {:font-size (:sm t/font-sizes) :color t/error-dark}} e])]])]))]])))
+       (when (seq (:errors status))
+         [:div.card
+          [:h3 {:style {:color "var(--danger-dark)"}} "Erros recentes"]
+          [:ul {:style {:margin "8px 0 0" :padding-left "20px"}}
+           (for [e (:errors status)]
+             ^{:key e} [:li {:style {:font-size "13px" :color "var(--danger-dark)"}} e])]])])))

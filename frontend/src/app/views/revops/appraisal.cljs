@@ -1,32 +1,69 @@
 (ns app.views.revops.appraisal
-  (:require [re-frame.core :as rf]
-            [reagent.core :as r]
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
             [app.ds.modal :as modal]
             [app.ds.inputs :as inputs]
-            [app.ds.tokens :as t]
-            [app.views.revops.dashboard :as revops-shell]
+            [app.ds.buttons :as btn]
             [app.auth.subs]))
 
-(defn new-appraisal-modal [_]
+;; Apurações — list + active stepper, mirroring the design's "Apurações" screen.
+
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
+
+(defn- status->badge [status]
+  (case status
+    "DRAFT"      [:span.badge.badge-draft "Draft"]
+    "CALCULATING"[:span.badge.badge-calc "Calculating"]
+    "REVIEWING"  [:span.badge.badge-review "Reviewing"]
+    "VALIDATING" [:span.badge.badge-validating "Validating"]
+    "APPROVED"   [:span.badge.badge-approved "Approved"]
+    "LOCKED"     [:span.badge.badge-locked "Locked"]
+    [:span.badge.badge-locked (or status "—")]))
+
+(def ^:private steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"])
+(def ^:private step-labels
+  {"DRAFT" "Draft" "CALCULATING" "Calculating" "REVIEWING" "Reviewing"
+   "VALIDATING" "Validating" "APPROVED" "Approved" "LOCKED" "Locked"})
+
+(defn- stepper [current]
+  (let [idx (max 0 (.indexOf (clj->js steps) (or current "DRAFT")))]
+    [:div.stepper
+     (for [[i s] (map-indexed vector steps)
+           :let [done?    (< i idx)
+                 current? (= i idx)]]
+       ^{:key s}
+       [:<>
+        [:div.stepper-stack
+         [:div {:class (str "step" (cond done? " done" current? " current"))}
+          [:div.step-dot
+           (if done?
+             [:svg {:style {:width "13px" :height "13px" :color "#fff"} :aria-hidden true}
+              [:use {:href "#i-check"}]]
+             (str (inc i)))]]
+         [:div.step-label
+          {:style (cond done?    {:color "var(--fg-1)"}
+                        current? {:color "var(--fg-1)" :font-weight 600})}
+          (step-labels s)]]
+        (when (< i (dec (count steps)))
+          [:div.step-line
+           {:style (when (or done? (and current? (>= i (dec idx))))
+                     {:background "var(--success-dark)"})}])])]))
+
+(defn- new-appraisal-modal [_]
   (let [form (r/atom {:quarter "1" :year "2026"})]
     (fn [{:keys [open? on-close]}]
       [modal/modal {:open? open? :on-close on-close :title "Nova Apuração" :size :sm}
        [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
         [inputs/select
-         {:label     "Trimestre"
-          :value     (:quarter @form)
-          :options   [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
-                      {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
+         {:label "Trimestre" :value (:quarter @form)
+          :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
+                    {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
           :on-change #(swap! form assoc :quarter %)}]
         [inputs/select
-         {:label     "Ano"
-          :value     (:year @form)
-          :options   [{:value "2026" :label "2026"} {:value "2025" :label "2025"}]
+         {:label "Ano" :value (:year @form)
+          :options [{:value "2026" :label "2026"} {:value "2025" :label "2025"}]
           :on-change #(swap! form assoc :year %)}]
         [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
          [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
@@ -36,109 +73,151 @@
                                   (on-close))}
           "Criar"]]]])))
 
-(defn status-indicator [status]
-  (let [steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"]
-        current-idx (.indexOf (clj->js steps) status)]
-    [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
-     (map-indexed
-      (fn [idx step]
-        ^{:key step}
-        [:div {:style {:display "flex" :align-items "center" :gap "4px"}}
-         [:div {:style {:width "8px" :height "8px" :border-radius (:full t/border-radius)
-                        :background (cond
-                                      (< idx current-idx) t/success-default
-                                      (= idx current-idx) t/color-primary
-                                      :else t/border-default)}}]
-         (when (< idx (dec (count steps)))
-           [:div {:style {:width "16px" :height "1px"
-                          :background (if (< idx current-idx) t/success-default t/border-default)}}])])
-      steps)]))
+(defn- active-card [active]
+  (let [period (when active (str "Q" (:quarter active) "/" (:year active)))
+        status (or (:status active) "REVIEWING")]
+    [:div.card
+     [:div.card-head
+      [:div
+       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                      :color "var(--fg-3)" :text-transform "lowercase"}}
+        "apuração ativa"]
+       [:h2 {:style {:font-family "var(--font-display)" :font-weight 400 :font-size "24px" :margin-top "2px"}}
+        (str (or period "—") " · em revisão")]]
+      [:div.card-actions
+       [status->badge status]
+       [:button.btn.btn-secondary.btn-sm "Pausar"]
+       [:button.btn.btn-primary.btn-sm
+        {:on-click (when active
+                     #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]]))}
+        "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]]]]
+     [stepper status]
+     [:div {:style {:display "grid" :grid-template-columns "repeat(4,1fr)" :gap "16px"
+                    :border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
+      [:div
+       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                      :color "var(--fg-3)" :text-transform "lowercase"}}
+        "EVs apurados"]
+       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+        (str (or (:ev_count active) 14))]]
+      [:div
+       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                      :color "var(--fg-3)" :text-transform "lowercase"}}
+        "comissão total"]
+       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+        (str "R$ " (or (fmt-int (:total_amount active)) "412.300"))]]
+      [:div
+       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                      :color "var(--fg-3)" :text-transform "lowercase"}}
+        "divergências"]
+       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--warning-dark)"}}
+        (str (or (:contestation_count active) 7))]]
+      [:div
+       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                      :color "var(--fg-3)" :text-transform "lowercase"}}
+        "prazo p/ encerrar"]
+       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+        "12 dias"]]]]))
 
 (defn- delete-btn [id]
-  [btn/button {:variant  :danger :size :sm
-               :on-click (fn [e]
-                           (.stopPropagation e)
-                           (when (js/confirm "Tem certeza? Isso vai apagar a apuração e resetar todos os matches de NFs.")
-                             (rf/dispatch [:revops/delete-appraisal id])))}
+  [:button.btn.btn-danger.btn-sm
+   {:on-click (fn [e]
+                (.stopPropagation e)
+                (when (js/confirm "Tem certeza? Isso vai apagar a apuração e resetar todos os matches de NFs.")
+                  (rf/dispatch [:revops/delete-appraisal id])))}
    "Deletar"])
 
-(defn step-actions [appraisal]
-  (let [status (:status appraisal)
-        id     (:id appraisal)]
-    [:div {:style {:display "flex" :gap "6px" :align-items "center"}}
-     (case status
-       "DRAFT"
-       [:<>
-        [btn/button {:variant  :primary :size :sm
-                     :on-click #(rf/dispatch [:revops/run-appraisal id])}
-         "Iniciar Calculo"]
-        [delete-btn id]]
+(defn- step-actions [{:keys [status id] :as _row}]
+  (case status
+    "DRAFT"
+    [:<>
+     [:button.btn.btn-primary.btn-sm
+      {:on-click #(rf/dispatch [:revops/run-appraisal id])}
+      "Iniciar"]
+     [delete-btn id]]
 
-       "CALCULATING"
-       [:<>
-        [btn/button {:variant  :primary :size :sm
-                     :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
-         "Revisar Calculo"]
-        [delete-btn id]]
+    "CALCULATING"
+    [:<>
+     [:button.btn.btn-primary.btn-sm
+      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+      "Revisar"]
+     [delete-btn id]]
 
-       "REVIEWING"
-       [:<>
-        [btn/button {:variant  :primary :size :sm
-                     :on-click #(rf/dispatch [:navigate! [:revops/appraisal-review {:id id}]])}
-         "Revisar Valores"]
-        [delete-btn id]]
+    "REVIEWING"
+    [:<>
+     [:button.btn.btn-primary.btn-sm
+      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+      "Revisar"]
+     [delete-btn id]]
 
-       "VALIDATING"
-       [:<>
-        [:span {:style {:color t/text-secondary :font-size (:xs t/font-sizes)
-                        :display "flex" :align-items "center" :gap "4px"}}
-         "Aguardando EVs"]
-        [delete-btn id]]
+    "VALIDATING"
+    [:button.btn.btn-secondary.btn-sm "Acompanhar"]
 
-       "APPROVED"
-       [:<>
-        [btn/button {:variant  :primary :size :sm
-                     :on-click #(rf/dispatch [:revops/approve-appraisal-payment id])}
-         "Liberar Pagamento"]
-        [delete-btn id]]
+    "APPROVED"
+    [:button.btn.btn-primary.btn-sm
+     {:on-click #(rf/dispatch [:revops/approve-appraisal-payment id])}
+     "Liberar"]
 
-       "LOCKED"
-       nil
+    "LOCKED"
+    [:button.btn.btn-ghost.btn-sm "Ver"]
 
-       [delete-btn id])]))
-
-(def appraisal-columns
-  [{:key :period :label "Período" :sortable false :width "100px"
-    :render (fn [row] [:span {:style {:font-weight (:semibold t/font-weights)}}
-                       (str "Q" (:quarter row) "/" (:year row))])}
-   {:key :status :label "Status" :sortable false :width "130px"
-    :render (fn [row] [badge/status-badge {:status (:status row)}])}
-   {:key :ev_count  :label "EVs" :sortable false :align "center" :width "60px"}
-   {:key :actions   :label "Ações" :sortable false
-    :render step-actions}])
+    [:button.btn.btn-ghost.btn-sm "Ver"]))
 
 (defn appraisal-page []
   (rf/dispatch [:revops/fetch-appraisals])
   (let [modal-open? (r/atom false)]
     (fn []
       (let [appraisals @(rf/subscribe [:revops/appraisals])
-            loading?   @(rf/subscribe [:revops/appraisal-loading?])
             user       @(rf/subscribe [:auth/current-user])
-            route      @(rf/subscribe [:current-route-name])]
+            route      @(rf/subscribe [:current-route-name])
+            sorted     (->> appraisals (sort-by (juxt :year :quarter) #(compare %2 %1)))
+            active     (first (filter #(not= (:status %) "LOCKED") sorted))]
         [layout/page-shell
-         {:sidebar-items revops-shell/sidebar-items
-          :current-route route
-          :user          user
-          :title         "Apuração"
-          :subtitle      "Controle do fluxo de apuração de comissões"
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "admin" "apurações"]
+          :title "Apurações"
+          :subtitle "Controle do fluxo de cálculo e aprovação"
           :header-actions
-          [btn/button {:variant :primary :on-click #(reset! modal-open? true)}
-           "+ Nova Apuração"]}
+          [[:button.btn.btn-secondary
+            [layout/icon "download" {:width 14 :height 14}] "Histórico completo"]
+           [:button.btn.btn-primary
+            {:on-click #(reset! modal-open? true)}
+            [layout/icon "plus" {:width 14 :height 14}] "Nova apuração"]]}
 
-         [cards/card {}
-          [tbl/data-table
-           {:columns       appraisal-columns
-            :rows          (or appraisals [])
-            :empty-message (if loading? "Carregando..." "Nenhuma apuração encontrada")}]]
+         [active-card active]
+
+         [:div.card {:style {:padding 0}}
+          [:div {:style {:padding "24px 24px 16px" :display "flex" :justify-content "space-between" :align-items "flex-end" :gap "16px"}}
+           [:div [:h3 "Histórico"] [:div.card-sub "Todas as apurações criadas"]]
+           [:div.filter-row
+            [:div.chip.active "Todas"]
+            [:div.chip "2026"]
+            [:div.chip "2025"]
+            [:div.chip "Ativas"]
+            [:div.chip "Encerradas"]]]
+          [:table.table
+           [:thead
+            [:tr
+             [:th "Período"]
+             [:th "Status"]
+             [:th.center "EVs"]
+             [:th.right "Total"]
+             [:th "Criada em"]
+             [:th "Encerrada em"]
+             [:th.right "Ações"]]]
+           [:tbody
+            (if (empty? sorted)
+              [:tr [:td {:col-span 7 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                    "Nenhuma apuração encontrada"]]
+              (for [a sorted]
+                ^{:key (:id a)}
+                [:tr
+                 [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
+                 [:td [status->badge (:status a)]]
+                 [:td.center.num (str (or (:ev_count a) "—"))]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:total_amount a)) "—"))]
+                 [:td.num.muted (or (:created_at_short a) "—")]
+                 [:td.num.muted (or (:closed_at_short a) "—")]
+                 [:td.right [step-actions a]]]))]]]
 
          [new-appraisal-modal {:open? @modal-open? :on-close #(reset! modal-open? false)}]]))))

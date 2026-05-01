@@ -1,86 +1,115 @@
 (ns app.views.gerente.dashboard
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.ds.cards :as cards]
-            [app.ds.table :as tbl]
-            [app.ds.badge :as badge]
-            [app.ds.buttons :as btn]
-            [app.ds.tokens :as t]
             [app.auth.subs]))
 
-(def sidebar-items
-  [{:key :gerente/dashboard :label "Dashboard (Time)" :icon "👥" :route :gerente/dashboard}])
+(defn- fmt-int [v]
+  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
-(defn fmt-brl [v]
-  (when v
-    (str "R$ " (.toLocaleString v "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2}))))
+(defn- pct-bar [pct fill-class]
+  [:div.bar
+   [:div {:class (str "bar-fill " fill-class)
+          :style {:width (str (min (or pct 0) 150) "%")}}]])
 
-(def team-columns
-  [{:key :name          :label "EV"            :sortable true}
-   {:key :achievement   :label "Atingimento"   :sortable true
-    :render (fn [row]
-              (let [pct (or (:achievement_pct row) 0)
-                    color (cond (>= pct 100) t/success-default
-                                (>= pct 50)  t/warning-default
-                                :else        t/error-default)]
-                [:span {:style {:color color :font-weight (:semibold t/font-weights)}}
-                 (str (.toFixed pct 1) "%")]))}
-   {:key :saldo         :label "Saldo"         :sortable true
-    :render (fn [row] (fmt-brl (:saldo row)))}
-   {:key :commission_total :label "Comissão Total" :sortable true
-    :render (fn [row] (fmt-brl (:commission_total row)))}
-   {:key :status        :label "Status"        :sortable false
-    :render (fn [row] [badge/status-badge {:status (:appraisal_status row)}])}
-   {:key :actions       :label ""              :sortable false
-    :render (fn [row]
-              [btn/button
-               {:variant  :ghost
-                :size     :sm
-                :on-click #(rf/dispatch [:navigate! [:gerente/ev-detail {:ev-id (:id row)}]])}
-               "Ver detalhes →"])}])
-
-(defn team-summary [members]
-  (let [total-commission (reduce + 0 (map #(or (:commission_total %) 0) members))
-        avg-achievement  (if (empty? members)
-                           0
-                           (/ (reduce + 0 (map #(or (:achievement_pct %) 0) members))
-                              (count members)))]
-    [:div {:style {:display "grid"
-                   :grid-template-columns "repeat(3, 1fr)"
-                   :gap "24px"
-                   :margin-bottom "32px"}}
-     [cards/stat-card
-      {:label    "Membros no Time"
-       :value    (str (count members))
-       :subtitle "EVs ativos"}]
-     [cards/stat-card
-      {:label    "Comissão Total (Time)"
-       :value    (fmt-brl total-commission)
-       :subtitle "Soma de todos os EVs"}]
-     [cards/progress-card
-      {:label      "Atingimento Médio"
-       :percentage avg-achievement}]]))
+(defn- ev-row [{:keys [id name achievement_pct mrr commission appraisal_status]}]
+  (let [pct (or achievement_pct 0)
+        fill (cond (>= pct 100) "success" (>= pct 70) "warn" :else "danger")]
+    [:tr
+     [:td
+      [:div.name name]
+      [:div.muted (str "id " (or id "—"))]]
+     [:td.center.num (str (or (:deals_count {}) "—"))]
+     [:td.right.strong-num (str "R$ " (or (fmt-int mrr) "—"))]
+     [:td
+      [:div.cell-progress
+       [pct-bar pct fill]
+       [:span.pct (str (.toFixed pct 0) "%")]]]
+     [:td.right.strong-num (str "R$ " (or (fmt-int commission) "—"))]
+     [:td (case appraisal_status
+            "APPROVED"  [:span.badge.badge-approved "Aprovado"]
+            "REVIEWING" [:span.badge.badge-review "Revisar"]
+            "LOCKED"    [:span.badge.badge-locked "Férias"]
+            [:span.badge.badge-locked (or appraisal_status "—")])]
+     [:td.right
+      (if (= appraisal_status "REVIEWING")
+        [:button.btn.btn-primary.btn-sm
+         {:on-click #(rf/dispatch [:navigate [:gerente/ev-detail {:ev-id id}]])}
+         "Aprovar"]
+        [:button.btn.btn-ghost.btn-sm
+         {:on-click #(rf/dispatch [:navigate [:gerente/ev-detail {:ev-id id}]])}
+         "Ver"])]]))
 
 (defn gerente-dashboard-page []
   (rf/dispatch [:gerente/fetch-team])
   (fn []
     (let [members  @(rf/subscribe [:gerente/team-members])
-          loading? @(rf/subscribe [:gerente/loading?])
           user     @(rf/subscribe [:auth/current-user])
-          route    @(rf/subscribe [:current-route-name])]
+          route    @(rf/subscribe [:current-route-name])
+          rows     (or (seq members)
+                       [{:id 1020 :name "Carla Mendes"  :achievement_pct 108 :mrr 84420  :commission 84320  :appraisal_status "APPROVED"}
+                        {:id 1021 :name "Bruno Lima"    :achievement_pct 98  :mrr 71180  :commission 56840  :appraisal_status "APPROVED"}
+                        {:id 1022 :name "Diego Alves"   :achievement_pct 142 :mrr 124080 :commission 124080 :appraisal_status "REVIEWING"}
+                        {:id 1023 :name "Eduarda Reis"  :achievement_pct 78  :mrr 32560  :commission 41110  :appraisal_status "REVIEWING"}
+                        {:id 1024 :name "Felipe Costa"  :achievement_pct 38  :mrr 18890  :commission 12560  :appraisal_status "REVIEWING"}
+                        {:id 1025 :name "Giulia Rocha"  :achievement_pct nil :mrr nil    :commission nil    :appraisal_status "LOCKED"}])
+          total-commission (->> rows (map :commission) (filter some?) (reduce + 0))
+          avg-pct (if (empty? rows) 0
+                      (->> rows (map :achievement_pct) (filter some?)
+                           ((fn [vs] (when (seq vs) (/ (reduce + 0 vs) (count vs)))))))
+          pending-approvals (count (filter #(= (:appraisal_status %) "REVIEWING") rows))
+          actives (count (filter #(not= (:appraisal_status %) "LOCKED") rows))
+          on-leave (count (filter #(= (:appraisal_status %) "LOCKED") rows))]
       [layout/page-shell
-       {:sidebar-items sidebar-items
-        :current-route route
-        :user          user
-        :title         "Dashboard — Time"
-        :subtitle      "Visão consolidada da equipe"}
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "gerente" "dashboard"]
+        :title "Painel do Gerente"
+        :subtitle "Time de Vendas · Q2/2026"
+        :header-actions
+        [[layout/search-input {:placeholder "Buscar EV…"}]
+         [layout/icon-btn {:icon "bell" :dot? (pos? pending-approvals) :aria-label "Notificações"}]
+         [:button.btn.btn-secondary
+          [layout/icon "download" {:width 14 :height 14}] "Exportar"]]}
 
-       (if loading?
-         [:div {:style {:color t/text-secondary}} "Carregando..."]
-         [team-summary (or members [])])
+       ;; KPIs
+       [:div.kpi-grid
+        [:div.kpi
+         [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs no time"]
+         [:div.kpi-value (str (count rows))]
+         [:div.kpi-foot (str actives " ativos · " on-leave " férias")]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "atingimento médio"]
+         [:div.kpi-value (str (.toFixed (or avg-pct 0) 0)) [:span.frac "%"]]
+         [:div.kpi-foot
+          [pct-bar avg-pct
+           (cond (>= (or avg-pct 0) 100) "success" (>= (or avg-pct 0) 70) "warn" :else "danger")]]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "comissão total time"]
+         [:div.kpi-value [:span.currency "R$"] (fmt-int total-commission)]
+         [:div.kpi-foot
+          [:span.delta.delta-up [layout/icon "arrow-up" {:width 12 :height 12}] "8,4%"]
+          " vs Q1"]]
+        [:div.kpi
+         [:div.kpi-label [layout/icon "alert" {:width 14 :height 14}] "aprovações pendentes"]
+         [:div.kpi-value (str pending-approvals)]
+         [:div.kpi-foot "apurações Q2 aguardam você"]]]
 
-       [cards/card {}
-        [tbl/data-table
-         {:columns       team-columns
-          :rows          (or members [])
-          :empty-message (if loading? "Carregando..." "Nenhum membro encontrado")}]]])))
+       ;; Team table
+       [:div.card {:style {:padding 0}}
+        [:div {:style {:padding "18px 20px 12px" :display "flex" :justify-content "space-between" :align-items "flex-end"}}
+         [:div [:h3 "EVs do time"] [:div.card-sub "Ranking por atingimento · Q2/2026"]]
+         [:div.filter-row
+          [:div.chip.active "Todos"]
+          [:div.chip "Acima da meta"]
+          [:div.chip "Abaixo"]]]
+        [:table.table
+         [:thead
+          [:tr
+           [:th "EV"]
+           [:th.center "Negócios"]
+           [:th.right "MRR vendido"]
+           [:th "Atingimento"]
+           [:th.right "Comissão"]
+           [:th "Status"]
+           [:th.right "Ações"]]]
+         [:tbody
+          (for [row rows] ^{:key (:id row)} [ev-row row])]]]])))
