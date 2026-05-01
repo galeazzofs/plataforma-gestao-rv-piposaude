@@ -20,48 +20,50 @@
     [:span.badge.badge-paid "Ativa"]))
 
 (defn- projection-chart [pts]
-  (let [data (or (seq pts)
-                 [{:label "abr" :projected 80 :actual 70}
-                  {:label "mai" :projected 95 :actual 88}
-                  {:label "jun" :projected 105 :actual 100}
-                  {:label "jul" :projected 115 :actual nil}
-                  {:label "ago" :projected 125 :actual nil}])
-        n (count data)
-        x-step (/ 540 (dec (max 1 n)))
-        x #(+ 60 (* % x-step))
-        max-v (or (->> data (mapcat (fn [p] [(:projected p) (:actual p)]))
-                       (filter some?) (reduce max 1)) 1)
-        y #(- 220 (* (/ (or % 0) max-v) 180))
-        proj-d (->> data (map-indexed (fn [i p] (str (x i) " " (y (:projected p))))) (clojure.string/join " L "))
-        actual-pts (filter :actual (map-indexed #(assoc %2 :i %1) data))
-        actual-d (->> actual-pts (map (fn [p] (str (x (:i p)) " " (y (:actual p))))) (clojure.string/join " L "))]
-    [:svg.chart {:viewBox "0 0 600 240" :preserveAspectRatio "none"}
-     [:g {:stroke "#E2E1DF" :stroke-width 1}
-      [:line {:x1 40 :y1 40  :x2 600 :y2 40}]
-      [:line {:x1 40 :y1 100 :x2 600 :y2 100}]
-      [:line {:x1 40 :y1 160 :x2 600 :y2 160}]
-      [:line {:x1 40 :y1 220 :x2 600 :y2 220}]]
-     [:path {:d (str "M " proj-d) :fill "none" :stroke "#3370D1"
-             :stroke-width 2 :stroke-dasharray "6 4" :stroke-linecap "round"}]
-     (when (seq actual-pts)
-       [:path {:d (str "M " actual-d) :fill "none" :stroke "#000"
-               :stroke-width 2.5 :stroke-linecap "round"}])
-     [:g {:fill "#000"}
-      (for [p actual-pts]
-        ^{:key (:i p)} [:circle {:cx (x (:i p)) :cy (y (:actual p)) :r 3.5}])]
-     [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
-      (for [[i p] (map-indexed vector data)]
-        ^{:key i} [:text {:x (- (x i) 6) :y 238} (:label p)])]]))
+  (if (empty? pts)
+    [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
+                   :font-family "var(--font-mono)" :font-size "12px"}}
+     "Sem projeção disponível para o período"]
+    (let [data (vec pts)
+          n (count data)
+          x-step (/ 540 (max 1 (dec n)))
+          x #(+ 60 (* % x-step))
+          max-v (or (->> data (mapcat (fn [p] [(:projected p) (:actual p)]))
+                         (filter some?) (reduce max 1)) 1)
+          y #(- 220 (* (/ (or % 0) max-v) 180))
+          proj-pts (->> data
+                        (map-indexed (fn [i p] (when-let [v (:projected p)]
+                                                 (str (x i) " " (y v)))))
+                        (filter some?))
+          actual-pts (filter :actual (map-indexed #(assoc %2 :i %1) data))
+          actual-d (->> actual-pts (map (fn [p] (str (x (:i p)) " " (y (:actual p)))))
+                         (clojure.string/join " L "))]
+      [:svg.chart {:viewBox "0 0 600 240" :preserveAspectRatio "none"}
+       [:g {:stroke "#E2E1DF" :stroke-width 1}
+        [:line {:x1 40 :y1 40  :x2 600 :y2 40}]
+        [:line {:x1 40 :y1 100 :x2 600 :y2 100}]
+        [:line {:x1 40 :y1 160 :x2 600 :y2 160}]
+        [:line {:x1 40 :y1 220 :x2 600 :y2 220}]]
+       (when (seq proj-pts)
+         [:path {:d (str "M " (clojure.string/join " L " proj-pts))
+                 :fill "none" :stroke "#3370D1"
+                 :stroke-width 2 :stroke-dasharray "6 4" :stroke-linecap "round"}])
+       (when (seq actual-pts)
+         [:path {:d (str "M " actual-d) :fill "none" :stroke "#000"
+                 :stroke-width 2.5 :stroke-linecap "round"}])
+       [:g {:fill "#000"}
+        (for [p actual-pts]
+          ^{:key (:i p)} [:circle {:cx (x (:i p)) :cy (y (:actual p)) :r 3.5}])]
+       [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
+        (for [[i p] (map-indexed vector data)]
+          ^{:key i} [:text {:x (- (x i) 6) :y 238} (:label p)])]])))
 
 (defn- deals-table-section [policies loading?]
   (let [items (or (seq policies) [])]
     [:div.card {:style {:padding 0}}
-     [:div {:style {:padding "24px 24px 16px" :display "flex" :justify-content "space-between" :align-items "flex-end"}}
-      [:div [:h3 "Negócios"] [:div.card-sub (str (count items) " apólices no período")]]
-      [:div.filter-row
-       [:div.chip.active (str "Todas (" (count items) ")")]
-       [:div.chip "Ativas"]
-       [:div.chip "Em validação"]]]
+     [:div {:style {:padding "24px 24px 16px"}}
+      [:h3 "Negócios"]
+      [:div.card-sub (str (count items) " apólice" (when (not= 1 (count items)) "s") " no período")]]
      [:table.table
       [:thead
        [:tr
@@ -111,26 +113,23 @@
           pol-loading? @(rf/subscribe [:ev/policies-loading?])
           user       @(rf/subscribe [:auth/current-user])
           route      @(rf/subscribe [:current-route-name])
-          balance    (or (:balance_estimated summary) 84320)
-          pct        (or (:achievement_pct summary) 108)
-          target     (or (:mrr_target summary) 78000)
-          mrr-sold   (or (:mrr_sold summary) 84420)
+          balance    (:balance_estimated summary)
+          pct        (:achievement_pct summary)
+          target     (:mrr_target summary)
+          mrr-sold   (:mrr_sold summary)
           quarter    (:current_quarter summary)
-          year       (:current_year summary)]
+          year       (:current_year summary)
+          period     (when (and quarter year) (str "Q" quarter "/" year))]
       [layout/page-shell
        {:current-route route :user user
         :crumbs ["plataforma rv" "ev" "dashboard"]
         :title (str "Bem-vindo, " (or (some-> (:name user) (clojure.string/split #" ") first) "EV"))
-        :subtitle (str "Q" (or quarter "2") "/" (or year "2026") " · em validação")
-        :header-actions
-        [[:button.btn.btn-secondary
-          [layout/icon "calendar" {:width 14 :height 14}]
-          (str "Q" (or quarter "2") " / " (or year "2026"))]
-         [layout/icon-btn {:icon "bell" :aria-label "Notificações"}]]}
+        :subtitle (when period (str period " em validação"))
+        :header-actions nil}
 
        ;; KPIs (3-up)
        [:div.kpi-grid.-three
-        ;; Black highlighted card
+        ;; Black highlighted card — saldo a receber
         [:div.kpi {:style {:background "var(--night)" :color "#fff"
                            :border-color "var(--night)" :position "relative"
                            :overflow "hidden"}}
@@ -139,26 +138,29 @@
           "saldo a receber"]
          [:div.kpi-value {:style {:color "#fff"}}
           [:span.currency {:style {:color "rgba(255,255,255,.65)"}} "R$"]
-          (fmt-brl-int balance)]
+          (or (fmt-brl-int balance) "—")]
          [:div.kpi-foot {:style {:color "rgba(255,255,255,.65)"}}
           [:span.badge {:style {:background "rgba(255,255,255,.12)" :color "#fff"}}
            (str (count (or policies [])) " negócios")]
-          " · estimativa Q" (or quarter "2")]
+          (when period (str " · estimativa " period))]
          [:svg.kpi-grafismo {:style {:color "var(--cyan)" :opacity 0.18}}
           [:use {:href "#i-grafismo"}]]]
 
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "atingimento do período"]
-         [:div.kpi-value (str (.toFixed (or pct 0) 0)) [:span.frac "%"]]
+         [:div.kpi-value
+          (if (some? pct) [:<> (.toFixed pct 0) [:span.frac "%"]] "—")]
          [:div.kpi-foot
-          [pct-bar pct (cond (>= pct 100) "success" (>= pct 70) "warn" :else "danger")]]]
+          (when (some? pct)
+            [pct-bar pct (cond (>= pct 100) "success" (>= pct 70) "warn" :else "danger")])]]
 
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "meta do período"]
-         [:div.kpi-value [:span.currency "R$"] (fmt-brl-int target)]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt-brl-int target) "—")]
          [:div.kpi-foot
-          "MRR vendido: "
-          [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt-brl-int mrr-sold))]]]]
+          (when mrr-sold
+            [:<> "MRR vendido: "
+             [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt-brl-int mrr-sold))]])]]]
 
        ;; Projection chart
        [:div.card

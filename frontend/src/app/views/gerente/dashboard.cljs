@@ -45,13 +45,7 @@
     (let [members  @(rf/subscribe [:gerente/team-members])
           user     @(rf/subscribe [:auth/current-user])
           route    @(rf/subscribe [:current-route-name])
-          rows     (or (seq members)
-                       [{:id 1020 :name "Carla Mendes"  :achievement_pct 108 :mrr 84420  :commission 84320  :appraisal_status "APPROVED"}
-                        {:id 1021 :name "Bruno Lima"    :achievement_pct 98  :mrr 71180  :commission 56840  :appraisal_status "APPROVED"}
-                        {:id 1022 :name "Diego Alves"   :achievement_pct 142 :mrr 124080 :commission 124080 :appraisal_status "REVIEWING"}
-                        {:id 1023 :name "Eduarda Reis"  :achievement_pct 78  :mrr 32560  :commission 41110  :appraisal_status "REVIEWING"}
-                        {:id 1024 :name "Felipe Costa"  :achievement_pct 38  :mrr 18890  :commission 12560  :appraisal_status "REVIEWING"}
-                        {:id 1025 :name "Giulia Rocha"  :achievement_pct nil :mrr nil    :commission nil    :appraisal_status "LOCKED"}])
+          rows     (or members [])
           total-commission (->> rows (map :commission) (filter some?) (reduce + 0))
           avg-pct (if (empty? rows) 0
                       (->> rows (map :achievement_pct) (filter some?)
@@ -64,11 +58,7 @@
         :crumbs ["plataforma rv" "gerente" "dashboard"]
         :title "Painel do Gerente"
         :subtitle "Time de Vendas · Q2/2026"
-        :header-actions
-        [[layout/search-input {:placeholder "Buscar EV…"}]
-         [layout/icon-btn {:icon "bell" :dot? (pos? pending-approvals) :aria-label "Notificações"}]
-         [:button.btn.btn-secondary
-          [layout/icon "download" {:width 14 :height 14}] "Exportar"]]}
+        :header-actions nil}
 
        ;; KPIs
        [:div.kpi-grid
@@ -84,23 +74,18 @@
            (cond (>= (or avg-pct 0) 100) "success" (>= (or avg-pct 0) 70) "warn" :else "danger")]]]
         [:div.kpi
          [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "comissão total time"]
-         [:div.kpi-value [:span.currency "R$"] (fmt-int total-commission)]
-         [:div.kpi-foot
-          [:span.delta.delta-up [layout/icon "arrow-up" {:width 12 :height 12}] "8,4%"]
-          " vs Q1"]]
+         [:div.kpi-value [:span.currency "R$"] (fmt-int total-commission)]]
         [:div.kpi
          [:div.kpi-label [layout/icon "alert" {:width 14 :height 14}] "aprovações pendentes"]
          [:div.kpi-value (str pending-approvals)]
-         [:div.kpi-foot "apurações Q2 aguardam você"]]]
+         [:div.kpi-foot
+          (when (pos? pending-approvals) "aguardando sua aprovação")]]]
 
        ;; Team table
        [:div.card {:style {:padding 0}}
-        [:div {:style {:padding "18px 20px 12px" :display "flex" :justify-content "space-between" :align-items "flex-end"}}
-         [:div [:h3 "EVs do time"] [:div.card-sub "Ranking por atingimento · Q2/2026"]]
-         [:div.filter-row
-          [:div.chip.active "Todos"]
-          [:div.chip "Acima da meta"]
-          [:div.chip "Abaixo"]]]
+        [:div {:style {:padding "18px 20px 12px"}}
+         [:h3 "EVs do time"]
+         [:div.card-sub "Ranking por atingimento"]]
         [:table.table
          [:thead
           [:tr
@@ -112,4 +97,7 @@
            [:th "Status"]
            [:th.right "Ações"]]]
          [:tbody
-          (for [row rows] ^{:key (:id row)} [ev-row row])]]]])))
+          (if (empty? rows)
+            [:tr [:td {:col-span 7 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+                  "Nenhum EV no time"]]
+            (for [row rows] ^{:key (:id row)} [ev-row row]))]]]])))

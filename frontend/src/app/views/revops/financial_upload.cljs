@@ -67,95 +67,67 @@
          "Selecionar arquivos"]]])))
 
 (defn financial-upload-page []
-  (let [active-tab (r/atom :all)]
-    (fn []
-      (let [result       @(rf/subscribe [:revops/upload-result])
-            loading?     @(rf/subscribe [:revops/upload-loading?])
-            perk-result  @(rf/subscribe [:revops/perk-upload-result])
-            perk-loading? @(rf/subscribe [:revops/perk-upload-loading?])
-            user         @(rf/subscribe [:auth/current-user])
-            route        @(rf/subscribe [:current-route-name])
-            ;; Design fallback for the history table.
-            history [{:file "nfs_junho_2026.csv"        :type "NFs"      :user "Lucas Pereira" :date "30/06/2026 14:22" :rows 1842 :status "approved"}
-                     {:file "comissoes_q2_revops.xlsx"  :type "Comissão" :user "Ana Souza"     :date "29/06/2026 11:08" :rows 312  :status "approved"}
-                     {:file "nfs_maio_2026.csv"          :type "NFs"      :user "Lucas Pereira" :date "31/05/2026 16:50" :rows 1798 :status "approved"}
-                     {:file "comissoes_q1_revops.xlsx"  :type "Comissão" :user "Ana Souza"     :date "15/05/2026 09:30" :rows 294  :status "review"}
-                     {:file "nfs_abril_2026.csv"         :type "NFs"      :user "Lucas Pereira" :date "30/04/2026 18:11" :rows 1756 :status "contested"}]
-            shown (case @active-tab
-                    :ok      (filter #(= (:status %) "approved") history)
-                    :error   (filter #(= (:status %) "contested") history)
-                    history)]
-        [layout/page-shell
-         {:current-route route :user user
-          :crumbs ["plataforma rv" "operação" "upload financeiro"]
-          :title "Upload Financeiro"
-          :subtitle "NFs e comprovantes · Q2/2026"
-          :header-actions
-          [[:button.btn.btn-secondary
-            [layout/icon "download" {:width 14 :height 14}] "Modelo CSV"]]}
+  (fn []
+    (let [result        @(rf/subscribe [:revops/upload-result])
+          loading?      @(rf/subscribe [:revops/upload-loading?])
+          perk-result   @(rf/subscribe [:revops/perk-upload-result])
+          perk-loading? @(rf/subscribe [:revops/perk-upload-loading?])
+          user          @(rf/subscribe [:auth/current-user])
+          route         @(rf/subscribe [:current-route-name])]
+      [layout/page-shell
+       {:current-route route :user user
+        :crumbs ["plataforma rv" "operação" "upload financeiro"]
+        :title "Upload Financeiro"
+        :subtitle "NFs e subsídios em XLSX"
+        :header-actions nil}
 
-         (cond
-           loading?
-           [:div.dropzone
-            [layout/icon "refresh" {:width 36 :height 36 :class "spin"}]
-            [:strong "Processando arquivo…"]]
+       ;; Faturamento
+       [:div.card
+        [:div.card-head
+         [:div [:h3 "Faturamento"]
+          [:div.card-sub "Planilha \"Consulta - Follow up Faturamento\". Re-upload do mesmo trimestre substitui as linhas existentes (exceto se a apuração já estiver Locked)."]]
+         (when result
+           [:button.btn.btn-secondary.btn-sm
+            {:on-click #(rf/dispatch [:revops/upload-reset])}
+            "Novo upload"])]
+        (cond
+          loading?
+          [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
+                         :font-family "var(--font-mono)" :font-size "12px"}}
+           "Processando arquivo…"]
 
-           result
-           [upload-result-stats result]
+          result
+          [upload-result-stats result]
 
-           :else
-           [upload-form
-            {:kind :financial
-             :on-file (fn [f q y]
-                        (rf/dispatch [:revops/upload-financial f q y]))}])
+          :else
+          [upload-form
+           {:kind :financial
+            :on-file (fn [f q y] (rf/dispatch [:revops/upload-financial f q y]))}])]
 
-         [:div.card
-          [:div.card-head
-           [:div [:h3 "Subsídios / Perks"]
-            [:div.card-sub "Soma por cliente, descontada das NFs na apuração"]]]
-          (cond
-            perk-loading?
-            [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"}} "Processando subsídios…"]
-            perk-result
-            [:div.callout {:style {:border-color "var(--success-light)" :background "var(--success-lightest)"}}
-             [layout/icon "check" {:width 20 :height 20}]
-             [:div {:style {:flex 1}}
-              [:strong (str "Subsídios aplicados — " (count (or (:items perk-result) [])) " clientes")]]]
-            :else
-            [upload-form
-             {:kind :perks
-              :on-file (fn [f q y]
-                         (rf/dispatch [:revops/upload-perks f q y]))}])]
+       ;; Subsídios / Perks
+       [:div.card
+        [:div.card-head
+         [:div [:h3 "Subsídios / Perks"]
+          [:div.card-sub "Planilha de subsídios — soma por cliente e desconta das NFs na apuração."]]
+         (when perk-result
+           [:button.btn.btn-secondary.btn-sm
+            {:on-click #(rf/dispatch [:revops/perk-upload-reset])}
+            "Novo upload"])]
+        (cond
+          perk-loading?
+          [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
+                         :font-family "var(--font-mono)" :font-size "12px"}}
+           "Processando subsídios…"]
 
-         [:div.card {:style {:padding 0}}
-          [:div {:style {:padding "18px 20px 0" :display "flex" :justify-content "space-between" :align-items "flex-end"}}
-           [:div [:h3 "Histórico de uploads"] [:div.card-sub "Últimos 30 dias"]]
-           [:div.filter-row
-            [:div {:class (str "chip" (when (= @active-tab :all) " active"))
-                   :on-click #(reset! active-tab :all)} "Todos"]
-            [:div {:class (str "chip" (when (= @active-tab :ok) " active"))
-                   :on-click #(reset! active-tab :ok)} "Processados"]
-            [:div {:class (str "chip" (when (= @active-tab :error) " active"))
-                   :on-click #(reset! active-tab :error)} "Com erro"]]]
-          [:table.table
-           [:thead
-            [:tr
-             [:th "Arquivo"] [:th "Tipo"] [:th "Enviado por"] [:th "Data"]
-             [:th.center "Linhas"] [:th "Status"] [:th.right "Ações"]]]
-           [:tbody
-            (for [r shown]
-              ^{:key (:file r)}
-              [:tr
-               [:td.name.num (:file r)]
-               [:td (:type r)]
-               [:td (:user r)]
-               [:td.num.muted (:date r)]
-               [:td.center.num (or (fmt-int (:rows r)) "—")]
-               [:td (case (:status r)
-                      "approved"  [:span.badge.badge-approved "Processado"]
-                      "review"    [:span.badge.badge-review "Em revisão"]
-                      "contested" [:span.badge.badge-contested "Erro"]
-                      [:span.badge.badge-locked (:status r)])]
-               [:td.right
-                [:button.btn.btn-ghost.btn-sm
-                 [layout/icon "eye" {:width 12 :height 12}]]]])]]]]))))
+          perk-result
+          [:div.callout {:style {:border-color "var(--success-light)"
+                                 :background "var(--success-lightest)"}}
+           [layout/icon "check" {:width 20 :height 20}]
+           [:div {:style {:flex 1}}
+            [:strong (str "Subsídios aplicados — "
+                          (count (or (:items perk-result) [])) " clientes")]]]
+
+          :else
+          [upload-form
+           {:kind :perks
+            :on-file (fn [f q y] (rf/dispatch [:revops/upload-perks f q y]))}])]])))

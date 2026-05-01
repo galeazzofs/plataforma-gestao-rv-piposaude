@@ -20,36 +20,35 @@
     :neutral {:background "var(--beige-light)" :color "var(--neutral-darkest)"}
     {:background "var(--beige-light)" :color "var(--neutral-darkest)"}))
 
-(defn- relative-when [s]
-  (or s "agora"))
-
 (defn- list-item [{:keys [c on-resolve avatar-variant]}]
-  (let [initial (-> (or (:ev_name c) (:client_name c) "?") (str " ") first str/upper-case)]
+  (let [initial (-> (or (:ev_name c) (:client_name c) "?") (str " ") first str/upper-case)
+        period  (or (:period c)
+                    (when (and (:quarter c) (:year c))
+                      (str "Q" (:quarter c) "/" (:year c))))
+        when-text (cond-> "contestou"
+                    (:created_at c) (str " em " (:created_at c))
+                    period          (str " · " period))]
     [:div.list-item
      [:div.avatar {:style (avatar-bg (or avatar-variant :neutral))} initial]
      [:div.meta
       [:div.meta-top
        [:span.who (or (:ev_name c) (:client_name c) "—")]
-       [:span.when (str "contestou " (relative-when (:created_at_relative c))
-                        (when-let [p (:period c)] (str " · " p)))]
+       [:span.when when-text]
        [:span.badge.badge-contested "Contestada"]]
       [:div.quote (or (:comment c) "—")]
-      [:div.meta-top
-       {:style {:font-family "var(--font-mono)" :font-size "11px"
-                :color "var(--fg-3)" :margin-top "4px"}}
-       (when-let [pol (:policy_id c)]
-         [:span "apólice " [:strong {:style {:color "var(--fg-1)"}} pol]])
-       (when-let [v (:disputed_amount c)]
-         [:span (str "· valor disputado ")
-          [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt-int v))]])
-       (when-let [d (:due_in c)]
-         [:span "· vence em "
-          [:strong {:style {:color (if (#{:soon} (:urgency c)) "var(--warning-dark)" "var(--fg-1)")}}
-           d]])]]
+      (let [pol (:policy_id c)
+            disputed (or (:disputed_amount c) (:amount c))]
+        (when (or pol disputed)
+          [:div.meta-top
+           {:style {:font-family "var(--font-mono)" :font-size "11px"
+                    :color "var(--fg-3)" :margin-top "4px"}}
+           (when pol
+             [:span "apólice "
+              [:strong {:style {:color "var(--fg-1)"}} pol]])
+           (when disputed
+             [:span (str (when pol " · ") "valor disputado ")
+              [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt-int disputed))]])]))]
      [:div.actions
-      [:button.btn.btn-ghost.btn-sm
-       {:on-click #(rf/dispatch [:navigate [:revops/contestation-detail {:id (:id c)}]])}
-       "Ver detalhes"]
       [:button.btn.btn-primary.btn-sm
        {:on-click #(on-resolve c)}
        "Resolver"]]]))
@@ -98,30 +97,16 @@
             open-rows     (filter #(= (:status %) "CONTESTED") (or contestations []))
             resolved-rows (filter #(= (:status %) "RESOLVED")  (or contestations []))
             shown (case @tab
-                    :open     (or (seq open-rows)
-                                  ;; design fallback
-                                  [{:id 1 :ev_name "Cliente A — EV" :policy_id "PIP-1024"
-                                    :comment "O valor da apólice 1024 está R$ 8.400 abaixo do contratado. A NF de junho não foi considerada no cálculo."
-                                    :disputed_amount 8400 :due_in "2 dias" :urgency :soon
-                                    :period "Q2/2026" :created_at_relative "há 2h"}
-                                   {:id 2 :ev_name "Cliente B — EV" :policy_id "PIP-1156"
-                                    :comment "Multiplicador aplicado foi 0.8x mas o atingimento foi 92%. Pela tabela deveria ser 1.0x."
-                                    :disputed_amount 4220 :due_in "5 dias"
-                                    :period "Q2/2026" :created_at_relative "ontem"}
-                                   {:id 3 :ev_name "Cliente C — EV" :policy_id "PIP-0980"
-                                    :comment "A apólice 0980 deveria estar associada ao meu time. Foi atribuída ao time errado e não recebi a comissão de leadership."
-                                    :disputed_amount 1180 :due_in "9 dias"
-                                    :period "Q1/2026" :created_at_relative "há 3 dias"}])
+                    :open     open-rows
                     :resolved resolved-rows
                     :all      (or contestations []))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "admin" "contestações"]
           :title "Contestações"
-          :subtitle (str (count open-rows) " abertas · " (count resolved-rows) " resolvidas neste trimestre")
-          :header-actions
-          [[:button.btn.btn-secondary
-            [layout/icon "download" {:width 14 :height 14}] "Exportar"]]}
+          :subtitle (str (count open-rows) " aberta" (when (not= 1 (count open-rows)) "s")
+                         " · " (count resolved-rows) " resolvida" (when (not= 1 (count resolved-rows)) "s"))
+          :header-actions nil}
 
          [:div.card {:style {:padding 0}}
           ;; Tabs

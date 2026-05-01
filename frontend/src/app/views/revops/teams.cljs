@@ -72,15 +72,10 @@
     (fn []
       (let [teams @(rf/subscribe [:revops/teams])
             users @(rf/subscribe [:revops/users])
+            loading? @(rf/subscribe [:revops/teams-loading?])
             user  @(rf/subscribe [:auth/current-user])
             route @(rf/subscribe [:current-route-name])
-            team-rows (or (seq teams)
-                          [{:id 1 :name "SP · Vendas"  :leader_name "Pedro Marques" :members [{} {} {} {} {} {}] :mrr_sum 1420000 :achievement_pct 108}
-                           {:id 2 :name "RJ · Vendas"  :leader_name "Sofia Brandão"  :members [{} {} {} {} {}]    :mrr_sum 980000  :achievement_pct 96}
-                           {:id 3 :name "MG · Vendas"  :leader_name "Rafael Tonon"   :members [{} {} {} {}]       :mrr_sum 720000  :achievement_pct 89}
-                           {:id 4 :name "SP · Inside"  :leader_name "Marina Couto"   :members [{} {} {} {} {}]    :mrr_sum 380000  :achievement_pct 112}
-                           {:id 5 :name "Hunters"      :leader_name "Lucas Pereira"  :members [{} {} {}]          :mrr_sum 540000  :achievement_pct 118}
-                           {:id 6 :name "Farmers"      :leader_name "Ana Souza"      :members [{} {} {}]          :mrr_sum 290000  :achievement_pct 82}])
+            team-rows (or teams [])
             total-evs (reduce + 0 (map #(count (:members %)) team-rows))]
         [layout/page-shell
          {:current-route route :user user
@@ -92,26 +87,46 @@
             {:on-click #(do (reset! editing-team nil) (reset! modal-open? true))}
             [layout/icon "plus" {:width 14 :height 14}] "Novo time"]]}
 
-         [:div {:style {:display "grid" :grid-template-columns "repeat(3,1fr)" :gap "16px"}}
-          (for [t team-rows]
-            ^{:key (:id t)}
-            [:div.card
-             [:div.card-head
-              [:div [:h3 (:name t)] [:div.card-sub (str "gerente: " (or (:leader_name t) "—"))]]
-              [:button.btn.btn-ghost.btn-sm
-               {:on-click #(do (reset! editing-team t) (reset! modal-open? true))}
-               [layout/icon "edit" {:width 12 :height 12}]]]
-             [:div {:style {:display "flex" :gap "14px" :margin-top "4px"}}
-              [stat-col {:label "composição"
-                         :value (str (count (:members t)) " EVs")}]
-              [stat-col {:label "MRR"
-                         :value (str "R$ " (or (some-> (:mrr_sum t) fmt-int (str)) "—"))}]
-              [stat-col {:label "atingim."
-                         :value (str (or (:achievement_pct t) "—") "%")
-                         :color (cond
-                                  (>= (or (:achievement_pct t) 0) 100) "var(--success-dark)"
-                                  (>= (or (:achievement_pct t) 0) 70)  "var(--warning-dark)"
-                                  :else "var(--danger-dark)")}]]])]
+         (cond
+           loading?
+           [:div.card [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+                       "Carregando…"]]
+
+           (empty? team-rows)
+           [:div.card
+            [:div.empty
+             [:div.empty-illus [layout/icon "team" {:width 40 :height 40}]]
+             [:h4 "Nenhum time configurado"]
+             [:p "Crie o primeiro time para organizar seus EVs."]
+             [:button.btn.btn-primary.btn-sm
+              {:style {:margin-top "8px"}
+               :on-click #(do (reset! editing-team nil) (reset! modal-open? true))}
+              "Novo time"]]]
+
+           :else
+           [:div {:style {:display "grid" :grid-template-columns "repeat(3,1fr)" :gap "16px"}}
+            (for [t team-rows]
+              ^{:key (:id t)}
+              [:div.card
+               [:div.card-head
+                [:div [:h3 (:name t)]
+                 [:div.card-sub (str "gerente: " (or (:leader_name t) "—"))]]
+                [:button.btn.btn-ghost.btn-sm
+                 {:on-click #(do (reset! editing-team t) (reset! modal-open? true))
+                  :title "Editar time"}
+                 [layout/icon "edit" {:width 12 :height 12}]]]
+               [:div {:style {:display "flex" :gap "14px" :margin-top "4px" :flex-wrap "wrap"}}
+                [stat-col {:label "composição"
+                           :value (str (count (:members t)) " EVs")}]
+                (when-let [mrr (:mrr_sum t)]
+                  [stat-col {:label "MRR" :value (str "R$ " (fmt-int mrr))}])
+                (when-let [pct (:achievement_pct t)]
+                  [stat-col {:label "atingim."
+                             :value (str pct "%")
+                             :color (cond
+                                      (>= pct 100) "var(--success-dark)"
+                                      (>= pct 70)  "var(--warning-dark)"
+                                      :else        "var(--danger-dark)")}])]])])
 
          ^{:key (str "team-modal-" (or (:id @editing-team) "new") "-" @modal-open?)}
          [team-modal {:open? @modal-open? :on-close #(reset! modal-open? false)

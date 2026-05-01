@@ -86,11 +86,10 @@
         (str (or period "—") " · em revisão")]]
       [:div.card-actions
        [status->badge status]
-       [:button.btn.btn-secondary.btn-sm "Pausar"]
-       [:button.btn.btn-primary.btn-sm
-        {:on-click (when active
-                     #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]]))}
-        "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]]]]
+       (when active
+         [:button.btn.btn-primary.btn-sm
+          {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]])}
+          "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]])]]
      [stepper status]
      [:div {:style {:display "grid" :grid-template-columns "repeat(4,1fr)" :gap "16px"
                     :border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
@@ -151,7 +150,9 @@
      [delete-btn id]]
 
     "VALIDATING"
-    [:button.btn.btn-secondary.btn-sm "Acompanhar"]
+    [:button.btn.btn-secondary.btn-sm
+     {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+     "Acompanhar"]
 
     "APPROVED"
     [:button.btn.btn-primary.btn-sm
@@ -159,9 +160,13 @@
      "Liberar"]
 
     "LOCKED"
-    [:button.btn.btn-ghost.btn-sm "Ver"]
+    [:button.btn.btn-ghost.btn-sm
+     {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+     "Ver"]
 
-    [:button.btn.btn-ghost.btn-sm "Ver"]))
+    [:button.btn.btn-ghost.btn-sm
+     {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+     "Ver"]))
 
 (defn appraisal-page []
   (rf/dispatch [:revops/fetch-appraisals])
@@ -178,23 +183,18 @@
           :title "Apurações"
           :subtitle "Controle do fluxo de cálculo e aprovação"
           :header-actions
-          [[:button.btn.btn-secondary
-            [layout/icon "download" {:width 14 :height 14}] "Histórico completo"]
-           [:button.btn.btn-primary
+          [[:button.btn.btn-primary
             {:on-click #(reset! modal-open? true)}
             [layout/icon "plus" {:width 14 :height 14}] "Nova apuração"]]}
 
          [active-card active]
 
          [:div.card {:style {:padding 0}}
-          [:div {:style {:padding "24px 24px 16px" :display "flex" :justify-content "space-between" :align-items "flex-end" :gap "16px"}}
-           [:div [:h3 "Histórico"] [:div.card-sub "Todas as apurações criadas"]]
-           [:div.filter-row
-            [:div.chip.active "Todas"]
-            [:div.chip "2026"]
-            [:div.chip "2025"]
-            [:div.chip "Ativas"]
-            [:div.chip "Encerradas"]]]
+          [:div {:style {:padding "24px 24px 16px"}}
+           [:h3 "Histórico"]
+           [:div.card-sub
+            (str (count sorted) " apuraç" (if (= 1 (count sorted)) "ão" "ões") " criada"
+                 (when (not= 1 (count sorted)) "s"))]]
           [:table.table
            [:thead
             [:tr

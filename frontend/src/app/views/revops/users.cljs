@@ -74,7 +74,8 @@
         editing-user (r/atom nil)
         confirm-open?(r/atom false)
         confirm-row  (r/atom nil)
-        active-role  (r/atom nil)]
+        active-role  (r/atom nil)
+        search-text  (r/atom "")]
     (fn []
       (let [users     @(rf/subscribe [:revops/users])
             teams     @(rf/subscribe [:revops/teams])
@@ -82,16 +83,23 @@
             user      @(rf/subscribe [:auth/current-user])
             route     @(rf/subscribe [:current-route-name])
             counts    (frequencies (map :role (or users [])))
-            shown     (if @active-role
-                        (filter #(= (:role %) @active-role) (or users []))
-                        (or users []))]
+            q         (-> @search-text (or "") str/lower-case)
+            shown     (cond->> (or users [])
+                        @active-role  (filter #(= (:role %) @active-role))
+                        (seq q)       (filter (fn [u]
+                                                 (or (str/includes? (-> (:name u) (or "") str/lower-case) q)
+                                                     (str/includes? (-> (:email u) (or "") str/lower-case) q)))))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "configuração" "usuários"]
           :title "Usuários"
-          :subtitle (str (count users) " ativos · 5 perfis")
+          :subtitle (str (count users) " ativo" (when (not= 1 (count users)) "s"))
           :header-actions
-          [[layout/search-input {:placeholder "Nome, e-mail…"}]
+          [[:div.search
+            [layout/icon "search" {:width 14 :height 14}]
+            [:input {:placeholder "Nome, e-mail…"
+                     :value @search-text
+                     :on-change #(reset! search-text (.. % -target -value))}]]
            [:button.btn.btn-primary
             {:on-click #(do (reset! editing-user nil) (reset! modal-open? true))}
             [layout/icon "plus" {:width 14 :height 14}] "Convidar usuário"]]}
