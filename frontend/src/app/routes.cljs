@@ -59,11 +59,28 @@
        (rf/dispatch [:route/changed match])))
    {:use-fragment false}))
 
-;; Re-frame events for routing
-(rf/reg-event-db
+;; Landing route per role — also used by :auth/login-success.
+(defn role->landing [role]
+  (case role
+    "ADMIN"   :revops/dashboard
+    "FINANCE" :finance/dashboard
+    "GERENTE" :gerente/dashboard
+    "EV"      :ev/dashboard
+    "CN"      :ev/dashboard
+    :no-role))
+
+;; Re-frame events for routing.
+;; When an authenticated user lands on :home or :login (e.g. fresh page load
+;; on `/`, manual nav to `/login`, browser back), redirect to their landing
+;; instead of falling through to the 404 view.
+(rf/reg-event-fx
  :route/changed
- (fn [db [_ match]]
-   (assoc db :current-route match)))
+ (fn [{:keys [db]} [_ match]]
+   (let [route-name (get-in match [:data :name])
+         logged-in? (some? (get-in db [:auth :user]))]
+     (cond-> {:db (assoc db :current-route match)}
+       (and logged-in? (#{:home :login} route-name))
+       (assoc :navigate! (role->landing (get-in db [:auth :user :role])))))))
 
 (rf/reg-sub
  :current-route
@@ -87,8 +104,3 @@
          (rfe/push-state route-name)))
      (rfe/push-state route-or-pair))))
 
-;; Navigate event — dispatched from views as [:navigate! :route] or [:navigate! [:route params]]
-(rf/reg-event-fx
- :navigate!
- (fn [_ [_ route-or-pair]]
-   {:navigate! route-or-pair}))

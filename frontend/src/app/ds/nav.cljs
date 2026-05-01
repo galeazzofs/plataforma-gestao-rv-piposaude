@@ -14,8 +14,12 @@
    {:key :gerente/dashboard      :label "Painel do Gerente"    :icon "team"      :route :gerente/dashboard}
 
    {:section "apuração"}
-   {:key :revops/appraisal       :label "Apurações"            :icon "cog"   :route :revops/appraisal}
-   {:key :revops/contestations   :label "Contestações"         :icon "alert" :route :revops/contestations}
+   {:key :revops/appraisal       :label "Apurações"            :icon "cog"     :route :revops/appraisal}
+   {:key :revops/cn-appraisal    :label "Apuração CN"          :icon "percent" :route :revops/cn-appraisal}
+   {:key :revops/cn-goals        :label "Metas CN"             :icon "target"  :route :revops/cn-goals}
+   {:key :revops/ev-bonus        :label "Bônus EV"             :icon "money"   :route :revops/ev-bonus}
+   {:key :revops/leadership      :label "Liderança"            :icon "users"   :route :revops/leadership}
+   {:key :revops/contestations   :label "Contestações"         :icon "alert"   :route :revops/contestations}
 
    {:section "vendas"}
    {:key :ev/dashboard           :label "EV — Dashboard"       :icon "trend"  :route :ev/dashboard}
