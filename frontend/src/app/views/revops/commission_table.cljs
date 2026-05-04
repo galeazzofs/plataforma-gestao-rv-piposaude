@@ -3,18 +3,24 @@
             [app.ds.layout :as layout]
             [app.auth.subs]))
 
-(defn- pct-label [v]
+(defn- frac->pct
+  "Convert fraction string to percentage number: \"0.07\" -> 7"
+  [v]
   (when (some? v)
     (let [n (if (string? v) (js/parseFloat v) v)]
-      (when-not (js/isNaN n)
-        (str (.toFixed n (if (or (= n (js/Math.floor n)) (>= n 100)) 0 1)) "%")))))
+      (when-not (js/isNaN n) (* n 100)))))
+
+(defn- pct-label [v]
+  (when-let [n (frac->pct v)]
+    (str (.toFixed n (if (= n (js/Math.floor n)) 0 1)) "%")))
 
 (defn- format-band-header [{:keys [achievement_min achievement_max]}]
-  (let [hi (when achievement_max (js/parseFloat achievement_max))]
+  (let [lo (frac->pct achievement_min)
+        hi (frac->pct achievement_max)]
     (cond
-      (nil? achievement_max)   (str achievement_min "%+")
-      (and hi (>= hi 999))     (str achievement_min "%+")
-      :else                    (str achievement_min "\u2013" achievement_max "%"))))
+      (nil? hi)          (str (js/Math.round lo) "%+")
+      (>= hi 500)        (str (js/Math.round lo) "%+")
+      :else              (str (js/Math.round lo) "% a " (.toFixed hi 1) "%"))))
 
 (defn- table-view [by-segment band-key all-bands segments]
   [:table.matrix
