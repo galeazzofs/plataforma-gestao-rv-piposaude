@@ -6,6 +6,7 @@
             [app.ds.modal :as modal]
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
+            [app.ds.badge :as badge]
             [app.auth.subs]))
 
 ;; Contestações — list view, mirroring the design's tabbed list.
@@ -115,17 +116,11 @@
             [:div {:class (str "tab" (when (= @tab :open) " active"))
                    :on-click #(reset! tab :open)}
              "Abertas "
-             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-dark)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count open-rows)]]
+             [badge/count-pill {:tone :danger} (count open-rows)]]
             [:div {:class (str "tab" (when (= @tab :resolved) " active"))
                    :on-click #(reset! tab :resolved)}
              "Resolvidas "
-             [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count resolved-rows)]]
+             [badge/count-pill {:tone :neutral} (count resolved-rows)]]
             [:div {:class (str "tab" (when (= @tab :all) " active"))
                    :on-click #(reset! tab :all)}
              "Todas"]]]

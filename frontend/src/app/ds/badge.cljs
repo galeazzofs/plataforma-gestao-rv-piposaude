@@ -30,6 +30,41 @@
                            :background "currentColor" :flex-shrink "0"}}]]
           children)))
 
+(defn count-pill
+  "Mono count indicator for tab labels and section headers.
+
+   Visually quieter than `badge` (no leading dot, no full padding) — the
+   number itself is the content. Tonal background+text colors signal
+   severity at a glance.
+
+   Props:
+     :tone        :neutral (default), :danger, :warning, :info, :success
+     :tab-spaced? when true, includes margin-left:6px so the pill sits
+                  next to a tab label (default true). Pass false for
+                  section-header use where the parent owns the gap.
+
+   Example:
+     [count-pill {:tone :danger} (count open-issues)]
+     [count-pill {:tone :warning :tab-spaced? false} (count rows)]"
+  [{:keys [tone tab-spaced?]
+    :or {tone :neutral tab-spaced? true}} & children]
+  (let [tones {:danger  ["var(--danger-lightest)"  "var(--danger-dark)"]
+               :warning ["var(--warning-lightest)" "var(--warning-text)"]
+               :info    ["var(--badge-calc-bg)"    t/blue-700]
+               :success ["var(--success-lightest)" "var(--success-dark)"]
+               :neutral ["var(--bg-2)"             "var(--fg-3)"]}
+        [bg fg] (get tones tone (:neutral tones))
+        base-style {:background bg :color fg
+                    :font-family t/font-mono :font-size "11px"
+                    :font-weight (:medium t/font-weights)
+                    :line-height "1.4"
+                    :padding "1px 7px"
+                    :border-radius (:full t/border-radius)
+                    :white-space "nowrap"}]
+    (into [:span {:style (cond-> base-style
+                           tab-spaced? (assoc :margin-left "6px"))}]
+          children)))
+
 (defn status-badge
   "Maps commission/appraisal status to visual style."
   [{:keys [status]}]
