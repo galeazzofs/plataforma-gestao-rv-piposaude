@@ -41,10 +41,15 @@ class Client(db.Model):
 
     @classmethod
     def find_or_create(cls, name, ev_id=None):
-        """Find by normalized name or create new client."""
+        """Find by normalized name or create new client.
+
+        Always updates the display name so corrections in HubSpot are reflected.
+        """
         normalized = normalize_client_name(name)
         client = cls.query.filter_by(name_normalized=normalized).first()
         if client is None:
             client = cls(name=name, name_normalized=normalized, ev_id=ev_id)
             db.session.add(client)
+        else:
+            client.name = name
         return client
