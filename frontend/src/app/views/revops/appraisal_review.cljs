@@ -12,6 +12,12 @@
     (let [n (if (string? v) (js/parseFloat v) v)]
       (when-not (js/isNaN n) (.toLocaleString (js/Math.round n) "pt-BR")))))
 
+(defn- fmt-money [v]
+  (when (some? v)
+    (let [n (if (string? v) (js/parseFloat v) v)]
+      (when-not (js/isNaN n)
+        (.toLocaleString n "pt-BR" #js {:minimumFractionDigits 2 :maximumFractionDigits 2})))))
+
 (defn- fmt-pct [v]
   (when (some? v)
     (let [n (if (string? v) (js/parseFloat v) v)]
@@ -37,7 +43,7 @@
          [:td.muted (:produto r)]
          [:td.num.muted (:data_recebimento r)]
          [:td (:tipo_receita r)]
-         [:td.right.strong-num (str "R$ " (or (fmt-int (:nf_liquido r)) "—"))]
+         [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "—"))]
          [:td [:span.badge.badge-review (or (:match_status r) "—")]]]))]])
 
 (defn- export-csv-button [rows filename]
@@ -76,7 +82,7 @@
           (str (or (:operadora policy) "—") " · "
                (or (:produto policy) "—") " · "
                (or (:segment policy) "—"))]]
-        [:div.strong-num (str "R$ " (or (fmt-int (:subtotal policy)) "—"))]]
+        [:div.strong-num (str "R$ " (or (fmt-money (:subtotal policy)) "—"))]]
        (when @open?
          [:div {:style {:padding "0 14px 14px" :border-top "1px solid var(--border-subtle)"}}
           [:div {:style {:display "flex" :gap "16px" :flex-wrap "wrap"
@@ -97,7 +103,7 @@
                 [:tr
                  [:td.num.muted (:data_recebimento nf)]
                  [:td (:tipo_receita nf)]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:nf_liquido nf)) "—"))]]))]]])])))
+                 [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido nf)) "—"))]]))]]])])))
 
 ;; ── EV row ────────────────────────────────────────────────
 
@@ -125,7 +131,7 @@
                  (:nf_count ev) " NFs · atingimento "
                  (or (fmt-pct (:achievement_pct ev)) "—") "%")]]
           [:div.strong-num {:style {:font-size "18px"}}
-           (str "R$ " (or (fmt-int (:total_commission ev)) "—"))]]
+           (str "R$ " (or (fmt-money (:total_commission ev)) "—"))]]
          (when @open?
            [:div {:style {:padding "0 20px 16px"}}
             (for [p filtered]
