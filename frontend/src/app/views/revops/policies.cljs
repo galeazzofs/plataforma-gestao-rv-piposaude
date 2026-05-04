@@ -24,7 +24,7 @@
     "·"))
 
 (defn policies-page []
-  (let [filters     (r/atom {:status "" :page 1 :search "" :ev_id ""})
+  (let [filters     (r/atom {:status "" :page 1 :search "" :ev_id "" :sort_by "closed_date"})
         modal-open? (r/atom false)
         selected    (r/atom nil)
         open-edit   (fn [row] (reset! selected row) (reset! modal-open? true))
@@ -83,7 +83,23 @@
           [:div {:class (str "chip" (when (= "CANCELLED" (:status @filters)) " active"))
                  :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
            (str "Canceladas (" suspended ")")]
-          [:div {:style {:margin-left "auto"}}
+          [:div {:style {:margin-left "auto" :display "flex" :gap "8px" :align-items "center"}}
+           [:select {:style {:padding "6px 10px"
+                             :border "1px solid var(--border-subtle)"
+                             :border-radius "6px"
+                             :background "var(--bg-card)"
+                             :font-family "inherit"
+                             :font-size "12px"
+                             :color "var(--fg-1)"
+                             :cursor "pointer"
+                             :min-width "140px"}
+                     :value (:sort_by @filters)
+                     :on-change (fn [e]
+                                  (swap! filters assoc :sort_by (.. e -target -value))
+                                  (swap! filters assoc :page 1)
+                                  (fetch-fn))}
+            [:option {:value "closed_date"} "Ordenar por Data"]
+            [:option {:value "client_name"} "Ordenar por Cliente A–Z"]]
            [:select {:style {:padding "6px 10px"
                              :border "1px solid var(--border-subtle)"
                              :border-radius "6px"
@@ -120,16 +136,18 @@
              [:th.right "MRR"]
              [:th.right "Comissão Potencial"]
              [:th.right "Total Pago"]
+             [:th.right "Pago Comissão"]
+             [:th.right "Pago Agenciamento"]
              [:th.center "Meses"]
              [:th.right ""]]]
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 12 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 14 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? policies)
-              [:tr [:td {:col-span 12 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 14 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhuma apólice encontrada"]]
 
               :else
@@ -146,6 +164,8 @@
                  [:td.right.strong-num (or (fmt/fmt-brl-int (:mrr_for_commission p)) "·")]
                  [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_potential p)) "·")]
                  [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_paid_total p)) "·")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:total_paid_comissao p)) "·")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:total_paid_agenciamento p)) "·")]
                  [:td.center.num (str (or (:installments_paid p) 0) "/12")]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm

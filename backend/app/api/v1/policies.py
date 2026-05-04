@@ -3,6 +3,7 @@ from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth, require_role
 from app.models import Policy, UserRole
+from app.models.client import Client
 from app.models.policy import Segment
 from app.api.middlewares import paginate_query, log_audit
 from app.modules.policies.filters import active_ev_policies_query, all_ev_policies_query
@@ -26,6 +27,8 @@ EDITABLE_FIELDS = {
     "partner_operator",
     "client_id",
     "commission_paid_legacy",
+    "total_paid_comissao",
+    "total_paid_agenciamento",
 }
 
 
@@ -41,7 +44,7 @@ def _coerce_field(field, value):
         return Segment(value)
     if field == "initial_installments_paid":
         return int(value)
-    if field == "commission_paid_legacy":
+    if field in ("commission_paid_legacy", "total_paid_comissao", "total_paid_agenciamento"):
         from decimal import Decimal
         return Decimal(str(value))
     return value
@@ -117,7 +120,14 @@ def list_policies():
     if status:
         query = query.filter(Policy.commission_status == status)
 
-    query = query.order_by(Policy.closed_date.desc())
+    # Sorting
+    sort_by = request.args.get("sort_by", "closed_date")
+    if sort_by == "client_name":
+        query = query.outerjoin(Client, Policy.client_id == Client.id)
+        query = query.order_by(Client.name.asc())
+    else:
+        query = query.order_by(Policy.closed_date.desc())
+
     items, meta = paginate_query(query, page, per_page)
 
     return jsonify({
@@ -245,6 +255,8 @@ def _serialize_policy(policy, detail=False):
         "installments_paid": policy.installments_paid,
         "initial_installments_paid": policy.initial_installments_paid,
         "commission_status": policy.commission_status.value,
+        "total_paid_comissao": str(policy.total_paid_comissao) if policy.total_paid_comissao is not None else None,
+        "total_paid_agenciamento": str(policy.total_paid_agenciamento) if policy.total_paid_agenciamento is not None else None,
     }
     if detail:
         data.update({

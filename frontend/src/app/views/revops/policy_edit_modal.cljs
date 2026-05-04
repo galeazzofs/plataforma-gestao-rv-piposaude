@@ -16,7 +16,9 @@
      :segment                   seg-str
      :partner_operator          (or (:partner_operator policy) "")
      :client_id                 (or (:client_id policy) "")
-     :commission_paid_legacy    (or (:commission_paid_legacy policy) "")}))
+     :commission_paid_legacy    (or (:commission_paid_legacy policy) "")
+     :total_paid_comissao       (or (:total_paid_comissao policy) "")
+     :total_paid_agenciamento   (or (:total_paid_agenciamento policy) "")}))
 
 (defn- payload [form]
   (into {} (remove (fn [[_ v]] (or (nil? v) (= "" v))) form)))
@@ -82,6 +84,16 @@
               {:label "Comissão paga antes da plataforma (R$)" :type "number"
                :value (str (:commission_paid_legacy @form))
                :on-change #(swap! form assoc :commission_paid_legacy %)}]]
+
+            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+             [inputs/input
+              {:label "Total Pago Comissão (R$)" :type "number"
+               :value (str (:total_paid_comissao @form))
+               :on-change #(swap! form assoc :total_paid_comissao %)}]
+             [inputs/input
+              {:label "Total Pago Agenciamento (R$)" :type "number"
+               :value (str (:total_paid_agenciamento @form))
+               :on-change #(swap! form assoc :total_paid_agenciamento %)}]]
 
             [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"
                            :padding-top "12px"

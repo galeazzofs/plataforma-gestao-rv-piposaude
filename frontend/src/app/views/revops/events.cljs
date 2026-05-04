@@ -420,9 +420,13 @@
 
 (rf/reg-event-fx
  :revops/policy-updated
- (fn [{:keys [db]} _]
-   {:dispatch-n [[:revops/fetch-policies (get-in db [:admin :policies-filters])]
-                 [:ui/show-toast {:type :success :message "Apólice atualizada"}]]}))
+ (fn [{:keys [db]} [_ response]]
+   (let [updated (get-in response [:data])
+         id      (:id updated)]
+     {:db (update-in db [:admin :policies]
+                     (fn [items]
+                       (mapv #(if (= (:id %) id) (merge % updated) %) (or items []))))
+      :dispatch [:ui/show-toast {:type :success :message "Apólice atualizada"}]})))
 
 (rf/reg-event-fx
  :revops/policy-update-error

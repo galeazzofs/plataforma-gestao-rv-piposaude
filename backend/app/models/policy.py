@@ -57,6 +57,8 @@ class Policy(db.Model):
     partner_operator = db.Column(db.String(255), nullable=True)
     deal_stage = db.Column(db.String(100), nullable=True)
     commission_paid_legacy = db.Column(db.Numeric(12, 2), nullable=True)
+    total_paid_comissao = db.Column(db.Numeric(12, 2), nullable=True, server_default="0")
+    total_paid_agenciamento = db.Column(db.Numeric(12, 2), nullable=True, server_default="0")
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
