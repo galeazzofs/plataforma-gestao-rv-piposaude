@@ -94,8 +94,8 @@
           {:on-click #(rf/dispatch [:navigate :revops/appraisal])}
           [layout/icon "plus" {:width 14 :height 14}] "Nova apuração"]]}
 
-       ;; KPIs (3-up)
-       [:div.kpi-grid.-three
+       ;; KPIs (4-up — system default; primary admin pulse).
+       [:div.kpi-grid
         [:div.kpi
          [:div.kpi-label [layout/icon "cog" {:width 14 :height 14}] "apuração ativa"]
          [:div.kpi-value
@@ -130,7 +130,17 @@
                                                  "error"))}
              (:status sync-status)])
           (when synced
-            [:span (str (.toLocaleString synced "pt-BR") " negócios sincronizados")])]]]
+            [:span (str (.toLocaleString synced "pt-BR") " negócios sincronizados")])]]
+        ;; Eventos auditados — quiet 4th panel that surfaces system activity
+        ;; volume. Click-through to the full audit log.
+        [:div.kpi
+         [:div.kpi-label [layout/icon "list" {:width 14 :height 14}] "eventos auditados"]
+         [:div.kpi-value (str (or (get-in audit-log [:meta :total]) 0))]
+         [:div.kpi-foot
+          [:button.btn.btn-ghost.btn-sm
+           {:style {:padding 0}
+            :on-click #(rf/dispatch [:navigate :revops/audit-log])}
+           "Abrir log " [layout/icon "arrow-right" {:width 12 :height 12}]]]]]
 
        ;; Callout when an appraisal is in review
        (when (and active (= (:status active) "REVIEWING"))

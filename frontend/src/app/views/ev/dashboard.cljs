@@ -125,9 +125,9 @@
         :subtitle (when period (str period " em validação"))
         :header-actions nil}
 
-       ;; KPIs (3-up)
-       [:div.kpi-grid.-three
-        ;; Black highlighted card — saldo a receber
+       ;; KPIs (4-up — system default; matches revops/finance/gerente cadence).
+       [:div.kpi-grid
+        ;; Night-themed: saldo a receber (the moment that matters most to the EV).
         [:div.kpi {:style {:background "var(--night)" :color "#fff"
                            :border-color "var(--night)" :position "relative"
                            :overflow "hidden"}}
@@ -154,11 +154,17 @@
 
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "meta do período"]
-         [:div.kpi-value [:span.currency "R$"] (or (fmt/int-brl target) "·")]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt/int-brl target) "·")]]
+
+        ;; MRR vendido — promoted from the meta-KPI foot to its own card so
+        ;; the dashboard reads as 4-up alongside the other primary panels.
+        [:div.kpi
+         [:div.kpi-label [layout/icon "trend" {:width 14 :height 14}] "MRR vendido"]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt/int-brl mrr-sold) "·")]
          [:div.kpi-foot
-          (when mrr-sold
-            [:<> "MRR vendido: "
-             [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt/int-brl mrr-sold))]])]]]
+          (when (and mrr-sold target (pos? target))
+            (let [pct-of-target (* 100 (/ mrr-sold target))]
+              [:span (str (.toFixed pct-of-target 0) "% da meta")]))]]]
 
        ;; Projection chart
        [:div.card
