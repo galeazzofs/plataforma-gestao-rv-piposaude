@@ -43,7 +43,21 @@ APOLICE_PIPELINE_ID = "2453678"
 PLACEMENT_PIPELINE_ID = "651307"
 GONGO_STAGE_ID = "11947921"
 PRE_ATIVACAO_STAGE_ID = "14038792"
+ATIVACAO_STAGE_ID = "8438571"
+APOLICE_ATIVA_STAGE_ID = "8438574"
+APOLICE_INATIVA_STAGE_ID = "9015565"
+APOLICE_VALID_STAGES = {
+    PRE_ATIVACAO_STAGE_ID, ATIVACAO_STAGE_ID,
+    APOLICE_ATIVA_STAGE_ID, APOLICE_INATIVA_STAGE_ID,
+}
 DEFAULT_DEAL_PIPELINE_ID = "default"
+# Default-pipeline deal must be at one of these stages to count as the
+# ticket's "closing deal" — replaces team-level filtering (time_solicitante
+# isn't reliably populated). Other-team tickets land at earlier stages and
+# are filtered out by this gate.
+PROPOSTA_ACEITA_STAGE_ID = "26183057"
+GANHO_STAGE_ID = "closedwon"
+DEFAULT_DEAL_VALID_STAGES = {PROPOSTA_ACEITA_STAGE_ID, GANHO_STAGE_ID}
 GONGO_DATE_FLOOR = date(2024, 9, 1)
 PRE_ATIVACAO_DATE_FLOOR = date(2024, 9, 1)
 
@@ -59,7 +73,7 @@ TICKET_PROPERTIES = [
 # Single batch_read pulls pipeline classification + apolice props + default
 # deal closedate — saves a round trip per ticket batch.
 DEAL_PROPERTIES = [
-    "pipeline",
+    "pipeline", "dealstage",
     "numero_apolice", "parceiro",
     "hs_v2_date_entered_14038792",
     "closedate",
@@ -145,9 +159,10 @@ def _fetch_tickets(client):
     - hs_pipeline_stage = GONGO_STAGE_ID
     - closed_date >= GONGO_DATE_FLOOR
 
-    Team-level filtering (e.g. solicitante = Vendas) is intentionally not
-    applied here — the binding constraint is "ticket has a default-pipeline
-    deal" enforced in _resolve_ticket_deals.
+    Team-level filtering (e.g. solicitante = Vendas) can't be applied here
+    because time_solicitante isn't reliably populated. Non-Vendas tickets
+    are filtered downstream by the default-deal stage gate in
+    _resolve_ticket_deals (must be Proposta Aceita or Ganho).
 
     Full-fetch every run — apólice stage transitions don't bump the ticket's
     hs_lastmodifieddate, so an incremental cursor would silently miss them.
@@ -180,14 +195,17 @@ def _resolve_ticket_deals(client, tickets, summary):
     - ticket-level benefit: beneficio_a_ser_cotado must be in
       VALID_BENEFITS_HUBSPOT, otherwise the entire ticket is skipped
       (invalid_benefit). Benefit lives on the ticket, not the apólice.
-    - apólice deal: pipeline=APOLICE_PIPELINE_ID, entered pré-ativação
+    - apólice deal: pipeline=APOLICE_PIPELINE_ID, current dealstage in
+      APOLICE_VALID_STAGES (pré-ativação or later), AND entered pré-ativação
       >= 2024-09-01. If multiple match, first one is used and
       summary["skipped"]["multiple_apolices"] is bumped (warning, not skip).
-    - default deal: pipeline=DEFAULT_DEAL_PIPELINE_ID. First match used.
-      Required — replaces the previous time_solicitante=Vendas filter.
+    - default deal: pipeline=DEFAULT_DEAL_PIPELINE_ID AND dealstage in
+      DEFAULT_DEAL_VALID_STAGES (Proposta Aceita / Ganho). First match used.
+      The stage gate stands in for team-level filtering — non-Vendas tickets
+      typically have a default deal stuck at an earlier stage.
 
-    Tickets without a valid apólice OR without a default deal are skipped.
-    Returns dict {ticket_id: {"apolice": dict, "default_deal": dict}}.
+    Tickets without a valid apólice OR without a default deal at the right
+    stage are skipped. Returns dict {ticket_id: {"apolice": dict, "default_deal": dict}}.
     """
     if not tickets:
         return {}
@@ -211,11 +229,15 @@ def _resolve_ticket_deals(client, tickets, summary):
             props = deal_props.get(d, {})
             pipeline = props.get("pipeline")
             if pipeline == APOLICE_PIPELINE_ID:
+                if props.get("dealstage") not in APOLICE_VALID_STAGES:
+                    continue
                 entered = parse_date(props.get("hs_v2_date_entered_14038792"))
                 if entered is None or entered < PRE_ATIVACAO_DATE_FLOOR:
                     continue
                 apolices_in_pre_ativacao.append({"id": d, "properties": props})
             elif pipeline == DEFAULT_DEAL_PIPELINE_ID:
+                if props.get("dealstage") not in DEFAULT_DEAL_VALID_STAGES:
+                    continue
                 if default_deal is None:
                     default_deal = {"id": d, "properties": props}
         if not apolices_in_pre_ativacao:

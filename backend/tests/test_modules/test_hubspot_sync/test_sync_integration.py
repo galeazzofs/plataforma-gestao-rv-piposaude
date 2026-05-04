@@ -11,7 +11,9 @@ from app.extensions import db
 from app.models import Policy, User, UserRole, BenefitType, Client, PlatformSetting
 from app.modules.hubspot_sync.sync import (
     APOLICE_PIPELINE_ID,
+    PRE_ATIVACAO_STAGE_ID,
     DEFAULT_DEAL_PIPELINE_ID,
+    GANHO_STAGE_ID,
 )
 
 
@@ -39,18 +41,23 @@ def _ticket(tid, props=None, beneficio="Saúde"):
 
 
 def _apolice_props(numero="AP-X", parceiro="BradescoTest",
-                   entered="2025-01-15"):
+                   entered="2025-01-15", stage=PRE_ATIVACAO_STAGE_ID):
     """Apólice deal payload — benefit lives on the ticket now."""
     return {
         "pipeline": APOLICE_PIPELINE_ID,
+        "dealstage": stage,
         "numero_apolice": numero,
         "parceiro": parceiro,
         "hs_v2_date_entered_14038792": entered,
     }
 
 
-def _default_deal_props(closedate="2025-06-01T00:00:00Z"):
-    return {"pipeline": DEFAULT_DEAL_PIPELINE_ID, "closedate": closedate}
+def _default_deal_props(closedate="2025-06-01T00:00:00Z", stage=GANHO_STAGE_ID):
+    return {
+        "pipeline": DEFAULT_DEAL_PIPELINE_ID,
+        "dealstage": stage,
+        "closedate": closedate,
+    }
 
 
 def _cleanup(emails):
@@ -66,11 +73,13 @@ def test_run_sync_end_to_end(db_session):
     _ev("ev@x")
 
     # Scenario:
-    #   T1 → D-A1 (apolice Saúde, pré-ativação) + D-DEFAULT → KEEP (1 row)
-    #   T2 → D-A2 (apolice Vida, pré-ativação) + D-DEFAULT → KEEP (1 row)
-    #   T3 → D-A3 (apolice no pré-ativação) + D-DEFAULT → SKIP no_apolice_pre_ativacao
+    #   T1 → D-A1 (apolice Saúde, pré-ativação) + D-DEFAULT (Ganho) → KEEP (1 row)
+    #   T2 → D-A2 (apolice Vida, pré-ativação) + D-DEFAULT (Ganho) → KEEP (1 row)
+    #   T3 → D-A3 (apolice no pré-ativação) + D-DEFAULT (Ganho) → SKIP no_apolice_pre_ativacao
     #   T4 → D-DEFAULT only → SKIP no_apolice_pre_ativacao
     #   T5 → D-A5 (apolice em pré-ativação) only → SKIP no_default_deal
+    #   T6 → benefit inválido → SKIP invalid_benefit
+    #   T7 → D-A7 (apolice ok) + D-DEFAULT-EARLY (stage qualifiedtobuy) → SKIP no_default_deal
     fake_client = MagicMock()
     fake_client.search_tickets.return_value = {
         "results": [
@@ -80,6 +89,7 @@ def test_run_sync_end_to_end(db_session):
             _ticket("T4", beneficio="Saúde"),
             _ticket("T5", beneficio="Saúde"),
             _ticket("T6", beneficio="Outro"),  # invalid benefit on the ticket
+            _ticket("T7", beneficio="Saúde"),
         ],
         "paging": {},
     }
@@ -90,6 +100,7 @@ def test_run_sync_end_to_end(db_session):
         "T4": ["D-DEFAULT"],
         "T5": ["D-A5"],
         "T6": ["D-A6", "D-DEFAULT"],
+        "T7": ["D-A7", "D-DEFAULT-EARLY"],
     }
     fake_client.batch_read_objects.return_value = {
         "D-A1": _apolice_props(numero="AP-1"),
@@ -97,7 +108,9 @@ def test_run_sync_end_to_end(db_session):
         "D-A3": _apolice_props(numero="AP-3", entered=None),
         "D-A5": _apolice_props(numero="AP-5"),
         "D-A6": _apolice_props(numero="AP-6"),
+        "D-A7": _apolice_props(numero="AP-7"),
         "D-DEFAULT": _default_deal_props(closedate="2025-09-01T00:00:00Z"),
+        "D-DEFAULT-EARLY": _default_deal_props(stage="qualifiedtobuy"),
     }
     fake_client.get_all_owners.return_value = {}
 
@@ -110,7 +123,7 @@ def test_run_sync_end_to_end(db_session):
     assert summary["deleted"] == 0  # nothing pre-existing to delete
     assert summary["skipped"]["invalid_benefit"] == 1          # T6
     assert summary["skipped"]["no_apolice_pre_ativacao"] == 2  # T3, T4
-    assert summary["skipped"]["no_default_deal"] == 1          # T5
+    assert summary["skipped"]["no_default_deal"] == 2          # T5, T7
     assert summary["error_count"] == 0
 
     rows = Policy.query.order_by(Policy.hubspot_ticket_id).all()

@@ -8,10 +8,14 @@ from app.modules.hubspot_sync.sync import (
     _resolve_ticket_deals,
     _new_summary,
     APOLICE_PIPELINE_ID,
+    APOLICE_VALID_STAGES,
+    PRE_ATIVACAO_STAGE_ID,
     PLACEMENT_PIPELINE_ID,
     GONGO_STAGE_ID,
     GONGO_DATE_FLOOR,
     DEFAULT_DEAL_PIPELINE_ID,
+    PROPOSTA_ACEITA_STAGE_ID,
+    GANHO_STAGE_ID,
     VALID_BENEFITS_HUBSPOT,
     TICKET_PROPERTIES,
     DEAL_PROPERTIES,
@@ -84,18 +88,24 @@ def _ticket(tid, beneficio="Saúde"):
     return {"id": tid, "properties": {"beneficio_a_ser_cotado": beneficio}}
 
 
-def _apolice_props(numero="AP-001", parceiro="Bradesco", entered="2025-01-15"):
+def _apolice_props(numero="AP-001", parceiro="Bradesco", entered="2025-01-15",
+                   stage=PRE_ATIVACAO_STAGE_ID):
     """Apólice deal payload — benefit no longer lives here, it comes from the ticket."""
     return {
         "pipeline": APOLICE_PIPELINE_ID,
+        "dealstage": stage,
         "numero_apolice": numero,
         "parceiro": parceiro,
         "hs_v2_date_entered_14038792": entered,
     }
 
 
-def _default_deal_props(closedate="2025-06-01T00:00:00Z"):
-    return {"pipeline": DEFAULT_DEAL_PIPELINE_ID, "closedate": closedate}
+def _default_deal_props(closedate="2025-06-01T00:00:00Z", stage=GANHO_STAGE_ID):
+    return {
+        "pipeline": DEFAULT_DEAL_PIPELINE_ID,
+        "dealstage": stage,
+        "closedate": closedate,
+    }
 
 
 def test_resolve_keeps_ticket_with_apolice_in_pre_ativacao_and_default():
@@ -156,6 +166,39 @@ def test_resolve_drops_apolice_with_pre_ativacao_before_floor():
     assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
 
 
+def test_resolve_drops_apolice_rolled_back_before_pre_ativacao():
+    """Apólice that once entered pré-ativação but was moved back to an earlier
+    stage must NOT count — the current dealstage gate rejects it."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(stage="some_earlier_stage"),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert result == {}
+    assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
+
+
+def test_resolve_accepts_apolice_at_any_valid_stage():
+    """Apólice at pré-ativação or any later stage passes the gate."""
+    for stage in APOLICE_VALID_STAGES:
+        client = MagicMock()
+        client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+        client.batch_read_objects.return_value = {
+            "D-A": _apolice_props(stage=stage),
+            "D-DEFAULT": _default_deal_props(),
+        }
+        summary = _new_summary()
+
+        result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+        assert "T1" in result, f"Apólice at stage {stage} should be accepted"
+
+
 def test_resolve_drops_ticket_with_invalid_benefit():
     """beneficio_a_ser_cotado outside VALID_BENEFITS_HUBSPOT skips the whole
     ticket — benefit is now ticket-level, not per-apólice."""
@@ -203,6 +246,37 @@ def test_resolve_drops_ticket_without_default_deal():
 
     assert result == {}
     assert summary["skipped"]["no_default_deal"] == 1
+
+
+def test_resolve_drops_default_deal_in_wrong_stage():
+    """Default deal not at Proposta Aceita / Ganho doesn't qualify — ticket skipped."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(),
+        "D-DEFAULT": _default_deal_props(stage="presentationscheduled"),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert result == {}
+    assert summary["skipped"]["no_default_deal"] == 1
+
+
+def test_resolve_accepts_default_deal_in_proposta_aceita():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(),
+        "D-DEFAULT": _default_deal_props(stage=PROPOSTA_ACEITA_STAGE_ID),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert "T1" in result
+    assert result["T1"]["default_deal"]["properties"]["dealstage"] == PROPOSTA_ACEITA_STAGE_ID
 
 
 def test_resolve_drops_ticket_with_no_associated_deals():
