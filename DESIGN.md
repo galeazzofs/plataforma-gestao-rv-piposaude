@@ -310,6 +310,7 @@ The system is **flat at rest with one ambient shadow vocabulary used sparingly f
 ### Cards / Containers
 - **Default card** (`.card`): white fill, 1px `border-subtle`, `rounded-md` (16px), 24px internal padding, 16px gap between children. No shadow at rest.
 - **KPI card** (`.kpi`): same shell as `.card` but 20px padding, 12px gap, with optional `kpi-grafismo` SVG decoration absolutely positioned bottom-right at 0.5 opacity. Internal hierarchy: lowercase mono label at top, DM Serif numeric value mid (38px), `kpi-foot` row at bottom with delta pill + caption.
+- **KPI grid** (`.kpi-grid`): four-up `repeat(4, 1fr)` is the default and used on every primary dashboard (admin, finance, gerente, EV). The `.kpi-grid.-three` modifier is reserved for secondary admin views where exactly three metrics tell a complete story without padding (e.g., goals, ev-bonus, cn-appraisal). At ≤1024px the grid collapses to 2-up, at ≤768px to 1-up via the responsive layer.
 - **Score card** (`.score-card`): `night` (`#060D41`) fill, white text, `rounded-md`, 28px padding. Decorated with a `radial-gradient` cyan glow at 0.18 opacity, top-right. Reserved for simulator output (CN role).
 - **Border:** every card uses `border-subtle` (1px). Score card has no border.
 - **Internal padding:** 20px (KPI) / 24px (default card) / 28px (score card).
@@ -386,6 +387,7 @@ Mono-voice grid with separated borders (`border-collapse: separate`). Headers: `
 - **Do** prefix every status badge with a `::before` colored dot using `currentColor`. The dot is the badge's signature.
 - **Do** treat warm beige (`bg-3 / #F7F3EB`) as the "warm-surface" voice — callouts, dropzones, active-nav background, empty-state illustrations. Reach for it when something needs a softer hand.
 - **Do** keep the `night` + `cyan` combination on exactly two surfaces: the simulator's score card and the login frame.
+- **Do** lay out primary dashboards as 4-up `.kpi-grid`. If you have only three meaningful metrics, add a quiet 4th panel (a click-through into a secondary view, a count of system events, or a complementary breakdown). Reserve `.kpi-grid.-three` for secondary admin pages where three is the natural shape.
 
 ### Don't:
 

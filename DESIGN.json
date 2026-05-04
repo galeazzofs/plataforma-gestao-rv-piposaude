@@ -318,7 +318,8 @@
       "Do start each table column header in IBM Plex Mono 10.5px uppercase with 0.06em letter-spacing, fg-3 text, on a bg-2 row with a border-subtle bottom.",
       "Do prefix every status badge with a ::before colored dot using currentColor. The dot is the badge's signature.",
       "Do treat warm beige (bg-3 / #F7F3EB) as the 'warm-surface' voice — callouts, dropzones, active-nav background, empty-state illustrations.",
-      "Do keep the night + cyan combination on exactly two surfaces: the simulator's score card and the login frame."
+      "Do keep the night + cyan combination on exactly two surfaces: the simulator's score card and the login frame.",
+      "Do lay out primary dashboards as 4-up .kpi-grid. If you have only three meaningful metrics, add a quiet 4th panel (a click-through into a secondary view, a count of system events, or a complementary breakdown). Reserve .kpi-grid.-three for secondary admin pages where three is the natural shape."
     ],
     "donts": [
       "Don't use border-left or border-right greater than 1px as a colored severity accent on cards, KPIs, alerts, or callouts. The pattern exists only on the active sidebar nav item (a known navigation idiom) and the editorial blockquote inside list-items. Do not extend it elsewhere.",
