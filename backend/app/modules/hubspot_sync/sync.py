@@ -229,10 +229,15 @@ def _resolve_ticket_deals(client, tickets, summary):
             props = deal_props.get(d, {})
             pipeline = props.get("pipeline")
             if pipeline == APOLICE_PIPELINE_ID:
-                if props.get("dealstage") not in APOLICE_VALID_STAGES:
+                stage = props.get("dealstage")
+                if stage not in APOLICE_VALID_STAGES:
                     continue
+                # Deals that skipped pré-ativação (went straight to Ativação+)
+                # won't have the date-entered property. Accept them if the
+                # current stage is past pré-ativação; only enforce the date
+                # floor when the timestamp exists.
                 entered = parse_date(props.get("hs_v2_date_entered_14038792"))
-                if entered is None or entered < PRE_ATIVACAO_DATE_FLOOR:
+                if entered is not None and entered < PRE_ATIVACAO_DATE_FLOOR:
                     continue
                 apolices_in_pre_ativacao.append({"id": d, "properties": props})
             elif pipeline == DEFAULT_DEAL_PIPELINE_ID:
