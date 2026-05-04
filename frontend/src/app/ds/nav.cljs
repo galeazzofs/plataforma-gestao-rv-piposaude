@@ -29,6 +29,7 @@
    {:key :revops/policies         :label "Apólices"            :icon "doc"     :route :revops/policies}
    {:key :revops/users            :label "Usuários"            :icon "users"   :route :revops/users}
    {:key :revops/teams            :label "Times"               :icon "team"    :route :revops/teams}
+   {:key :revops/achievements     :label "Atingimento EV"      :icon "trend"   :route :revops/achievements}
    {:key :revops/commission-table :label "Tabela %"            :icon "percent" :route :revops/commission-table}
    {:key :revops/financial        :label "Upload Financeiro"   :icon "upload"  :route :revops/financial}
    {:key :revops/sync-status      :label "Sync"                :icon "refresh" :route :revops/sync-status}
