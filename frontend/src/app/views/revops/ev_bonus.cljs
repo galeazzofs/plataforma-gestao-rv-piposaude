@@ -80,13 +80,13 @@
            [:div.kpi-value (str (count (or items [])))]]
           [:div.kpi
            [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "bônus total"]
-           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "—")]]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "·")]]
           [:div.kpi
            [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "atingimento médio"]
            [:div.kpi-value
             (let [vs (->> (or items []) (map :achievement_pct) (filter some?))
                   avg (when (seq vs) (/ (reduce + 0 vs) (count vs)))]
-              (str (or (some-> avg (* 100) (.toFixed 0)) "—") [:span.frac "%"]))]]]
+              (str (or (some-> avg (* 100) (.toFixed 0)) "·") [:span.frac "%"]))]]]
 
          [:div.card {:style {:padding 0}}
           [:table.table
@@ -112,9 +112,9 @@
                 ^{:key (or (:id r) (:ev_id r))}
                 [:tr
                  [:td.name (or (:ev_name r) (str "EV " (:ev_id r)))]
-                 [:td.right.num (str (or (pct (:achievement_pct r)) "—") "%")]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:salario_base_snapshot r)) "—"))]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:bonus_amount r)) "—"))]
+                 [:td.right.num (str (or (pct (:achievement_pct r)) "·") "%")]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:salario_base_snapshot r)) "·"))]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:bonus_amount r)) "·"))]
                  [:td (if (:is_final r)
                         [:span.badge.badge-paid "Final"]
                         [:span.badge.badge-review "Rascunho"])]]))]]]]))))

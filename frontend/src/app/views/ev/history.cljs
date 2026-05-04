@@ -80,12 +80,12 @@
            [:div.kpi-foot (str (count cycles) " ciclo" (when (not= 1 (count cycles)) "s"))]]
           [:div.kpi
            [:div.kpi-label "média trimestral (MRR)"]
-           [:div.kpi-value [:span.currency "R$"] (or (fmt-int avg-mrr) "—")]]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int avg-mrr) "·")]]
           [:div.kpi
            [:div.kpi-label "atingimento médio"]
            [:div.kpi-value (if avg-pct
                              [:<> (.toFixed avg-pct 0) [:span.frac "%"]]
-                             "—")]]]
+                             "·")]]]
 
          ;; Chart
          [:div.card
@@ -134,4 +134,4 @@
                         "SETTLED"   [:span.badge.badge-paid "Pago"]
                         "PROJECTED" [:span.badge.badge-review "Em revisão"]
                         "IN_PAYMENT"[:span.badge.badge-validating "Em pagamento"]
-                        [:span.badge.badge-locked (or (:status c) "—")])]]))]]]]))))
+                        [:span.badge.badge-locked (or (:status c) "·")])]]))]]]]))))

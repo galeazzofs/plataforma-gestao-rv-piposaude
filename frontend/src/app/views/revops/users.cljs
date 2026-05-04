@@ -145,7 +145,7 @@
                    [:div.name (:name u)]]]
                  [:td.muted (:email u)]
                  [:td [:span.badge.badge-locked (:role u)]]
-                 [:td (or (:team_name u) "—")]
+                 [:td (or (:team_name u) "·")]
                  [:td [:span.badge.badge-approved "Ativo"]]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm

@@ -74,11 +74,11 @@
        [:div.kpi-grid.-three
         [:div.kpi
          [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "total apurado"]
-         [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "—")]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "·")]
          [:div.kpi-foot (str months " ciclos")]]
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "score médio"]
-         [:div.kpi-value (str (or (some-> avg-pct (.toFixed 0)) "—"))
+         [:div.kpi-value (str (or (some-> avg-pct (.toFixed 0)) "·"))
           [:span.frac "%"]]]
         [:div.kpi
          [:div.kpi-label [layout/icon "check" {:width 14 :height 14}] "ciclos finais"]
@@ -113,9 +113,9 @@
               ^{:key (str (:year r) "-" (:month r))}
               [:tr
                [:td.name.num (str (:month r) "/" (:year r))]
-               [:td.center.num (str (or (pct (:score_final r)) "—") "%")]
-               [:td.right.num (str (or (mult (:multiplicador r)) "—") "x")]
-               [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount r)) "—"))]
+               [:td.center.num (str (or (pct (:score_final r)) "·") "%")]
+               [:td.right.num (str (or (mult (:multiplicador r)) "·") "x")]
+               [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount r)) "·"))]
                [:td (if (:is_final r)
                       [:span.badge.badge-paid "Final"]
                       [:span.badge.badge-review "Rascunho"])]]))]]]])))

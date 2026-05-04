@@ -25,7 +25,7 @@
             :style {:width "140px" :text-align "right" :padding "6px 10px"}
             :value @value
             :on-change #(reset! value (js/parseFloat (.. % -target -value)))}]
-          [:span.strong-num (str "R$ " (or (fmt-int (:amount row)) "—"))])]
+          [:span.strong-num (str "R$ " (or (fmt-int (:amount row)) "·"))])]
        [:td.right
         (if @editing?
           [:<>
@@ -115,7 +115,7 @@
            [:div.kpi-value (str (count (or goals [])))]]
           [:div.kpi
            [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "MRR meta total"]
-           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "—")]]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "·")]]
           [:div.kpi
            [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs com meta"]
            [:div.kpi-value (str (count (distinct (map :ev_id (or goals [])))))]]]

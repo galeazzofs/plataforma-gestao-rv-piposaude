@@ -74,7 +74,7 @@
             (for [row items]
               ^{:key (or (:id row) (hash row))}
               [:div.log-row
-               [:span.ts (or (:created_at row) (:timestamp row) "—")]
+               [:span.ts (or (:created_at row) (:timestamp row) "·")]
                [:span.what (or (:description row) (describe-action row))]
                [:span.who {:style {:text-align "right"}}
                 (or (:user_name row) (:user_email row) "sistema")]]))]]))))

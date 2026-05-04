@@ -109,7 +109,7 @@
            [:div.kpi-value (str (count (or items [])))]]
           [:div.kpi
            [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "comissão total"]
-           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "—")]]
+           [:div.kpi-value [:span.currency "R$"] (or (fmt-int total) "·")]]
           [:div.kpi
            [:div.kpi-label [layout/icon "check" {:width 14 :height 14}] "finalizados"]
            [:div.kpi-value (str finals " / " (count (or items [])))]]]
@@ -119,7 +119,7 @@
           [:div {:style {:flex 1}}
            [:strong "Como funciona"]
            [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
-            "Preencha os valores realizados nos formulários da equipe (em CN — Metas) e clique em Rodar apuração."]]]
+            "Preencha os valores realizados nos formulários da equipe (em CN · Metas) e clique em Rodar apuração."]]]
 
          [:div.card {:style {:padding 0}}
           [:table.table
@@ -145,9 +145,9 @@
                 ^{:key (:id row)}
                 [:tr
                  [:td.name (:cn_name row)]
-                 [:td.center.num (str (or (pct (:score_final row)) "—") "%")]
-                 [:td.right.num (str (or (mult (:multiplicador row)) "—") "x")]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount row)) "—"))]
+                 [:td.center.num (str (or (pct (:score_final row)) "·") "%")]
+                 [:td.right.num (str (or (mult (:multiplicador row)) "·") "x")]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount row)) "·"))]
                  [:td.right
                   (if (:is_final row)
                     [:span.badge.badge-paid "Final"]

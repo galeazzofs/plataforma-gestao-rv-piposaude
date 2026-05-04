@@ -21,9 +21,16 @@
   --warning-dark:#FFB033;
   --warning-light:#FFD17D;
   --warning-lightest:#FFEEC2;
+  /* Text variant for use on warning-lightest backgrounds — --warning-dark
+     itself is the fill (#FFB033) and lacks contrast as text. */
+  --warning-text:#9A6B0F;
   --danger-dark:#F04646;
   --danger-light:#FFACAC;
   --danger-lightest:#FFDEDE;
+  /* Calc / Validating badge backgrounds — outside the success/warning/danger
+     family but used in the badge palette. */
+  --badge-calc-bg:#EAF1FB;
+  --badge-validating-bg:#F2E9FB;
 
   --blue-dark:#1527A9;
   --blue-regular:#3370D1;
@@ -77,6 +84,23 @@ h4{font-size:14px;line-height:1.4;font-weight:600}
 p{margin:0}
 button{font-family:inherit;cursor:pointer}
 a{color:inherit;text-decoration:none}
+
+/* ============ A11y utilities ============ */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* Skip-to-content link — visually hidden until focused, then slides into view
+   above all chrome so keyboard users can bypass the sidebar. */
+.skip-link{
+  position:fixed;top:-100px;left:16px;z-index:10000;
+  padding:10px 16px;background:var(--black);color:#fff;
+  border-radius:var(--r-sm);font-family:var(--font-ui);font-weight:600;font-size:13px;
+  text-decoration:none;transition:top var(--d) var(--ease);
+}
+.skip-link:focus,.skip-link:focus-visible{top:14px;outline:2px solid var(--cyan);outline-offset:2px}
+
+/* Programmatic-focus targets shouldn't show the default outline ring just
+   because we focused them via the skip link. focus-visible keeps a11y intact. */
+main:focus{outline:none}
 
 /* ============ Layout shell ============ */
 .app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
@@ -213,7 +237,7 @@ a{color:inherit;text-decoration:none}
 .delta-up{background:var(--success-lightest);color:var(--success-dark)}
 .delta-down{background:var(--danger-lightest);color:var(--danger-dark)}
 .delta svg{width:12px;height:12px}
-.kpi-grafismo{position:absolute;right:-30px;bottom:-30px;width:140px;height:140px;opacity:.5;pointer-events:none}
+.kpi-grafismo{position:absolute;right:-30px;bottom:-30px;width:140px;height:140px;opacity:.5;pointer-events:none;color:var(--neutral-regular)}
 
 /* Card */
 .card{
@@ -243,15 +267,15 @@ a{color:inherit;text-decoration:none}
 .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-pill);font-family:var(--font-mono);font-size:11px;font-weight:500;line-height:1.4}
 .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .badge-draft{background:var(--neutral-lightest);color:var(--neutral-dark)}
-.badge-calc{background:#EAF1FB;color:var(--blue-dark)}
-.badge-review{background:var(--warning-lightest);color:#9A6B0F}
-.badge-validating{background:#F2E9FB;color:var(--purple-regular)}
+.badge-calc{background:var(--badge-calc-bg);color:var(--blue-dark)}
+.badge-review{background:var(--warning-lightest);color:var(--warning-text)}
+.badge-validating{background:var(--badge-validating-bg);color:var(--purple-regular)}
 .badge-approved{background:var(--success-lightest);color:var(--success-dark)}
 .badge-locked{background:var(--neutral-light);color:var(--neutral-darkest)}
 .badge-contested{background:var(--danger-lightest);color:var(--danger-dark)}
 .badge-resolved{background:var(--success-lightest);color:var(--success-dark)}
 .badge-paid{background:var(--success-lightest);color:var(--success-dark)}
-.badge-pending{background:var(--warning-lightest);color:#9A6B0F}
+.badge-pending{background:var(--warning-lightest);color:var(--warning-text)}
 
 /* Table */
 .table-wrap{border:1px solid var(--border-subtle);border-radius:var(--r-md);overflow:hidden;background:var(--bg-1)}
@@ -487,10 +511,10 @@ a{color:inherit;text-decoration:none}
 .tog::after{
   content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
   background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.15);
-  transition:left var(--d) var(--ease);
+  transition:transform var(--d) var(--ease);
 }
 .tog.on{background:var(--black)}
-.tog.on::after{left:16px}
+.tog.on::after{transform:translateX(14px)}
 
 /* Login frame & dot grid */
 .login-frame{
@@ -539,3 +563,108 @@ a{color:inherit;text-decoration:none}
 .diff .head{background:var(--bg-2);font-family:var(--font-ui);font-weight:600;color:var(--fg-3);font-size:11px;text-transform:uppercase;letter-spacing:0.06em}
 .diff .new{background:var(--success-lightest);color:var(--success-dark);font-weight:600}
 .diff .old{color:var(--fg-3);text-decoration:line-through}
+
+/* ==========================================================================
+   Responsive — the system was authored desktop-first. These breakpoints
+   adapt the shell, grids, and chrome down through tablets and phones.
+   At ≤768px the sidebar collapses to icons-only so the navigation stays
+   accessible without burger-menu state.
+   ========================================================================== */
+
+/* Tablet — 1024px and below */
+@media (max-width: 1024px){
+  .app{grid-template-columns:200px 1fr}
+  .topbar{padding:14px 20px;min-height:64px}
+  .title-row h1{font-size:26px}
+  .page{padding:22px 22px 80px}
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .kpi-grid.-three{grid-template-columns:repeat(2,1fr)}
+  .two-col{grid-template-columns:1fr}
+  .two-col-eq{grid-template-columns:1fr}
+  .sim-grid{grid-template-columns:1fr}
+  .detail-grid{grid-template-columns:1fr}
+  .login-frame{grid-template-columns:1fr}
+  .login-side{padding:40px 32px;min-height:200px}
+  .login-form-side{padding:40px 32px}
+  .search{width:200px}
+  .stepper{flex-wrap:wrap;gap:12px}
+}
+
+/* Mobile / phone — 768px and below. Sidebar shrinks to icons; chrome
+   reflows to single-column. The active item background still reads the
+   warm-paper rule (Beige Paper) without the left-border stripe, which
+   doesn't fit when items are centered. */
+@media (max-width: 768px){
+  .app{grid-template-columns:60px 1fr}
+  .sidebar{width:60px}
+  .brand{padding:16px 8px;justify-content:center}
+  .brand-name{display:none}
+  .nav{padding:10px 8px}
+  .nav-section{display:none}
+  .nav-item{justify-content:center;padding:10px 0;border-left:0;border-radius:var(--r-md);position:relative}
+  .nav-item span:not(.badge){display:none}
+  .nav-item .badge{position:absolute;top:4px;right:4px;margin-left:0;padding:0 4px;font-size:10px;min-width:16px;text-align:center}
+  .nav-item.active{background:var(--bg-3);border-left:0}
+  .nav-item.active::after{
+    content:"";position:absolute;left:6px;right:6px;bottom:4px;
+    height:2px;background:var(--black);border-radius:1px;
+  }
+  .sidebar-foot{padding:10px 8px;justify-content:center}
+  .user-meta{display:none}
+  .topbar{padding:12px 16px;min-height:60px}
+  .title-row h1{font-size:22px}
+  .crumbs{display:none}
+  .subtitle{display:none}
+  .topbar-r{gap:8px}
+  .search{display:none}
+  .page{padding:16px 16px 64px;gap:16px}
+  .kpi-grid{grid-template-columns:1fr;gap:12px}
+  .kpi-grid.-three{grid-template-columns:1fr}
+  .kpi{padding:18px}
+  .card{padding:18px}
+  .card-head{flex-direction:column;align-items:flex-start;gap:8px}
+  .table thead th{padding:9px 12px;font-size:10px}
+  .table tbody td{padding:12px 12px}
+  .table-wrap{border-radius:var(--r-sm)}
+  .login-side{display:none}
+  .login-form-side{padding:32px 24px}
+  .login-form-side h2{font-size:28px}
+  /* Diff blocks become single-column on phones (still readable as a stacked
+     before/after, two side-by-side mono columns become unreadable). */
+  .diff{grid-template-columns:1fr}
+}
+
+/* Tight mobile — 480px and below */
+@media (max-width: 480px){
+  .app{grid-template-columns:56px 1fr}
+  .sidebar{width:56px}
+  .topbar{padding:10px 12px;min-height:56px}
+  .title-row h1{font-size:20px}
+  .page{padding:14px 12px 56px}
+}
+
+/* Touch devices — bump interactive targets toward 44x44 regardless of
+   screen size. Catches phones, tablets, and touch laptops. */
+@media (pointer: coarse){
+  .btn{min-height:44px;padding:11px 18px}
+  .btn-sm{min-height:36px;padding:9px 14px}
+  .nav-item{padding:12px 14px}
+  .icon-btn{width:44px;height:44px}
+  .icon-btn svg{width:18px;height:18px}
+  .tab{padding:14px 16px;min-height:44px}
+  .chip{padding:8px 14px;min-height:36px}
+  .field-input{padding:13px 16px}
+  .tog{width:40px;height:24px}
+  .tog::after{width:20px;height:20px;left:2px}
+  .tog.on::after{transform:translateX(16px)}
+}
+
+/* Honor user motion preferences. */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+    scroll-behavior:auto !important;
+  }
+}

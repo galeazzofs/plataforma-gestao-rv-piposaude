@@ -20,7 +20,7 @@
     "DRAFT"       [:span.badge.badge-draft "Draft"]
     "APPROVED"    [:span.badge.badge-approved "Approved"]
     "CALCULATING" [:span.badge.badge-calc "Calculating"]
-    [:span.badge.badge-locked (or status "—")]))
+    [:span.badge.badge-locked (or status "·")]))
 
 (def ^:private steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"])
 
@@ -32,8 +32,8 @@
   [:tr
    [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
    [:td [status->badge (:status a)]]
-   [:td.center.num (str (or (:ev_count a) "—"))]
-   [:td.right.strong-num (or (fmt/fmt-brl-int (:total_amount a)) "—")]
+   [:td.center.num (str (or (:ev_count a) "·"))]
+   [:td.right.strong-num (or (fmt/fmt-brl-int (:total_amount a)) "·")]
    [:td.right
     (case (:status a)
       "REVIEWING"  [:button.btn.btn-primary.btn-sm
@@ -101,7 +101,7 @@
          [:div.kpi-value
           (if active
             [:<> "Q" (:quarter active) [:span.frac (str "/" (mod (or (:year active) 0) 100))]]
-            "—")]
+            "·")]
          [:div.kpi-foot
           (when active [status->badge (:status active)])
           (when-let [n (some-> active :status step-of)]
@@ -121,7 +121,7 @@
         [:div.kpi
          [:div.kpi-label [layout/icon "refresh" {:width 14 :height 14}] "último sync hubspot"]
          [:div.kpi-value {:style {:font-size "30px"}}
-          (or (:last_sync sync-status) "—")]
+          (or (:last_sync sync-status) "·")]
          [:div.kpi-foot
           (when (:status sync-status)
             [:span {:class (str "badge badge-" (case (:status sync-status)

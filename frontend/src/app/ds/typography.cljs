@@ -46,15 +46,26 @@
           children)))
 
 (defn label
-  "Form label."
-  [{:keys [required class]} & children]
-  (into [:label {:style {:font-family t/font-ui
-                         :font-size "12px"
-                         :font-weight (:semibold t/font-weights)
-                         :color t/text-secondary
-                         :margin-bottom "4px"
-                         :display "block"}
-                 :class class}]
-        (concat children
-                (when required
-                  [[:span {:style {:color t/error-default :margin-left "4px"}} "*"]]))))
+  "Form label. Pass :for to associate with an input id (preferred for a11y)."
+  [{:keys [required class for]} & children]
+  (let [base-attrs {:style {:font-family t/font-ui
+                            :font-size "12px"
+                            :font-weight (:semibold t/font-weights)
+                            :color t/text-secondary
+                            :margin-bottom "4px"
+                            :display "block"}
+                    :class class}
+        attrs (cond-> base-attrs
+                for (assoc :html-for for))]
+    (into [:label attrs]
+          (concat children
+                  (when required
+                    [[:span {:style {:color t/error-default :margin-left "4px"}
+                             :aria-hidden true}
+                      "*"]
+                     [:span {:style {:position "absolute"
+                                     :width "1px" :height "1px"
+                                     :padding 0 :margin "-1px"
+                                     :overflow "hidden" :clip "rect(0,0,0,0)"
+                                     :white-space "nowrap" :border 0}}
+                      " (obrigatório)"]])))))

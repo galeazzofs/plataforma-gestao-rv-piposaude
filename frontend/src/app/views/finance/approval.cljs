@@ -79,8 +79,8 @@
                 [:div.name (:ev_name row)]
                 (when (:ev_id row) [:div.muted (str "id " (:ev_id row))])]
                [:td.num (str "Q" (:quarter row) "/" (:year row))]
-               [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_total row)) "—"))]
-               [:td.center.num (str (or (:policies_count row) "—"))]
+               [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_total row)) "·"))]
+               [:td.center.num (str (or (:policies_count row) "·"))]
                [:td
                 [:div.cell-progress
                  [pct-bar (:achievement_pct row) (pct-class (:achievement_pct row))]

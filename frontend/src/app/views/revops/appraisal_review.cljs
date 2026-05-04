@@ -43,8 +43,8 @@
          [:td.muted (:produto r)]
          [:td.num.muted (:data_recebimento r)]
          [:td (:tipo_receita r)]
-         [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "—"))]
-         [:td [:span.badge.badge-review (or (:match_status r) "—")]]]))]])
+         [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "·"))]
+         [:td [:span.badge.badge-review (or (:match_status r) "·")]]]))]])
 
 (defn- export-csv-button [rows filename]
   [:button.btn.btn-secondary.btn-sm
@@ -77,33 +77,33 @@
                       :padding "12px 14px" :cursor "pointer"}
               :on-click #(swap! open? not)}
         [:div
-         [:strong (or (:client_name policy) "—")]
+         [:strong (or (:client_name policy) "·")]
          [:span.muted {:style {:margin-left "8px" :font-size "12px"}}
-          (str (or (:operadora policy) "—") " · "
-               (or (:produto policy) "—") " · "
-               (or (:segment policy) "—"))]]
-        [:div.strong-num (str "R$ " (or (fmt-money (:subtotal policy)) "—"))]]
+          (str (or (:operadora policy) "·") " · "
+               (or (:produto policy) "·") " · "
+               (or (:segment policy) "·"))]]
+        [:div.strong-num (str "R$ " (or (fmt-money (:subtotal policy)) "·"))]]
        (when @open?
          [:div {:style {:padding "0 14px 14px" :border-top "1px solid var(--border-subtle)"}}
           [:div {:style {:display "flex" :gap "16px" :flex-wrap "wrap"
                          :padding "10px 0" :font-size "12px" :color "var(--fg-3)"
                          :font-family "var(--font-mono)"}}
-           [:div "Início vigência: " (or (:first_payment_real policy) "—")]
-           [:div "Gongo: " (or (:closed_date policy) "—")]
-           [:div "Atingimento: " (str (or (fmt-pct (:achievement_used_pct policy)) "—") "%")]
-           [:div "% Comissão: " (str (or (fmt-pct (* 100 (or (:commission_pct policy) 0))) "—") "%")]]
+           [:div "Início vigência: " (or (:first_payment_real policy) "·")]
+           [:div "Gongo: " (or (:closed_date policy) "·")]
+           [:div "Atingimento: " (str (or (fmt-pct (:achievement_used_pct policy)) "·") "%")]
+           [:div "% Comissão: " (str (or (fmt-pct (* 100 (or (:commission_pct policy) 0))) "·") "%")]]
           [:table.table
            [:thead [:tr [:th "Data"] [:th "Tipo"] [:th.right "NF Líquido"]]]
            [:tbody
             (if (empty? (:nfs policy))
               [:tr [:td {:col-span 3 :style {:padding "16px" :text-align "center" :color "var(--fg-3)"}}
-                    "—"]]
+                    "·"]]
               (for [nf (:nfs policy)]
                 ^{:key (or (:id nf) (hash nf))}
                 [:tr
                  [:td.num.muted (:data_recebimento nf)]
                  [:td (:tipo_receita nf)]
-                 [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido nf)) "—"))]]))]]])])))
+                 [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido nf)) "·"))]]))]]])])))
 
 ;; ── EV row ────────────────────────────────────────────────
 
@@ -129,9 +129,9 @@
            [:div.muted {:style {:font-size "12px" :margin-top "4px"}}
             (str (:policies_count ev) " apólices · "
                  (:nf_count ev) " NFs · atingimento "
-                 (or (fmt-pct (:achievement_pct ev)) "—") "%")]]
+                 (or (fmt-pct (:achievement_pct ev)) "·") "%")]]
           [:div.strong-num {:style {:font-size "18px"}}
-           (str "R$ " (or (fmt-money (:total_commission ev)) "—"))]]
+           (str "R$ " (or (fmt-money (:total_commission ev)) "·"))]]
          (when @open?
            [:div {:style {:padding "0 20px 16px"}}
             (for [p filtered]
@@ -193,8 +193,8 @@
             route-name @(rf/subscribe [:current-route-name])]
         [layout/page-shell
          {:current-route route-name :user user
-          :crumbs ["plataforma rv" "admin" "apurações" (str "Q" (or (:quarter appraisal) "—") "/" (or (:year appraisal) "—"))]
-          :title (str "Apuração · Q" (or (:quarter appraisal) "—") "/" (or (:year appraisal) "—"))
+          :crumbs ["plataforma rv" "admin" "apurações" (str "Q" (or (:quarter appraisal) "·") "/" (or (:year appraisal) "·"))]
+          :title (str "Apuração · Q" (or (:quarter appraisal) "·") "/" (or (:year appraisal) "·"))
           :subtitle "Revisão da memória de cálculo · ajustes antes da validação"
           :header-actions
           [[:button.btn.btn-secondary
@@ -212,7 +212,7 @@
           [:div.kpi
            [:div.kpi-label "comissão total"]
            [:div.kpi-value [:span.currency "R$"]
-            (or (fmt-int (:total_commission totals)) "—")]]
+            (or (fmt-int (:total_commission totals)) "·")]]
           [:div.kpi
            [:div.kpi-label "EVs"]
            [:div.kpi-value (str (or (:ev_count totals) 0))]]
@@ -244,7 +244,7 @@
             [:div {:class (str "tab" (when (= @active-tab :expired) " active"))
                    :on-click #(reset! active-tab :expired)}
              "Fora de vigência "
-             [:span {:style {:background "var(--warning-lightest)" :color "#9A6B0F"
+             [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count expired)]]

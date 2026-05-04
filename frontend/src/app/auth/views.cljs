@@ -123,7 +123,7 @@
      "com clareza."]
     [:p {:style {:font-size "15px" :color "rgba(255,255,255,0.7)"
                  :margin-top "18px" :line-height "1.5"}}
-     "Apuração, validação e pagamento de remuneração variável para times de vendas — todo o ciclo, do cálculo ao depósito."]]
+     "Apuração, validação e pagamento de remuneração variável para times de vendas. Todo o ciclo, do cálculo ao depósito."]]
    ;; Footer
    [:div {:style {:position "relative" :z-index 1
                   :font-family t/font-mono :font-size "11px"
@@ -171,7 +171,7 @@
                    :size       :lg
                    :full-width true
                    :disabled   true}
-       "Google SSO — em integração"]
+       "Google SSO (em integração)"]
 
       ;; Dev login picker
       [dev-login-picker]]]))

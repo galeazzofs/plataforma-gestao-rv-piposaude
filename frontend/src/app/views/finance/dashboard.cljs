@@ -152,9 +152,9 @@
           [:td.num (or (:period row)
                        (when (and (:quarter row) (:year row))
                          (str "Q" (:quarter row) "/" (:year row)))
-                       "—")]
-          [:td.right.strong-num (or (fmt/fmt-brl (:commission_total row)) "—")]
-          [:td.center.num (str (or (:deals row) (:policies_count row) "—"))]
+                       "·")]
+          [:td.right.strong-num (or (fmt/fmt-brl (:commission_total row)) "·")]
+          [:td.center.num (str (or (:deals row) (:policies_count row) "·"))]
           [:td [cell-progress (:achievement_pct row)]]
           [:td [:span.badge.badge-approved "Approved"]]
           [:td.right
@@ -202,7 +202,7 @@
        [:div.kpi-grid
         [kpi {:icon "money" :label "saldo devedor total"
               :value [:<> [:span.currency "R$"]
-                      (or (fmt/int-brl saldo-total) "—")]
+                      (or (fmt/int-brl saldo-total) "·")]
               :foot (when orcado-delta
                       [:<>
                        [:span {:class (str "delta " (if (neg? orcado-delta) "delta-down" "delta-up"))}
@@ -229,7 +229,7 @@
         [kpi {:icon "target" :label "orçado vs. realizado"
               :value (if orcado-pct
                        [:<> (.toFixed orcado-pct 1) [:span.frac "%"]]
-                       "—")
+                       "·")
               :foot (when orcado-pct
                       [bar orcado-pct (pct-class orcado-pct)])}]]
 

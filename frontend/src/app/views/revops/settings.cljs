@@ -46,7 +46,7 @@
        [inputs/select
         {:label (when (zero? idx) "EV na Plataforma")
          :value (:ev-email row)
-         :options (into [{:value "" :label "— Selecionar EV —"}]
+         :options (into [{:value "" :label "Selecionar EV"}]
                         (map (fn [u] {:value (:email u) :label (:name u)}) ev-users))
          :on-change #(swap! rows assoc-in [idx :ev-email] %)}]]
       [:button.btn.btn-ghost.btn-sm

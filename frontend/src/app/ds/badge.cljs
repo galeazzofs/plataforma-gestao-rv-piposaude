@@ -12,7 +12,7 @@
                 :success {:bg t/success-light    :color t/success-default}
                 :warning {:bg t/warning-light    :color t/warning-dark}
                 :error   {:bg t/error-light      :color t/error-default}
-                :info    {:bg "#EAF1FB"          :color t/blue-700}}
+                :info    {:bg "var(--badge-calc-bg)" :color t/blue-700}}
         s (get styles (or variant :default))]
     (into [:span {:style {:display "inline-flex"
                           :align-items "center"
@@ -47,5 +47,5 @@
                 "CONTESTED"     {:label "Contestado"    :variant :error}
                 "RESOLVED"      {:label "Resolvido"     :variant :success}
                 "AUTO_APPROVED" {:label "Auto-aprovado" :variant :success}}
-        {:keys [label variant]} (get config status {:label (or status "—") :variant :default})]
+        {:keys [label variant]} (get config status {:label (or status "·") :variant :default})]
     [badge {:variant variant} label]))
