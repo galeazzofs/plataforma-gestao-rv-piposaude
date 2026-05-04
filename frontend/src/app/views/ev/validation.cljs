@@ -6,6 +6,7 @@
             [app.ds.modal :as modal]
             [app.ds.inputs :as inputs]
             [app.ds.buttons :as btn]
+            [app.ds.badge :as badge]
             [app.auth.subs]))
 
 ;; EV · Validação — list of deals to approve / contest, design styling.
@@ -88,22 +89,15 @@
             [:div {:class (str "tab" (when (= @active-tab :pending) " active"))
                    :on-click #(reset! active-tab :pending)}
              "Pendentes "
-             [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count pending)]]
+             [badge/count-pill {:tone :warning} (count pending)]]
             [:div {:class (str "tab" (when (= @active-tab :approved) " active"))
                    :on-click #(reset! active-tab :approved)}
-             "Aprovados " [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
-                                          :font-family "var(--font-mono)" :font-size "11px"
-                                          :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-                           (count approved)]]
+             "Aprovados "
+             [badge/count-pill {:tone :neutral} (count approved)]]
             [:div {:class (str "tab" (when (= @active-tab :contested) " active"))
                    :on-click #(reset! active-tab :contested)}
-             "Contestados " [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-dark)"
-                                            :font-family "var(--font-mono)" :font-size "11px"
-                                            :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-                             (count contested)]]]]
+             "Contestados "
+             [badge/count-pill {:tone :danger} (count contested)]]]]
           [:table.table
            [:thead
             [:tr

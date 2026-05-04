@@ -3,6 +3,7 @@
             [re-frame.core :as rf]
             [clojure.string :as str]
             [app.ds.layout :as layout]
+            [app.ds.badge :as badge]
             [app.auth.subs]))
 
 ;; Apuração · Revisão (deep view) — KPIs row + tabs (Por EV / NFs órfãs).
@@ -66,14 +67,6 @@
 
 ;; ── Diagnostics: consolidated subsections ────────────────
 
-(defn- diag-count-tone
-  "Resolve background+color tokens for a diagnostics count badge."
-  [tone]
-  (case tone
-    :danger  ["var(--danger-lightest)"  "var(--danger-dark)"]
-    :warning ["var(--warning-lightest)" "var(--warning-text)"]
-    ["var(--bg-2)" "var(--fg-3)"]))
-
 (defn- diagnostics-subsection
   "Single diagnostic category inside the consolidated Diagnósticos tab.
    Header: h3 title + tonal count badge, with optional CSV export on the right.
@@ -82,27 +75,24 @@
    Visually quieter than top-level tabs, so users scan 'Por EV' first and
    only descend into diagnostics when investigating."
   [{:keys [title rows count-tone explainer csv-filename]}]
-  (let [[bg fg] (diag-count-tone count-tone)]
-    [:section {:style {:margin-bottom "32px"}}
-     [:div {:style {:display "flex" :justify-content "space-between"
-                    :align-items "baseline" :gap "16px"
-                    :margin-bottom "12px" :padding-bottom "8px"
-                    :border-bottom "1px solid var(--border-subtle)"}}
-      [:div {:style {:display "flex" :align-items "baseline" :gap "10px"}}
-       [:h3 {:style {:font-family "var(--font-heading)" :font-size "14px"
-                     :font-weight 600 :color "var(--fg-1)" :margin 0
-                     :letter-spacing "-0.005em"}}
-        title]
-       [:span {:style {:background bg :color fg
-                       :font-family "var(--font-mono)" :font-size "11px"
-                       :padding "1px 7px" :border-radius "var(--r-pill)"}}
-        (count rows)]]
-      (when csv-filename [export-csv-button rows csv-filename])]
-     (when explainer
-       [:p {:style {:font-size "13px" :color "var(--fg-3)"
-                    :margin "0 0 12px 0" :line-height "1.5"}}
-        explainer])
-     [nf-table rows]]))
+  [:section {:style {:margin-bottom "32px"}}
+   [:div {:style {:display "flex" :justify-content "space-between"
+                  :align-items "baseline" :gap "16px"
+                  :margin-bottom "12px" :padding-bottom "8px"
+                  :border-bottom "1px solid var(--border-subtle)"}}
+    [:div {:style {:display "flex" :align-items "baseline" :gap "10px"}}
+     [:h3 {:style {:font-family "var(--font-heading)" :font-size "14px"
+                   :font-weight 600 :color "var(--fg-1)" :margin 0
+                   :letter-spacing "-0.005em"}}
+      title]
+     [badge/count-pill {:tone count-tone :tab-spaced? false}
+      (count rows)]]
+    (when csv-filename [export-csv-button rows csv-filename])]
+   (when explainer
+     [:p {:style {:font-size "13px" :color "var(--fg-3)"
+                  :margin "0 0 12px 0" :line-height "1.5"}}
+      explainer])
+   [nf-table rows]])
 
 (defn- diagnostics-section
   "Consolidated diagnostics: three categories stacked as subsections.
@@ -293,19 +283,14 @@
             [:div {:class (str "tab" (when (= @active-tab :por-ev) " active"))
                    :on-click #(reset! active-tab :por-ev)}
              "Por EV "
-             [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count ev-summary)]]
+             [badge/count-pill {:tone :neutral} (count ev-summary)]]
             (let [diag-total (+ (count unmatched) (count expired) (count nao-sup))
                   has-issues? (pos? diag-total)]
               [:div {:class (str "tab" (when (= @active-tab :diagnostics) " active"))
                      :on-click #(reset! active-tab :diagnostics)}
                "Diagnósticos "
-               [:span {:style {:background (if has-issues? "var(--warning-lightest)" "var(--bg-2)")
-                               :color (if has-issues? "var(--warning-text)" "var(--fg-3)")
-                               :font-family "var(--font-mono)" :font-size "11px"
-                               :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
+               [badge/count-pill
+                {:tone (if has-issues? :warning :neutral)}
                 diag-total]])]]
           [:div {:style {:padding "20px 24px"}}
            (case @active-tab
