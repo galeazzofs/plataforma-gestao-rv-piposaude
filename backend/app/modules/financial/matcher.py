@@ -78,9 +78,22 @@ def parse_apolice_numbers(raw):
     text = _PREFIX_RE.sub("", text).strip()
     # Split on separators
     parts = _SPLIT_RE.split(text)
+    # Second pass: split on "/" when both sides are purely numeric
+    # (e.g. "1034957/1034958" → two numbers, but "277.615/2024" stays one)
+    expanded = []
+    for part in parts:
+        stripped = part.strip()
+        if "/" in stripped:
+            pieces = stripped.split("/")
+            if all(p.strip().isdigit() for p in pieces if p.strip()):
+                expanded.extend(pieces)
+            else:
+                expanded.append(stripped)
+        else:
+            expanded.append(stripped)
     seen = set()
     result = []
-    for part in parts:
+    for part in expanded:
         normalized = normalize_apolice_number(part)
         if normalized and normalized not in seen:
             seen.add(normalized)

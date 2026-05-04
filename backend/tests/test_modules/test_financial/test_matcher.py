@@ -158,6 +158,16 @@ def test_parse_with_and_separator():
     assert parse_apolice_numbers("AP-100 and AP-200") == ["AP-100", "AP-200"]
 
 
+def test_parse_slash_between_numeric():
+    """Slash between purely numeric strings is a separator."""
+    assert parse_apolice_numbers("1034957/1034958") == ["1034957", "1034958"]
+
+
+def test_parse_slash_with_non_numeric_stays_together():
+    """Slash inside a number with dots/letters is kept."""
+    assert parse_apolice_numbers("277.615/2024") == ["277.615/2024"]
+
+
 # ── build_policy_index (now keyed on numero_apolice) ────────────────
 
 
