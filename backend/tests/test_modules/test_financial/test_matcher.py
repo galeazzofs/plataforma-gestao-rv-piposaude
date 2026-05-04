@@ -1,7 +1,7 @@
-"""Tests for NF→Policy matcher: normalize + normalize_apolice_number + build_policy_index."""
+"""Tests for NF→Policy matcher: normalize + normalize_apolice_number + parse_apolice_numbers + build_policy_index."""
 from datetime import date
 from app.modules.financial.matcher import (
-    normalize, normalize_apolice_number, build_policy_index,
+    normalize, normalize_apolice_number, parse_apolice_numbers, build_policy_index,
 )
 
 
@@ -63,6 +63,90 @@ def test_normalize_apolice_number_keeps_internal_chars():
     assert normalize_apolice_number("277.615/2024") == "277.615/2024"
 
 
+# ── parse_apolice_numbers (multi-value extraction) ─────────────────
+
+
+def test_parse_single_number():
+    assert parse_apolice_numbers("798140003") == ["798140003"]
+
+
+def test_parse_comma_separated():
+    assert parse_apolice_numbers("798140003, 798140143, 798140151") == [
+        "798140003", "798140143", "798140151",
+    ]
+
+
+def test_parse_portuguese_e_separator():
+    assert parse_apolice_numbers("798140003 e 798140143") == [
+        "798140003", "798140143",
+    ]
+
+
+def test_parse_comma_and_e_mixed():
+    """Real-world HubSpot format: commas + trailing 'e'."""
+    assert parse_apolice_numbers("798140003, 798140143 e 798140151") == [
+        "798140003", "798140143", "798140151",
+    ]
+
+
+def test_parse_semicolon_separated():
+    assert parse_apolice_numbers("AP-100; AP-200; AP-300") == [
+        "AP-100", "AP-200", "AP-300",
+    ]
+
+
+def test_parse_pipe_separated():
+    assert parse_apolice_numbers("AP-100|AP-200") == ["AP-100", "AP-200"]
+
+
+def test_parse_newline_separated():
+    assert parse_apolice_numbers("AP-100\nAP-200\nAP-300") == [
+        "AP-100", "AP-200", "AP-300",
+    ]
+
+
+def test_parse_with_apolice_prefix():
+    """Common HubSpot format: 'Apólice(s): ...'."""
+    result = parse_apolice_numbers("Apólice(s): 798140003, 798140143 e 798140151")
+    assert result == ["798140003", "798140143", "798140151"]
+
+
+def test_parse_with_apolice_prefix_no_parens():
+    assert parse_apolice_numbers("Apólice: 798140003") == ["798140003"]
+
+
+def test_parse_with_apolice_prefix_no_accent():
+    assert parse_apolice_numbers("Apolice: 798140003, 798140143") == [
+        "798140003", "798140143",
+    ]
+
+
+def test_parse_deduplicates():
+    assert parse_apolice_numbers("AP-100, AP-100, ap-100") == ["AP-100"]
+
+
+def test_parse_none_and_empty():
+    assert parse_apolice_numbers(None) == []
+    assert parse_apolice_numbers("") == []
+    assert parse_apolice_numbers("   ") == []
+
+
+def test_parse_preserves_internal_structure():
+    """Dots and slashes inside a number are kept."""
+    assert parse_apolice_numbers("277.615/2024, 277.616/2024") == [
+        "277.615/2024", "277.616/2024",
+    ]
+
+
+def test_parse_does_not_split_on_e_inside_word():
+    """'e' must be a standalone word — don't split 'verde' or 'segmente'."""
+    assert parse_apolice_numbers("VERDE-123") == ["VERDE-123"]
+
+
+def test_parse_with_and_separator():
+    assert parse_apolice_numbers("AP-100 and AP-200") == ["AP-100", "AP-200"]
+
+
 # ── build_policy_index (now keyed on numero_apolice) ────────────────
 
 
@@ -98,6 +182,21 @@ def test_build_index_sorts_by_closed_date_desc():
     bucket = index["AP-1"]
 
     assert bucket == [p_new, p_mid, p_old]
+
+
+def test_build_index_multi_value_apolice_indexes_all_numbers():
+    """A policy with multiple apolice numbers is indexed under each one."""
+    p = FakePolicy("798140003, 798140143 e 798140151", date(2026, 1, 15))
+
+    index = build_policy_index([p])
+
+    assert "798140003" in index
+    assert "798140143" in index
+    assert "798140151" in index
+    # All keys point to the same policy
+    assert index["798140003"] == [p]
+    assert index["798140143"] == [p]
+    assert index["798140151"] == [p]
 
 
 def test_build_index_skips_policies_without_apolice_number():

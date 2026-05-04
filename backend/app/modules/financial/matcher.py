@@ -5,6 +5,7 @@ spreadsheet, and the policy must have the same number populated from
 HubSpot. NFs without a number — or pointing at an apolice we don't have —
 fall through as UNMATCHED with a specific reason.
 """
+import re
 import unicodedata
 from collections import defaultdict
 from datetime import date
@@ -36,12 +37,59 @@ def normalize_apolice_number(s):
     return str(s).strip().strip("'\"").upper()
 
 
+# Regex: common prefixes like "Apólice(s):", "Apolice:", "Nº:", etc.
+_PREFIX_RE = re.compile(
+    r"^(?:ap[oó]lices?\s*(?:\(s\))?\s*:?\s*|n[ºo°]?\s*:?\s*)",
+    re.IGNORECASE,
+)
+# Regex: split on commas, semicolons, pipes, newlines, or the word "e"/"and"
+# as a standalone separator (word boundaries prevent splitting "verde").
+_SPLIT_RE = re.compile(
+    r"[,;\|\n]+|\s+\be\b\s+|\s+\band\b\s+",
+    re.IGNORECASE,
+)
+
+
+def parse_apolice_numbers(raw):
+    """Extract individual apolice numbers from a possibly multi-valued string.
+
+    HubSpot's numero_apolice field is free-text and operators sometimes enter
+    multiple numbers in one field with unpredictable formatting, e.g.:
+
+        "Apólice(s): 798140003, 798140143 e 798140151"
+        "798140003; 798140143; 798140151"
+        "798140003 e 798140143"
+        "AP-100, AP-200"
+
+    Returns a list of normalized individual apolice numbers (deduplicated,
+    order-preserved). Returns empty list for None/blank input.
+    """
+    if not raw:
+        return []
+    text = str(raw).strip()
+    # Strip known prefixes
+    text = _PREFIX_RE.sub("", text).strip()
+    # Split on separators
+    parts = _SPLIT_RE.split(text)
+    seen = set()
+    result = []
+    for part in parts:
+        normalized = normalize_apolice_number(part)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
+
+
 def build_policy_index(policies):
     """Build O(1) lookup index by apolice number.
 
     Returns: dict[apolice_number_normalized] -> list[Policy]
     Each list is sorted by closed_date DESC so callers can pick the most
     recent policy whose vigência window covers a given NF date.
+
+    Handles multi-valued numero_apolice fields — a single Policy with
+    "798140003, 798140143 e 798140151" gets indexed under all three keys.
 
     Policies missing numero_apolice are skipped (cannot be matched by this
     strategy). The list-of-Policies value (rather than single Policy) is
@@ -50,10 +98,9 @@ def build_policy_index(policies):
     """
     index = defaultdict(list)
     for p in policies:
-        number = normalize_apolice_number(getattr(p, 'numero_apolice', None))
-        if not number:
-            continue
-        index[number].append(p)
+        numbers = parse_apolice_numbers(getattr(p, 'numero_apolice', None))
+        for number in numbers:
+            index[number].append(p)
     for key in index:
         index[key].sort(key=lambda p: p.closed_date or date.min, reverse=True)
     return dict(index)
