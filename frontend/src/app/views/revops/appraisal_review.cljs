@@ -64,6 +64,68 @@
         (.revokeObjectURL js/URL url)))}
    [layout/icon "download" {:width 12 :height 12}] " Exportar CSV"])
 
+;; ── Diagnostics: consolidated subsections ────────────────
+
+(defn- diag-count-tone
+  "Resolve background+color tokens for a diagnostics count badge."
+  [tone]
+  (case tone
+    :danger  ["var(--danger-lightest)"  "var(--danger-dark)"]
+    :warning ["var(--warning-lightest)" "var(--warning-text)"]
+    ["var(--bg-2)" "var(--fg-3)"]))
+
+(defn- diagnostics-subsection
+  "Single diagnostic category inside the consolidated Diagnósticos tab.
+   Header: h3 title + tonal count badge, with optional CSV export on the right.
+   Body: optional explainer + nf-table.
+
+   Visually quieter than top-level tabs, so users scan 'Por EV' first and
+   only descend into diagnostics when investigating."
+  [{:keys [title rows count-tone explainer csv-filename]}]
+  (let [[bg fg] (diag-count-tone count-tone)]
+    [:section {:style {:margin-bottom "32px"}}
+     [:div {:style {:display "flex" :justify-content "space-between"
+                    :align-items "baseline" :gap "16px"
+                    :margin-bottom "12px" :padding-bottom "8px"
+                    :border-bottom "1px solid var(--border-subtle)"}}
+      [:div {:style {:display "flex" :align-items "baseline" :gap "10px"}}
+       [:h3 {:style {:font-family "var(--font-heading)" :font-size "14px"
+                     :font-weight 600 :color "var(--fg-1)" :margin 0
+                     :letter-spacing "-0.005em"}}
+        title]
+       [:span {:style {:background bg :color fg
+                       :font-family "var(--font-mono)" :font-size "11px"
+                       :padding "1px 7px" :border-radius "var(--r-pill)"}}
+        (count rows)]]
+      (when csv-filename [export-csv-button rows csv-filename])]
+     (when explainer
+       [:p {:style {:font-size "13px" :color "var(--fg-3)"
+                    :margin "0 0 12px 0" :line-height "1.5"}}
+        explainer])
+     [nf-table rows]]))
+
+(defn- diagnostics-section
+  "Consolidated diagnostics: three categories stacked as subsections.
+   Replaces the previous three top-level tabs (Não matcheadas / Fora de
+   vigência / Não suportado), which fragmented the page above the fold."
+  [unmatched expired nao-sup]
+  [:div
+   [diagnostics-subsection
+    {:title        "Não matcheadas"
+     :rows         unmatched
+     :count-tone   :danger
+     :csv-filename "nao-matcheadas.csv"}]
+   [diagnostics-subsection
+    {:title        "Fora de vigência"
+     :rows         expired
+     :count-tone   :warning
+     :csv-filename "fora-vigencia.csv"}]
+   [diagnostics-subsection
+    {:title      "Não suportado"
+     :rows       nao-sup
+     :count-tone :neutral
+     :explainer  "Linhas com produto não suportado pelo modelo (Mental, Fitness)."}]])
+
 ;; ── Policy block (one per Policy under an EV) ─────────────
 
 (defn- policy-block []
@@ -223,7 +285,8 @@
            [:div.kpi-label "NFs OK"]
            [:div.kpi-value (str (or (:matched_nf_count totals) 0))]]]
 
-         ;; Tabs card
+         ;; Tabs card. Two tabs: Por EV (primary work) and Diagnósticos
+         ;; (consolidated unmatched/expired/nao-suportado, scrollable).
          [:div.card {:style {:padding 0}}
           [:div {:style {:padding "0 24px"}}
            [:div.tabs
@@ -234,39 +297,19 @@
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count ev-summary)]]
-            [:div {:class (str "tab" (when (= @active-tab :unmatched) " active"))
-                   :on-click #(reset! active-tab :unmatched)}
-             "Não matcheadas "
-             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-dark)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count unmatched)]]
-            [:div {:class (str "tab" (when (= @active-tab :expired) " active"))
-                   :on-click #(reset! active-tab :expired)}
-             "Fora de vigência "
-             [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count expired)]]
-            [:div {:class (str "tab" (when (= @active-tab :nao-sup) " active"))
-                   :on-click #(reset! active-tab :nao-sup)}
-             "Não suportado "
-             [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count nao-sup)]]]]
+            (let [diag-total (+ (count unmatched) (count expired) (count nao-sup))
+                  has-issues? (pos? diag-total)]
+              [:div {:class (str "tab" (when (= @active-tab :diagnostics) " active"))
+                     :on-click #(reset! active-tab :diagnostics)}
+               "Diagnósticos "
+               [:span {:style {:background (if has-issues? "var(--warning-lightest)" "var(--bg-2)")
+                               :color (if has-issues? "var(--warning-text)" "var(--fg-3)")
+                               :font-family "var(--font-mono)" :font-size "11px"
+                               :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
+                diag-total]])]]
           [:div {:style {:padding "20px 24px"}}
            (case @active-tab
-             :por-ev    [por-ev-tab ev-summary]
-             :unmatched [:<>
-                         [:div {:style {:margin-bottom "12px"}}
-                          [export-csv-button unmatched "nao-matcheadas.csv"]]
-                         [nf-table unmatched]]
-             :expired   [:<>
-                         [:div {:style {:margin-bottom "12px"}}
-                          [export-csv-button expired "fora-vigencia.csv"]]
-                         [nf-table expired]]
-             :nao-sup   [:<>
-                         [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-bottom "12px"}}
-                          "Linhas com produto não suportado pelo modelo (Mental, Fitness)."]
-                         [nf-table nao-sup]])]]]))))
+             :por-ev      [por-ev-tab ev-summary]
+             :diagnostics [diagnostics-section unmatched expired nao-sup]
+             ;; Fallback for any legacy active-tab state.
+             [por-ev-tab ev-summary])]]]))))
