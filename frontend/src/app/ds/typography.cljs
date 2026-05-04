@@ -45,6 +45,32 @@
                :class class}]
           children)))
 
+(defn section-heading
+  "Editorial section divider — a lowercase mono micro-label (.lab) sits above
+   a DM Serif H2. Mirrors the .section-h pattern from pipo-design.css.
+
+   Use to break a long page into named groupings, giving the H1 (page title)
+   → H3 (card title) hierarchy a real H2 layer. Without it, screen-reader
+   users navigating by heading skip from the page title straight to card
+   titles, and sighted users lose the editorial cadence the design system
+   was built to deliver.
+
+   Props:
+     :lab     optional micro-label (lowercase mono, sits above the H2)
+     :title   string or hiccup; rendered as <h2>
+     :actions optional right-aligned hiccup (single element or seq)"
+  [{:keys [lab title actions]}]
+  [:div.section-h
+   [:div
+    (when lab [:div.lab lab])
+    [:h2 title]]
+   (cond
+     (nil? actions) nil
+     ;; Single hiccup vector — splice as-is.
+     (and (vector? actions) (keyword? (first actions))) actions
+     ;; Collection of hiccup vectors — wrap in a flex row.
+     :else (into [:div {:style {:display "flex" :gap "8px" :align-items "center"}}] actions))])
+
 (defn label
   "Form label. Pass :for to associate with an input id (preferred for a11y)."
   [{:keys [required class for]} & children]

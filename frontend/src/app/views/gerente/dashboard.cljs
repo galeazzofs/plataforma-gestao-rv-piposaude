@@ -1,6 +1,7 @@
 (ns app.views.gerente.dashboard
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
+            [app.ds.typography :as typo]
             [app.auth.subs]))
 
 (defn- fmt-int [v]
@@ -80,6 +81,11 @@
          [:div.kpi-value (str pending-approvals)]
          [:div.kpi-foot
           (when (pos? pending-approvals) "aguardando sua aprovação")]]]
+
+       ;; ── Time ───────────────────────────────────────
+       [typo/section-heading
+        {:lab "time"
+         :title "EVs e atingimento"}]
 
        ;; Team table
        [:div.card {:style {:padding 0}}
