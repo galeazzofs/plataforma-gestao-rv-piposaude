@@ -28,8 +28,8 @@ class Config:
     SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
     DEFAULT_PAGE_SIZE = 20
     MAX_PAGE_SIZE = 100
-    # Reject uploads larger than 10 MB (defense-in-depth vs zip-bomb / DoS).
-    MAX_CONTENT_LENGTH = 10 * 1024 * 1024
+    # Reject uploads larger than 100 MB — financial XLSX files are routinely large.
+    MAX_CONTENT_LENGTH = 100 * 1024 * 1024
     # CORS origins — must be explicit per env. No wildcard fallback.
     CORS_ORIGINS = _split_csv(os.environ.get("CORS_ORIGINS"))
 
