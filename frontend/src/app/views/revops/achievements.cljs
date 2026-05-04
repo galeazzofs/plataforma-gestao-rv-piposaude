@@ -27,6 +27,41 @@
 (defn- pct-class [pct]
   (cond (>= (or pct 0) 100) "success" (>= (or pct 0) 70) "warn" :else "danger"))
 
+(defn- achievement-row [row edits filter-state]
+  (let [ev-id (:ev_id row)
+        stored (fraction->pct-str (:achievement_pct row))
+        current (get @edits ev-id stored)
+        pct-num (some-> current js/parseFloat)]
+    [:tr
+     [:td.name (:ev_name row)]
+     [:td.right.strong-num (str "R$ " (or (fmt-int (:total_mrr row)) "—"))]
+     [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr_target row)) "—"))]
+     [:td
+      [:div.cell-progress
+       [pct-bar pct-num (pct-class pct-num)]
+       [:span.pct (str (or (some-> pct-num (.toFixed 0)) "—") "%")]]]
+     [:td
+      [:input.field-input
+       {:type "number" :step "0.01" :min "0" :max "9999"
+        :style {:width "120px" :padding "6px 10px"}
+        :value (or current "")
+        :on-change #(swap! edits assoc ev-id (.. % -target -value))}]]
+     [:td.center (if (:is_final row)
+                   [:span.badge.badge-paid "Final"]
+                   [:span.badge.badge-locked "—"])]
+     [:td.right
+      (when (get @edits ev-id)
+        [:button.btn.btn-primary.btn-sm
+         {:on-click (fn []
+                      (rf/dispatch
+                        [:revops/save-achievement
+                         {:ev_id ev-id
+                          :quarter (:quarter @filter-state)
+                          :year (:year @filter-state)
+                          :achievement_pct (pct-str->fraction (get @edits ev-id))}])
+                      (swap! edits dissoc ev-id))}
+         "Salvar"])]]))
+
 (defn achievements-page []
   (let [filter-state (r/atom {:quarter 2 :year 2026})
         edits (r/atom {})
@@ -90,37 +125,5 @@
 
               :else
               (for [row achievements]
-                (let [ev-id (:ev_id row)
-                      stored (fraction->pct-str (:achievement_pct row))
-                      current (get @edits ev-id stored)
-                      pct-num (some-> current js/parseFloat)]
-                  ^{:key ev-id}
-                  [:tr
-                   [:td.name (:ev_name row)]
-                   [:td.right.strong-num (str "R$ " (or (fmt-int (:total_mrr row)) "—"))]
-                   [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr_target row)) "—"))]
-                   [:td
-                    [:div.cell-progress
-                     [pct-bar pct-num (pct-class pct-num)]
-                     [:span.pct (str (or (some-> pct-num (.toFixed 0)) "—") "%")]]]
-                   [:td
-                    [:input.field-input
-                     {:type "number" :step "0.01" :min "0" :max "9999"
-                      :style {:width "120px" :padding "6px 10px"}
-                      :value (or current "")
-                      :on-change #(swap! edits assoc ev-id (.. % -target -value))}]]
-                   [:td.center (if (:is_final row)
-                                 [:span.badge.badge-paid "Final"]
-                                 [:span.badge.badge-locked "—"])]
-                   [:td.right
-                    (when (get @edits ev-id)
-                      [:button.btn.btn-primary.btn-sm
-                       {:on-click (fn []
-                                    (rf/dispatch
-                                      [:revops/save-achievement
-                                       {:ev_id ev-id
-                                        :quarter (:quarter @filter-state)
-                                        :year (:year @filter-state)
-                                        :achievement_pct (pct-str->fraction (get @edits ev-id))}])
-                                    (swap! edits dissoc ev-id))}
-                       "Salvar"])]])))]]]]))))
+                ^{:key (:ev_id row)}
+                [achievement-row row edits filter-state]))]]]]))))
