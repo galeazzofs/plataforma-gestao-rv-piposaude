@@ -23,6 +23,30 @@
       (str d "/" m "/" y))
     "·"))
 
+(defn- plan-cell
+  "Stacked Operadora (primary) + Benefício (muted) for one table cell."
+  [operator benefit]
+  [:div {:style {:display "flex" :flex-direction "column" :gap "1px"
+                 :line-height "1.3"}}
+   [:span {:style {:color "var(--fg-2)"}} (if (or (nil? operator) (= operator ""))
+                                            "·" operator)]
+   [:span {:style {:color "var(--fg-3)" :font-size "12px"}}
+    (fmt-benefit benefit)]])
+
+(defn- financial-cell
+  "Stacked Comissão Potencial (strong, primary) + MRR / Total Pago (muted mono).
+   The eye lands on the commission first; MRR and paid totals are context."
+  [policy]
+  (let [potential (fmt/fmt-brl-int (:commission_potential policy))
+        mrr       (fmt/fmt-brl-int (:mrr_for_commission policy))
+        paid      (fmt/fmt-brl-int (:commission_paid_total policy))]
+    [:div {:style {:display "flex" :flex-direction "column" :gap "1px"
+                   :line-height "1.3" :align-items "flex-end"}}
+     [:span.strong-num (or potential "·")]
+     [:span {:style {:font-family "var(--font-mono)" :font-size "11px"
+                     :color "var(--fg-3)" :white-space "nowrap"}}
+      "MRR " (or mrr "·") " · pago " (or paid "·")]]))
+
 (defn policies-page []
   (let [filters     (r/atom {:status "" :page 1 :search ""})
         modal-open? (r/atom false)
@@ -79,9 +103,10 @@
                  :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
            (str "Canceladas (" suspended ")")]]
 
-         ;; Table — original column set (Apólice / EV / Cliente / Operadora /
-         ;; Benefício / Data Gongo / MRR / Comissão Potencial / Total Pago /
-         ;; Meses) plus inline edit.
+         ;; Table: 8 columns. Plano stacks Operadora over Benefício; Financeiro
+         ;; stacks Comissão Potencial (prominent) over MRR and Total Pago
+         ;; (muted secondary line). Down from the original 11 columns, which
+         ;; overflowed at tablet widths and made rows hard to track.
          [:div.card {:style {:padding 0}}
           [:table.table
            [:thead
@@ -89,22 +114,19 @@
              [:th "Apólice"]
              [:th "EV"]
              [:th "Cliente"]
-             [:th "Operadora"]
-             [:th "Benefício"]
+             [:th "Plano"]
              [:th "Data Gongo"]
-             [:th.right "MRR"]
-             [:th.right "Comissão Potencial"]
-             [:th.right "Total Pago"]
+             [:th.right "Financeiro"]
              [:th.center "Meses"]
              [:th.right ""]]]
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 11 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 8 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? policies)
-              [:tr [:td {:col-span 11 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 8 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhuma apólice encontrada"]]
 
               :else
@@ -114,12 +136,9 @@
                  [:td.name.num (or-dash (:numero_apolice p))]
                  [:td (or (:ev_name p) "·")]
                  [:td (or (:client_name p) "·")]
-                 [:td.muted (or-dash (:partner_operator p))]
-                 [:td.muted (fmt-benefit (:benefit_type p))]
+                 [:td [plan-cell (:partner_operator p) (:benefit_type p)]]
                  [:td.num.muted (fmt-date (:closed_date p))]
-                 [:td.right.strong-num (or (fmt/fmt-brl-int (:mrr_for_commission p)) "·")]
-                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_potential p)) "·")]
-                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_paid_total p)) "·")]
+                 [:td.right [financial-cell p]]
                  [:td.center.num (str (or (:installments_paid p) 0) "/12")]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm
