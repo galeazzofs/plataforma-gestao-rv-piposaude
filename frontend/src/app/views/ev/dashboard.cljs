@@ -1,6 +1,7 @@
 (ns app.views.ev.dashboard
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
+            [app.ds.typography :as typo]
             [app.auth.subs]
             [app.utils.format :as fmt]))
 
@@ -160,7 +161,11 @@
             [:<> "MRR vendido: "
              [:strong {:style {:color "var(--fg-1)"}} (str "R$ " (fmt/int-brl mrr-sold))]])]]]
 
-       ;; Projection chart
+       ;; ── Projeção ───────────────────────────────────
+       [typo/section-heading
+        {:lab "projeção"
+         :title "Mês a mês"}]
+
        [:div.card
         [:div.card-head
          [:div [:h3 "Projeção mensal"] [:div.card-sub "Projetado vs. realizado"]]
@@ -169,5 +174,9 @@
           [:span.legend-dot  {:style {:color "var(--black)"}} "realizado"]]]
         [projection-chart projection]]
 
-       ;; Deals
+       ;; ── Negócios ───────────────────────────────────
+       [typo/section-heading
+        {:lab "negócios"
+         :title "Apólices do período"}]
+
        [deals-table-section policies pol-loading?]])))

@@ -2,6 +2,7 @@
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.ds.nav :as nav]
+            [app.ds.typography :as typo]
             [app.utils.format :as fmt]
             [app.auth.subs]))
 
@@ -143,6 +144,11 @@
           [:button.btn.btn-primary.btn-sm
            {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]])}
            "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]]])
+
+       ;; ── Atividade ─────────────────────────────────────
+       [typo/section-heading
+        {:lab "atividade"
+         :title "Apurações e eventos recentes"}]
 
        ;; Two col: recent appraisals + recent activity from audit log
        [:div.two-col

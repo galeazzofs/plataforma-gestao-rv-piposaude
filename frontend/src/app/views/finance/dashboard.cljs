@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [app.ds.layout :as layout]
+            [app.ds.typography :as typo]
             [app.auth.subs]
             [app.utils.format :as fmt]))
 
@@ -233,6 +234,11 @@
               :foot (when orcado-pct
                       [bar orcado-pct (pct-class orcado-pct)])}]]
 
+       ;; ── Movimentação ───────────────────────────────
+       [typo/section-heading
+        {:lab "movimentação"
+         :title "Fluxo de caixa e orçado vs. realizado"}]
+
        ;; Charts
        [:div.two-col-eq
         [:div.card
@@ -252,6 +258,11 @@
            [:span.legend-dot {:style {:color "var(--black)"}} "realizado"]]]
          [chart-orcado-realizado orcado-data]]]
 
+       ;; ── Saldos ─────────────────────────────────────
+       [typo/section-heading
+        {:lab "saldos"
+         :title "Distribuição por safra"}]
+
        ;; Saldo by year
        [:div.card
         [:div.card-head
@@ -260,5 +271,10 @@
           [:div.card-sub "Distribuição do passivo de comissões em aberto"]]]
         [saldo-by-safra saldo-years]]
 
-       ;; Approvals — only the rows the API actually returned
+       ;; ── Aprovações ─────────────────────────────────
+       [typo/section-heading
+        {:lab "aprovações"
+         :title "Pendências de pagamento"}]
+
+       ;; Approvals: only the rows the API actually returned
        [approvals-table pending-rows]])))
