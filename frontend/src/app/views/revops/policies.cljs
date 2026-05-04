@@ -24,7 +24,7 @@
     "·"))
 
 (defn policies-page []
-  (let [filters     (r/atom {:status "" :page 1 :search ""})
+  (let [filters     (r/atom {:status "" :page 1 :search "" :ev_id ""})
         modal-open? (r/atom false)
         selected    (r/atom nil)
         open-edit   (fn [row] (reset! selected row) (reset! modal-open? true))
@@ -33,20 +33,25 @@
                       (rf/dispatch [:revops/fetch-policies
                                     (-> @filters
                                         (update :status #(when-not (= "" %) %))
-                                        (update :search #(when-not (= "" %) %)))]))]
+                                        (update :search #(when-not (= "" %) %))
+                                        (update :ev_id  #(when-not (= "" %) %)))]))]
     (rf/dispatch [:revops/fetch-policies @filters])
     (rf/dispatch [:revops/fetch-users])
     (fn []
       (let [policies @(rf/subscribe [:revops/policies])
             meta     @(rf/subscribe [:revops/policies-meta])
             loading? @(rf/subscribe [:revops/policies-loading?])
+            users    @(rf/subscribe [:revops/users])
             user     @(rf/subscribe [:auth/current-user])
             route    @(rf/subscribe [:current-route-name])
             total    (or (:total meta) (count (or policies [])))
             actives       (count (filter #(= (:commission_status %) "PROJECTED") (or policies [])))
             in-validation (count (filter #(= (:commission_status %) "IN_PAYMENT") (or policies [])))
             suspended     (count (filter #(= (:commission_status %) "CANCELLED") (or policies [])))
-            operators-count (count (->> policies (map :partner_operator) (filter some?) distinct))]
+            operators-count (count (->> policies (map :partner_operator) (filter some?) distinct))
+            ev-options (->> (or users [])
+                            (filter #(contains? #{"EV" "CN"} (:role %)))
+                            (sort-by #(or (:name %) (:email %))))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "configuração" "apólices"]
@@ -65,7 +70,7 @@
                                   (fetch-fn))}]]]}
 
          ;; Filter chips reflect real counts loaded from the API
-         [:div.filter-row
+         [:div.filter-row {:style {:display "flex" :align-items "center" :gap "12px"}}
           [:div {:class (str "chip" (when (= "" (:status @filters)) " active"))
                  :on-click #(do (swap! filters assoc :status "") (fetch-fn))}
            (str "Todas (" total ")")]
@@ -77,7 +82,26 @@
            (str "Em pagamento (" in-validation ")")]
           [:div {:class (str "chip" (when (= "CANCELLED" (:status @filters)) " active"))
                  :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
-           (str "Canceladas (" suspended ")")]]
+           (str "Canceladas (" suspended ")")]
+          [:div {:style {:margin-left "auto"}}
+           [:select {:style {:padding "6px 10px"
+                             :border "1px solid var(--border-subtle)"
+                             :border-radius "6px"
+                             :background "var(--bg-card)"
+                             :font-family "inherit"
+                             :font-size "12px"
+                             :color "var(--fg-1)"
+                             :cursor "pointer"
+                             :min-width "200px"}
+                     :value (:ev_id @filters)
+                     :on-change (fn [e]
+                                  (swap! filters assoc :ev_id (.. e -target -value))
+                                  (swap! filters assoc :page 1)
+                                  (fetch-fn))}
+            [:option {:value ""} "Todos os EVs"]
+            (for [u ev-options]
+              ^{:key (:id u)}
+              [:option {:value (:id u)} (or (:name u) (:email u))])]]]
 
          ;; Table — original column set (Apólice / EV / Cliente / Operadora /
          ;; Benefício / Data Gongo / MRR / Comissão Potencial / Total Pago /
@@ -86,6 +110,7 @@
           [:table.table
            [:thead
             [:tr
+             [:th "Ticket ID"]
              [:th "Apólice"]
              [:th "EV"]
              [:th "Cliente"]
@@ -100,17 +125,18 @@
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 11 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 12 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? policies)
-              [:tr [:td {:col-span 11 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 12 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhuma apólice encontrada"]]
 
               :else
               (for [p policies]
                 ^{:key (or (:id p) (:numero_apolice p) (hash p))}
                 [:tr
+                 [:td.num.muted (or-dash (:hubspot_ticket_id p))]
                  [:td.name.num (or-dash (:numero_apolice p))]
                  [:td (or (:ev_name p) "·")]
                  [:td (or (:client_name p) "·")]
