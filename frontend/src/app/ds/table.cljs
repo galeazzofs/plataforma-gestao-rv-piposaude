@@ -1,46 +1,90 @@
 (ns app.ds.table
-  (:require [app.ds.tokens :as t]
-            [reagent.core :as r]))
+  (:require [app.ds.tokens :as t]))
+
+(defn- sort-glyph [active? order]
+  (cond
+    (and active? (= order :asc))  " ↑"
+    active?                        " ↓"
+    :else                          "↕"))
 
 (defn data-table
   "Data table with sort, pagination — restyled to match the .table spec from
-   the Pipo design (mono uppercase headers, tight rows, hover highlight)."
+   the Pipo design (mono uppercase headers, tight rows, hover highlight).
+
+   Props:
+   - columns: [{:key :ev :label \"EV\" :sortable true :width \"180px\" :align \"left\" :render fn}]
+   - rows
+   - sort-key, sort-order, on-sort
+   - page, total-pages, on-page-change
+   - empty-message
+   - caption (string) — describes the table's content (visually hidden by
+     default; passes a11y by populating <caption>).
+   - aria-label (string) — alternative if caption isn't desired."
   [{:keys [columns rows on-sort sort-key sort-order
-           page total-pages on-page-change empty-message]}]
+           page total-pages on-page-change empty-message
+           caption] :as props}]
   [:div {:style {:border (str "1px solid " t/border-default)
                  :border-radius (:lg t/border-radius)
                  :overflow "hidden"
                  :background t/bg-card}}
    [:div {:style {:overflow-x "auto"}}
-    [:table {:style {:width "100%" :border-collapse "collapse" :font-size "13px"}}
+    [:table.table {:aria-label (:aria-label props)
+                   :style {:width "100%" :border-collapse "collapse" :font-size "13px"}}
+     (when caption
+       [:caption {:style {:position "absolute"
+                          :width "1px" :height "1px"
+                          :padding 0 :margin "-1px"
+                          :overflow "hidden" :clip "rect(0,0,0,0)"
+                          :white-space "nowrap" :border 0}}
+        caption])
      [:thead
       [:tr
        (for [{:keys [key label sortable width align]} columns]
-         ^{:key key}
-         [:th {:style {:background t/bg-main
-                       :border-bottom (str "1px solid " t/border-default)
-                       :padding "11px 16px"
-                       :text-align (or align "left")
-                       :font-family t/font-mono
-                       :font-size "10.5px"
-                       :font-weight (:medium t/font-weights)
-                       :color t/text-tertiary
-                       :text-transform "uppercase"
-                       :letter-spacing "0.06em"
-                       :cursor (when sortable "pointer")
-                       :width width
-                       :white-space "nowrap"
-                       :user-select "none"}
-               :on-click (when (and sortable on-sort)
-                           #(on-sort key))}
-          [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
-           label
-           (cond
-             (and sortable (= sort-key key))
-             [:span {:style {:color t/text-primary}}
-              (if (= sort-order :asc) " ↑" " ↓")]
-             sortable
-             [:span {:style {:color t/text-disabled :margin-left "2px"}} "↕"])]])]]
+         (let [active? (= sort-key key)
+               base-th {:scope "col"
+                        :style {:background t/bg-main
+                                :border-bottom (str "1px solid " t/border-default)
+                                :padding "0"
+                                :text-align (or align "left")
+                                :font-family t/font-mono
+                                :font-size "10.5px"
+                                :font-weight (:medium t/font-weights)
+                                :color t/text-tertiary
+                                :text-transform "uppercase"
+                                :letter-spacing "0.06em"
+                                :width width
+                                :white-space "nowrap"
+                                :user-select "none"}}
+               th-attrs (cond-> base-th
+                          (and sortable active?)
+                          (assoc :aria-sort (case sort-order
+                                              :asc "ascending"
+                                              :desc "descending"
+                                              "none")))]
+           ^{:key key}
+           [:th th-attrs
+            (if (and sortable on-sort)
+              [:button {:type "button"
+                        :on-click #(on-sort key)
+                        :style {:display "inline-flex"
+                                :align-items "center"
+                                :gap "4px"
+                                :padding "11px 16px"
+                                :background "none"
+                                :border 0
+                                :cursor "pointer"
+                                :font "inherit"
+                                :color "inherit"
+                                :text-transform "inherit"
+                                :letter-spacing "inherit"
+                                :width "100%"
+                                :text-align (or align "left")}}
+               label
+               [:span {:aria-hidden true
+                       :style {:color (if active? t/text-primary t/text-disabled)
+                               :margin-left "2px"}}
+                (sort-glyph active? sort-order)]]
+              [:span {:style {:display "inline-block" :padding "11px 16px"}} label])]))]]
      [:tbody
       (if (empty? rows)
         [:tr [:td {:col-span (count columns)
@@ -52,37 +96,36 @@
                 [:use {:href "#i-list"}]]
                [:span {:style {:color t/text-tertiary :font-size "13px"}}
                 (or empty-message "Nenhum dado encontrado")]]]]
+        ;; Hover state lives in CSS (`.table tbody tr:hover`) via the
+        ;; .table class on the <table>, so no per-row state is needed here.
         (map-indexed
          (fn [idx row]
            ^{:key (or (:id row) (hash row))}
-           [(fn []
-              (let [hovered? (r/atom false)]
-                (fn []
-                  [:tr {:style {:border-bottom (str "1px solid " t/border-default)
-                                :background (if @hovered? t/bg-main t/bg-card)
-                                :transition (str "background " t/transition-fast)}
-                        :on-mouse-enter #(reset! hovered? true)
-                        :on-mouse-leave #(reset! hovered? false)}
-                   (for [{:keys [key render align]} columns]
-                     ^{:key (str (or (:id row) idx) "-" key)}
-                     [:td {:style {:padding "13px 16px"
-                                   :color t/text-primary
-                                   :font-family t/font-ui
-                                   :text-align (or align "left")
-                                   :vertical-align "middle"}}
-                      (if render
-                        (render row)
-                        (get row key))])])))])
+           [:tr {:style {:border-bottom (str "1px solid " t/border-default)}}
+            (for [{:keys [key render align]} columns]
+              ^{:key (str (or (:id row) idx) "-" key)}
+              [:td {:style {:padding "13px 16px"
+                            :color t/text-primary
+                            :font-family t/font-ui
+                            :text-align (or align "left")
+                            :vertical-align "middle"}}
+               (if render
+                 (render row)
+                 (get row key))])])
          rows))]]]
    (when (and page total-pages (> total-pages 1))
-     [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"
+     [:nav {:aria-label "Paginação"
+            :style {:display "flex" :justify-content "space-between" :align-items "center"
                     :padding "12px 16px"
                     :border-top (str "1px solid " t/border-default)
                     :background t/bg-card}}
-      [:span {:style {:font-family t/font-mono :font-size "11px" :color t/text-tertiary}}
+      [:span {:style {:font-family t/font-mono :font-size "11px" :color t/text-tertiary}
+              :aria-live "polite"}
        (str "Página " page " de " total-pages)]
       [:div {:style {:display "flex" :gap "6px"}}
-       [:button {:style {:padding "6px 11px"
+       [:button {:type "button"
+                 :aria-label "Página anterior"
+                 :style {:padding "6px 11px"
                          :border (str "1px solid " t/border-default)
                          :border-radius (:sm t/border-radius)
                          :background t/bg-card
@@ -93,8 +136,10 @@
                          :opacity (if (> page 1) "1" "0.4")}
                  :disabled (<= page 1)
                  :on-click #(when (> page 1) (on-page-change (dec page)))}
-        "← Anterior"]
-       [:button {:style {:padding "6px 11px"
+        [:span {:aria-hidden true} "← "] "Anterior"]
+       [:button {:type "button"
+                 :aria-label "Próxima página"
+                 :style {:padding "6px 11px"
                          :border (str "1px solid " t/border-default)
                          :border-radius (:sm t/border-radius)
                          :background t/bg-card
@@ -105,4 +150,4 @@
                          :opacity (if (< page total-pages) "1" "0.4")}
                  :disabled (>= page total-pages)
                  :on-click #(when (< page total-pages) (on-page-change (inc page)))}
-        "Próxima →"]]])])
+        "Próxima " [:span {:aria-hidden true} " →"]]]])])

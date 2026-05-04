@@ -7,13 +7,13 @@
             [app.utils.format :as fmt]
             [app.auth.subs]))
 
-(defn- or-dash [v] (if (or (nil? v) (= v "")) "—" v))
+(defn- or-dash [v] (if (or (nil? v) (= v "")) "·" v))
 
 (def benefit-labels
   {"SAUDE" "Saúde" "ODONTO" "Odonto" "VIDA" "Vida"})
 
 (defn- fmt-benefit [v]
-  (or (get benefit-labels v) v "—"))
+  (or (get benefit-labels v) v "·"))
 
 (defn- fmt-date
   "ISO yyyy-mm-dd → dd/mm/yyyy."
@@ -21,7 +21,7 @@
   (if (and iso (string? iso) (>= (count iso) 10))
     (let [[y m d] (str/split (subs iso 0 10) #"-")]
       (str d "/" m "/" y))
-    "—"))
+    "·"))
 
 (defn policies-page []
   (let [filters     (r/atom {:status "" :page 1 :search ""})
@@ -112,14 +112,14 @@
                 ^{:key (or (:id p) (:numero_apolice p) (hash p))}
                 [:tr
                  [:td.name.num (or-dash (:numero_apolice p))]
-                 [:td (or (:ev_name p) "—")]
-                 [:td (or (:client_name p) "—")]
+                 [:td (or (:ev_name p) "·")]
+                 [:td (or (:client_name p) "·")]
                  [:td.muted (or-dash (:partner_operator p))]
                  [:td.muted (fmt-benefit (:benefit_type p))]
                  [:td.num.muted (fmt-date (:closed_date p))]
-                 [:td.right.strong-num (or (fmt/fmt-brl-int (:mrr_for_commission p)) "—")]
-                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_potential p)) "—")]
-                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_paid_total p)) "—")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:mrr_for_commission p)) "·")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_potential p)) "·")]
+                 [:td.right.strong-num (or (fmt/fmt-brl-int (:commission_paid_total p)) "·")]
                  [:td.center.num (str (or (:installments_paid p) 0) "/12")]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm

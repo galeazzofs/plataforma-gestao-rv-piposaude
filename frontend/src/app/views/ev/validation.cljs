@@ -88,7 +88,7 @@
             [:div {:class (str "tab" (when (= @active-tab :pending) " active"))
                    :on-click #(reset! active-tab :pending)}
              "Pendentes "
-             [:span {:style {:background "var(--warning-lightest)" :color "#9A6B0F"
+             [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count pending)]]
@@ -128,14 +128,14 @@
                 ^{:key (:id row)}
                 [:tr
                  [:td.name (:client_name row)]
-                 [:td.muted (or (:benefit_type row) "—")]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr row)) "—"))]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_monthly row)) "—"))]
+                 [:td.muted (or (:benefit_type row) "·")]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr row)) "·"))]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_monthly row)) "·"))]
                  [:td (case (:status row)
                         "PENDING"   [:span.badge.badge-pending "Pendente"]
                         "APPROVED"  [:span.badge.badge-approved "Aprovado"]
                         "CONTESTED" [:span.badge.badge-contested "Contestado"]
-                        [:span.badge.badge-locked (or (:status row) "—")])]
+                        [:span.badge.badge-locked (or (:status row) "·")])]
                  [:td.right
                   (when (= (:status row) "PENDING")
                     [:<>

@@ -16,7 +16,7 @@
     [:div.callout {:style {:border-color "var(--success-light)" :background "var(--success-lightest)"}}
      [layout/icon "check" {:width 20 :height 20}]
      [:div {:style {:flex 1}}
-      [:strong (str "Upload concluído — " (or (:rows_persisted result) 0) " linhas persistidas")]
+      [:strong (str "Upload concluído: " (or (:rows_persisted result) 0) " linhas persistidas")]
       [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
        (str/join " · "
                  (for [[k label] [[:total_lidas "lidas"] [:persistidas "persistidas"]
@@ -108,7 +108,7 @@
        [:div.card
         [:div.card-head
          [:div [:h3 "Subsídios / Perks"]
-          [:div.card-sub "Planilha de subsídios — soma por cliente e desconta das NFs na apuração."]]
+          [:div.card-sub "Planilha de subsídios: soma por cliente e desconta das NFs na apuração."]]
          (when perk-result
            [:button.btn.btn-secondary.btn-sm
             {:on-click #(rf/dispatch [:revops/perk-upload-reset])}
@@ -124,7 +124,7 @@
                                  :background "var(--success-lightest)"}}
            [layout/icon "check" {:width 20 :height 20}]
            [:div {:style {:flex 1}}
-            [:strong (str "Subsídios aplicados — "
+            [:strong (str "Subsídios aplicados: "
                           (count (or (:items perk-result) [])) " clientes")]]]
 
           :else

@@ -17,19 +17,19 @@
     [:tr
      [:td
       [:div.name name]
-      [:div.muted (str "id " (or id "—"))]]
-     [:td.center.num (str (or (:deals_count {}) "—"))]
-     [:td.right.strong-num (str "R$ " (or (fmt-int mrr) "—"))]
+      [:div.muted (str "id " (or id "·"))]]
+     [:td.center.num (str (or (:deals_count {}) "·"))]
+     [:td.right.strong-num (str "R$ " (or (fmt-int mrr) "·"))]
      [:td
       [:div.cell-progress
        [pct-bar pct fill]
        [:span.pct (str (.toFixed pct 0) "%")]]]
-     [:td.right.strong-num (str "R$ " (or (fmt-int commission) "—"))]
+     [:td.right.strong-num (str "R$ " (or (fmt-int commission) "·"))]
      [:td (case appraisal_status
             "APPROVED"  [:span.badge.badge-approved "Aprovado"]
             "REVIEWING" [:span.badge.badge-review "Revisar"]
             "LOCKED"    [:span.badge.badge-locked "Férias"]
-            [:span.badge.badge-locked (or appraisal_status "—")])]
+            [:span.badge.badge-locked (or appraisal_status "·")])]
      [:td.right
       (if (= appraisal_status "REVIEWING")
         [:button.btn.btn-primary.btn-sm

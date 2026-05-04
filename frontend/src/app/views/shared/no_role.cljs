@@ -42,7 +42,7 @@
       "Quase lá."]
      [:p {:style {:font-size "15px" :color "rgba(255,255,255,0.7)"
                   :margin-top "18px" :line-height "1.5"}}
-      "Sua conta está criada, mas ainda não tem um perfil de acesso. Avise o RevOps que tudo bem — a gente libera em minutos."]]
+      "Sua conta está criada, mas ainda não tem um perfil de acesso. Avise o RevOps que tudo bem, a gente libera em minutos."]]
     [:div {:style {:position "relative" :z-index 1
                    :font-family t/font-mono :font-size "11px"
                    :color "rgba(255,255,255,0.5)"}}

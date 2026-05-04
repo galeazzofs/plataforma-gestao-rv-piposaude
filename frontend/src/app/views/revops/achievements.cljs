@@ -34,12 +34,12 @@
         pct-num (some-> current js/parseFloat)]
     [:tr
      [:td.name (:ev_name row)]
-     [:td.right.strong-num (str "R$ " (or (fmt-int (:total_mrr row)) "—"))]
-     [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr_target row)) "—"))]
+     [:td.right.strong-num (str "R$ " (or (fmt-int (:total_mrr row)) "·"))]
+     [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr_target row)) "·"))]
      [:td
       [:div.cell-progress
        [pct-bar pct-num (pct-class pct-num)]
-       [:span.pct (str (or (some-> pct-num (.toFixed 0)) "—") "%")]]]
+       [:span.pct (str (or (some-> pct-num (.toFixed 0)) "·") "%")]]]
      [:td
       [:input.field-input
        {:type "number" :step "0.01" :min "0" :max "9999"
@@ -48,7 +48,7 @@
         :on-change #(swap! edits assoc ev-id (.. % -target -value))}]]
      [:td.center (if (:is_final row)
                    [:span.badge.badge-paid "Final"]
-                   [:span.badge.badge-locked "—"])]
+                   [:span.badge.badge-locked "·"])]
      [:td.right
       (when (get @edits ev-id)
         [:button.btn.btn-primary.btn-sm

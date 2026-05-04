@@ -1,0 +1,338 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-04T00:00:00.000Z",
+  "title": "Design System: Pipo RV — Comissões",
+  "extensions": {
+    "colorMeta": {
+      "black": {
+        "role": "primary-action",
+        "displayName": "Pure Black",
+        "canonical": "oklch(0% 0 0)",
+        "tonalRamp": [
+          "oklch(8% 0.005 280)",
+          "oklch(18% 0.005 280)",
+          "oklch(28% 0.005 280)",
+          "oklch(40% 0.005 280)",
+          "oklch(55% 0.005 280)",
+          "oklch(70% 0.005 280)",
+          "oklch(85% 0.005 280)",
+          "oklch(95% 0.005 280)"
+        ]
+      },
+      "night": {
+        "role": "identity",
+        "displayName": "Night",
+        "canonical": "oklch(20% 0.13 270)",
+        "tonalRamp": [
+          "oklch(15% 0.10 270)",
+          "oklch(25% 0.13 270)",
+          "oklch(35% 0.14 270)",
+          "oklch(48% 0.16 270)",
+          "oklch(60% 0.15 270)",
+          "oklch(72% 0.12 270)",
+          "oklch(85% 0.07 270)",
+          "oklch(95% 0.03 270)"
+        ]
+      },
+      "cyan": {
+        "role": "identity-accent",
+        "displayName": "Pipo Cyan",
+        "canonical": "oklch(72% 0.16 240)",
+        "tonalRamp": [
+          "oklch(25% 0.10 240)",
+          "oklch(38% 0.13 240)",
+          "oklch(50% 0.16 240)",
+          "oklch(62% 0.17 240)",
+          "oklch(72% 0.16 240)",
+          "oklch(82% 0.12 240)",
+          "oklch(90% 0.08 240)",
+          "oklch(96% 0.03 240)"
+        ]
+      },
+      "beige-lightest": {
+        "role": "warm-surface",
+        "displayName": "Warm Paper",
+        "canonical": "oklch(96% 0.012 80)",
+        "tonalRamp": [
+          "oklch(40% 0.025 80)",
+          "oklch(55% 0.03 80)",
+          "oklch(68% 0.03 80)",
+          "oklch(80% 0.025 80)",
+          "oklch(88% 0.02 80)",
+          "oklch(92% 0.018 80)",
+          "oklch(96% 0.012 80)",
+          "oklch(98% 0.006 80)"
+        ]
+      },
+      "beige-light": {
+        "role": "warm-fill",
+        "displayName": "Soft Tan",
+        "canonical": "oklch(88% 0.035 80)",
+        "tonalRamp": [
+          "oklch(40% 0.06 80)",
+          "oklch(55% 0.07 80)",
+          "oklch(68% 0.07 80)",
+          "oklch(78% 0.05 80)",
+          "oklch(85% 0.04 80)",
+          "oklch(88% 0.035 80)",
+          "oklch(93% 0.025 80)",
+          "oklch(97% 0.012 80)"
+        ]
+      },
+      "neutral-darkest": {
+        "role": "text-secondary",
+        "displayName": "Graphite",
+        "canonical": "oklch(34% 0.012 270)",
+        "tonalRamp": [
+          "oklch(20% 0.012 270)",
+          "oklch(34% 0.012 270)",
+          "oklch(45% 0.012 270)",
+          "oklch(55% 0.010 270)",
+          "oklch(68% 0.008 270)",
+          "oklch(80% 0.005 270)",
+          "oklch(90% 0.003 270)",
+          "oklch(96% 0.002 270)"
+        ]
+      },
+      "success-dark": {
+        "role": "feedback-success",
+        "displayName": "Settled Green",
+        "canonical": "oklch(60% 0.16 155)",
+        "tonalRamp": [
+          "oklch(30% 0.10 155)",
+          "oklch(45% 0.14 155)",
+          "oklch(60% 0.16 155)",
+          "oklch(72% 0.15 155)",
+          "oklch(82% 0.13 155)",
+          "oklch(90% 0.10 155)",
+          "oklch(94% 0.07 155)",
+          "oklch(97% 0.04 155)"
+        ]
+      },
+      "warning-dark": {
+        "role": "feedback-warning",
+        "displayName": "Amber Flag",
+        "canonical": "oklch(80% 0.16 75)",
+        "tonalRamp": [
+          "oklch(45% 0.14 75)",
+          "oklch(60% 0.17 75)",
+          "oklch(72% 0.17 75)",
+          "oklch(80% 0.16 75)",
+          "oklch(86% 0.14 75)",
+          "oklch(91% 0.10 75)",
+          "oklch(95% 0.07 75)",
+          "oklch(98% 0.03 75)"
+        ]
+      },
+      "danger-dark": {
+        "role": "feedback-danger",
+        "displayName": "Contest Red",
+        "canonical": "oklch(63% 0.22 25)",
+        "tonalRamp": [
+          "oklch(35% 0.18 25)",
+          "oklch(48% 0.21 25)",
+          "oklch(63% 0.22 25)",
+          "oklch(74% 0.18 25)",
+          "oklch(83% 0.14 25)",
+          "oklch(90% 0.10 25)",
+          "oklch(95% 0.06 25)",
+          "oklch(98% 0.02 25)"
+        ]
+      },
+      "blue-regular": {
+        "role": "chart",
+        "displayName": "Chart Blue",
+        "canonical": "oklch(58% 0.18 255)"
+      },
+      "purple-regular": {
+        "role": "chart",
+        "displayName": "Chart Purple",
+        "canonical": "oklch(56% 0.24 305)"
+      },
+      "pink-regular": {
+        "role": "chart",
+        "displayName": "Chart Pink",
+        "canonical": "oklch(72% 0.18 5)"
+      },
+      "peach-regular": {
+        "role": "chart",
+        "displayName": "Chart Peach",
+        "canonical": "oklch(78% 0.10 30)"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page-title H1s and section headers — DM Serif Display, never bold."
+      },
+      "display-numeric": {
+        "displayName": "Display Numeric",
+        "purpose": "KPI values and score numerals — the editorial-numbers signature, 38–48px."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Card-level h2s in Poppins 600 22px."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card heads, dropzone strong, empty-state h4 — Poppins 600 16px."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default reading text — Work Sans 14px, line-height 1.5, cap at ~75ch."
+      },
+      "ui": {
+        "displayName": "UI",
+        "purpose": "Buttons, nav, tabs, table cells, chips — Manrope 600 13px. The chrome voice."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "KPI labels, breadcrumbs, badges, audit timestamps — IBM Plex Mono 11px. The data dialect."
+      }
+    },
+    "shadows": [
+      { "name": "shadow-01", "value": "0 1px 2px rgba(0,0,0,.06)", "purpose": "Resting elevation for the dev-foot pill and any element that needs to read as 'above the page' without ceremony." },
+      { "name": "shadow-02", "value": "0 0 2px rgba(0,0,0,.20),0 2px 15px rgba(0,0,0,.08)", "purpose": "Mid-elevation float — modals and popovers." },
+      { "name": "shadow-03", "value": "0 0 4px rgba(0,0,0,.05),0 8px 40px rgba(0,0,0,.10)", "purpose": "High-elevation overlay — full-bleed dialogs." },
+      { "name": "shadow-hover", "value": "0 1px 1px rgba(0,0,0,.05),0 0 0 1px #BCBAB5 inset", "purpose": "The signature hover affordance — an inset border darkening, not a glow underneath. Used on inputs, search, icon buttons, secondary buttons, and chips." },
+      { "name": "focus-inset-black", "value": "0 0 0 2px #000 inset", "purpose": "Focus ring lives inside the field's footprint — 2px black inset on inputs and primary-button hover." }
+    ],
+    "motion": [
+      { "name": "ease-pipo", "value": "cubic-bezier(.2,0,0,1)", "purpose": "The system's default easing — a fast-start, slow-settle curve for state transitions." },
+      { "name": "duration-fast", "value": "160ms", "purpose": "Default state transition — hover, focus, active flips, bar-fill width." },
+      { "name": "duration-default", "value": "200ms", "purpose": "Slightly longer transitions for compound state changes." },
+      { "name": "spin", "value": "spin 0.6s linear infinite", "purpose": "Loading spinner inside primary buttons in the loading state." },
+      { "name": "shimmer", "value": "shimmer 1.4s linear infinite", "purpose": "Skeleton loading background for table rows and cards." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "576px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "960px" },
+      { "name": "xl", "value": "1140px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The system's only true 'click here' control. Pure black fill, white text, Manrope 600. Hover grows an inner ring; the button does not lift.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><line x1=\"12\" y1=\"5\" x2=\"12\" y2=\"19\"/><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"/></svg>Nova Apuração</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-weight: 600; font-size: 13px; line-height: 1; padding: 9px 16px; min-height: 36px; border-radius: 8px; border: 1px solid transparent; background: #000000; color: #FFFFFF; cursor: pointer; transition: box-shadow 160ms cubic-bezier(.2,0,0,1); } .ds-btn-primary:hover { box-shadow: 0 0 0 2px #000 inset, 0 1px 1px rgba(0,0,0,.05); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #000 inset, 0 0 0 4px rgba(0,0,0,.15); } .ds-btn-primary:active { transform: none; } .ds-btn-primary svg { width: 14px; height: 14px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "The default for any non-primary action. White fill, 1px subtle stroke, fg-1 text. Hover tightens the stroke.",
+      "html": "<button class=\"ds-btn-secondary\">Exportar</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; gap: 8px; font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-weight: 600; font-size: 13px; line-height: 1; padding: 9px 16px; min-height: 36px; border-radius: 8px; border: 1px solid #E2E1DF; background: #FFFFFF; color: #000000; cursor: pointer; transition: box-shadow 160ms cubic-bezier(.2,0,0,1); } .ds-btn-secondary:hover { box-shadow: 0 1px 1px rgba(0,0,0,.05), 0 0 0 1px #BCBAB5 inset; } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px #000 inset; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Field with editorial-grade focus: a 2px inset black ring inside the existing 1px stroke. The field never moves.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Apólice</span><input class=\"ds-input\" type=\"text\" placeholder=\"AP-2026-001\" /><span class=\"ds-field-help\">Use o número impresso na proposta.</span></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; } .ds-field-label { font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600; color: #3C404A; } .ds-input { font-family: 'Work Sans', system-ui, sans-serif; font-size: 14px; padding: 11px 14px; background: #FFFFFF; color: #000000; border: 1px solid #E2E1DF; border-radius: 8px; outline: none; width: 100%; box-sizing: border-box; transition: box-shadow 160ms cubic-bezier(.2,0,0,1), border-color 160ms cubic-bezier(.2,0,0,1); } .ds-input:hover { box-shadow: 0 1px 1px rgba(0,0,0,.05), 0 0 0 1px #BCBAB5 inset; } .ds-input:focus { box-shadow: 0 0 0 2px #000 inset; border-color: #E2E1DF; } .ds-input::placeholder { color: #BCBAB5; } .ds-field-help { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 11px; color: #6B6663; }"
+    },
+    {
+      "name": "Status Badge — Approved",
+      "kind": "chip",
+      "refersTo": "badge-approved",
+      "description": "Pill-shaped status indicator with a leading colored dot drawn as a ::before pseudo-element. The dot is the badge's signature.",
+      "html": "<span class=\"ds-badge-approved\">Aprovado</span>",
+      "css": ".ds-badge-approved { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 9999px; font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 500; line-height: 1.4; background: #D4F8E7; color: #17A66D; } .ds-badge-approved::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }"
+    },
+    {
+      "name": "Default Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "Flat surface with a 1px subtle border outline, 16px corner radius, 24px padding. No shadow at rest.",
+      "html": "<section class=\"ds-card\"><header class=\"ds-card-head\"><div><h3 class=\"ds-card-title\">Apurações em revisão</h3><p class=\"ds-card-sub\">Atualizado há 4 minutos</p></div><div class=\"ds-card-actions\"><button class=\"ds-btn-ghost\">Ver tudo</button></div></header><div class=\"ds-card-body\">Conteúdo da seção.</div></section>",
+      "css": ".ds-card { background: #FFFFFF; border: 1px solid #E2E1DF; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 16px; } .ds-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; } .ds-card-title { font-family: 'Poppins', system-ui, sans-serif; font-size: 16px; font-weight: 600; color: #000; margin: 0; letter-spacing: -0.005em; } .ds-card-sub { font-family: 'Work Sans', system-ui, sans-serif; font-size: 12px; color: #6B6663; margin: 2px 0 0 0; } .ds-card-actions { display: flex; gap: 8px; } .ds-btn-ghost { font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-weight: 600; font-size: 13px; padding: 9px 16px; min-height: 36px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #3C404A; cursor: pointer; transition: background 160ms cubic-bezier(.2,0,0,1); } .ds-btn-ghost:hover { background: #F6F6F6; } .ds-card-body { font-family: 'Work Sans', system-ui, sans-serif; font-size: 14px; color: #3C404A; line-height: 1.5; }"
+    },
+    {
+      "name": "KPI Card",
+      "kind": "card",
+      "refersTo": "kpi-card",
+      "description": "The signature data card: lowercase mono label up top, DM Serif Display 38px numeral mid, delta pill + caption at the foot, optional concentric-circles graphism bottom-right at 0.5 opacity.",
+      "html": "<article class=\"ds-kpi\"><div class=\"ds-kpi-label\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"2\" y=\"6\" width=\"20\" height=\"13\" rx=\"2\"/><circle cx=\"12\" cy=\"12.5\" r=\"2.6\"/></svg>mrr fechado</div><div class=\"ds-kpi-value\"><span class=\"ds-currency\">R$</span>184.250<span class=\"ds-frac\">,30</span></div><div class=\"ds-kpi-foot\"><span class=\"ds-delta-up\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"5\"/><polyline points=\"5 12 12 5 19 12\"/></svg>+8,4%</span><span class=\"ds-kpi-caption\">vs. mês anterior</span></div><svg class=\"ds-kpi-grafismo\" viewBox=\"0 0 100 100\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" aria-hidden=\"true\"><circle cx=\"50\" cy=\"50\" r=\"48\"/><circle cx=\"50\" cy=\"50\" r=\"36\"/><circle cx=\"50\" cy=\"50\" r=\"24\"/><circle cx=\"50\" cy=\"50\" r=\"12\"/></svg></article>",
+      "css": ".ds-kpi { background: #FFFFFF; border: 1px solid #E2E1DF; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px; position: relative; overflow: hidden; min-height: 140px; } .ds-kpi-label { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 11px; text-transform: lowercase; letter-spacing: 0.02em; color: #6B6663; display: flex; align-items: center; gap: 6px; } .ds-kpi-label svg { width: 14px; height: 14px; color: #6B6663; } .ds-kpi-value { font-family: 'DM Serif Display', Georgia, serif; font-size: 38px; line-height: 1; font-weight: 400; color: #000; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; } .ds-currency { font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-size: 14px; font-weight: 600; color: #6B6663; margin-right: 6px; letter-spacing: 0; } .ds-frac { font-family: 'DM Serif Display', Georgia, serif; font-size: 24px; color: #6B6663; } .ds-kpi-foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6B6663; margin-top: auto; } .ds-delta-up { display: inline-flex; align-items: center; gap: 3px; font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-weight: 600; font-size: 12px; padding: 2px 8px; border-radius: 9999px; background: #D4F8E7; color: #17A66D; } .ds-delta-up svg { width: 12px; height: 12px; } .ds-kpi-caption { font-family: 'Work Sans', system-ui, sans-serif; font-size: 12px; color: #6B6663; } .ds-kpi-grafismo { position: absolute; right: -30px; bottom: -30px; width: 140px; height: 140px; opacity: 0.5; pointer-events: none; color: #BCBAB5; }"
+    },
+    {
+      "name": "Score Card (Simulator)",
+      "kind": "custom",
+      "refersTo": "score-card",
+      "description": "The system's signature drenched moment: night-blue surface with a cyan radial glow, uppercase mono labels, and a 48px DM Serif final number in cyan. Used only on the CN simulator output and (in spirit) the login frame.",
+      "html": "<section class=\"ds-score\"><div class=\"ds-score-row\"><span>base de cálculo</span><strong>R$ 18.420</strong></div><div class=\"ds-score-row\"><span>fator de qualidade</span><strong>0,92</strong></div><div class=\"ds-score-row\"><span>fator de meta</span><strong>1,15</strong></div><div class=\"ds-score-final\"><span>comissão estimada</span><strong><span class=\"ds-score-currency\">R$</span>19.481</strong></div></section>",
+      "css": ".ds-score { background: #060D41; color: #FFFFFF; border-radius: 16px; padding: 28px; display: flex; flex-direction: column; gap: 20px; position: relative; overflow: hidden; } .ds-score::after { content: ''; position: absolute; top: -40px; right: -40px; width: 200px; height: 200px; background: radial-gradient(circle, #3B9AFF 0%, transparent 70%); opacity: 0.18; pointer-events: none; } .ds-score-row { display: flex; justify-content: space-between; align-items: baseline; position: relative; z-index: 1; } .ds-score-row span { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 11px; color: rgba(255,255,255,.6); text-transform: uppercase; letter-spacing: 0.06em; } .ds-score-row strong { font-family: 'DM Serif Display', Georgia, serif; font-size: 28px; font-weight: 400; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; } .ds-score-final { border-top: 1px solid rgba(255,255,255,.15); padding-top: 18px; margin-top: 6px; display: flex; flex-direction: column; gap: 4px; position: relative; z-index: 1; } .ds-score-final span { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 11px; color: rgba(255,255,255,.6); text-transform: uppercase; letter-spacing: 0.06em; } .ds-score-final strong { font-family: 'DM Serif Display', Georgia, serif; font-size: 48px; line-height: 1; font-weight: 400; color: #3B9AFF; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; } .ds-score-currency { font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-size: 16px; color: #FFFFFF; margin-right: 8px; font-weight: 600; }"
+    },
+    {
+      "name": "Sidebar Nav Item (Active)",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "The active sidebar item — the only place a 2px left-border accent is used. Beige-lightest background tint, 600-weight Manrope, fg-1 icon. The default state has a transparent left-border placeholder so the active state doesn't shift layout.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-nav-item--active\" href=\"#\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1.5\"/><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1.5\"/><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1.5\"/></svg>Apuração</a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z\"/><path d=\"M14 3v5h5M9 13h6M9 17h6\"/></svg>Contestações<span class=\"ds-nav-badge\">3</span></a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; padding: 14px 12px; background: #FFFFFF; min-width: 240px; } .ds-nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; color: #3C404A; font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-size: 13.5px; font-weight: 500; transition: background 160ms cubic-bezier(.2,0,0,1), color 160ms cubic-bezier(.2,0,0,1); border-left: 2px solid transparent; cursor: pointer; user-select: none; text-decoration: none; } .ds-nav-item:hover { background: #F6F6F6; color: #000; } .ds-nav-item svg { width: 18px; height: 18px; flex-shrink: 0; color: #6B6663; } .ds-nav-item--active { background: #F7F3EB; color: #000; font-weight: 600; border-left-color: #000; } .ds-nav-item--active svg { color: #000; } .ds-nav-badge { margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 11px; background: #FFDEDE; color: #F04646; padding: 1px 6px; border-radius: 9999px; font-weight: 600; }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "Pill-shaped filter affordance. Default: white fill, subtle border. Active: black fill, white text — the same Black-Reserve rule that governs primary buttons.",
+      "html": "<div class=\"ds-chip-row\"><button class=\"ds-chip ds-chip--active\">2026.05</button><button class=\"ds-chip\">2026.04</button><button class=\"ds-chip\">2026.03</button></div>",
+      "css": ".ds-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .ds-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 9999px; border: 1px solid #E2E1DF; background: #FFFFFF; font-family: 'Manrope', 'Work Sans', system-ui, sans-serif; font-size: 12px; font-weight: 500; color: #3C404A; cursor: pointer; transition: box-shadow 160ms cubic-bezier(.2,0,0,1); } .ds-chip:hover { box-shadow: 0 1px 1px rgba(0,0,0,.05), 0 0 0 1px #BCBAB5 inset; } .ds-chip--active { background: #000; color: #FFFFFF; border-color: #000; } .ds-chip--active:hover { box-shadow: none; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Editorial Ledger",
+    "overview": "This is payroll-grade software dressed in editorial clothes. Five roles — ADMIN, FINANCE, GERENTE, EV, CN — log in to see commissions, validate apurações, dispute calculations, and watch numbers settle into place. The system handles money that sales people are about to receive. Trust is the only feature that matters; the design earns it twice. First through restraint: warm beige paper, a strict typographic hierarchy, no gradients on cells that hold real numbers. Second through editorial weight: the big numbers sit in DM Serif Display the way headlines sit in a printed broadsheet, signaling that this number was set with care and is not to be rounded. The personality is a private bank's monthly statement, redrawn for the screen. Density is high but never crowded — every grid leaves air, every status badge speaks in mono, every page header floats above an apuração / contestações / 2026.05 breadcrumb in lowercase mono.",
+    "keyCharacteristics": [
+      "Restrained color: warm tinted neutrals + black-as-action + a single saturated identity moment (night blue + cyan).",
+      "Editorial display + four functional sans + mono — five fonts working in fixed roles, never blurring.",
+      "Tabular numerals on every number cell. Money does not jitter.",
+      "Flat surfaces with one shadow vocabulary used sparingly for hover and float.",
+      "Lowercase mono for breadcrumbs, labels, timestamps, and section codes — the data dialect."
+    ],
+    "rules": [
+      { "name": "The Black-Reserve Rule", "body": "#000 is the only action color. Primary buttons, active nav, current stepper dot, primary bar-fill, focus rings — they all converge on black. If you reach for another saturated color to mean 'click here', you are wrong. Saturated hues are reserved for state (success / warning / danger) and the Night identity moment.", "section": "colors" },
+      { "name": "The Night Sky Rule", "body": "The night + cyan combination is reserved for moments of high stake or punctuation: the score card (the result of a CN simulator run) and the login frame. Outside those two surfaces, do not use night as a background and do not use cyan as text. Diluting this combination across the app dissolves its meaning.", "section": "colors" },
+      { "name": "The Beige Paper Rule", "body": "Warm beige (bg-3 / #F7F3EB) is the system's voice for 'here is something for you'. Use it on callouts, dropzones, the active-nav background, empty-state illustrations, and login surfaces. Do not use it as the page background — that is bg-2 (cool white).", "section": "colors" },
+      { "name": "The Editorial Numerals Rule", "body": "Every 'important number' — KPI values, score finals, big H1s — is set in DM Serif Display at weight 400, never bold. Bolding a serif numeral would be brutalism; this system reads as editorial. Numbers are first-class typographic objects, not data points.", "section": "typography" },
+      { "name": "The Mono-Voice Rule", "body": "Anything that smells like data or metadata speaks in IBM Plex Mono: timestamps, IDs, percentages in cells, KPI labels, breadcrumbs, sort affordances, audit log rows, dev footer. Mono is the data dialect. Body prose never uses mono.", "section": "typography" },
+      { "name": "The Lowercase Mono Rule", "body": "Mono labels at the page-header level — breadcrumbs (apuração / contestações / 2026.05), section codes, KPI labels — are lowercase, not uppercase. Uppercase mono is reserved for table column headers and dev-foot, where it reads as a code label. Lowercase mono reads as quiet metadata.", "section": "typography" },
+      { "name": "The Tabular Numerals Rule", "body": "Any cell that holds a number — table .num, .strong-num, .cell-progress .pct, distribution amounts — uses font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'. Money that jitters as it sorts is broken.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Cards, KPIs, table wraps, callouts, and inputs are flat at rest. Their boundary is a 1px border-subtle outline, not a drop shadow. Shadow is a response to interaction (shadow-hover), elevation (modals → shadow-02/03), or detachment (the dev-foot pill).", "section": "elevation" },
+      { "name": "The Inset-Hover Rule", "body": "Hover does not make elements lift toward the user. Hover tightens the border via shadow-hover (inset 1px #BCBAB5). The element does not move. This is critical for tables and inputs where movement on hover would make selection feel imprecise.", "section": "elevation" },
+      { "name": "The Focus-Inset Rule", "body": "Focused inputs use box-shadow: 0 0 0 2px #000 inset — a 2px inset black ring inside the existing 1px border. No outer outline, no glow. The focus indicator lives within the field's footprint.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use #000 as the only primary action color. Buttons, active nav, current step, primary bar fills.",
+      "Do set every 'important number' in DM Serif Display at weight 400 — KPI values, score finals, page-title H1s.",
+      "Do put any data-shaped string (timestamps, IDs, percentages, KPI labels, breadcrumbs, audit timestamps) in IBM Plex Mono. Body prose stays in Work Sans.",
+      "Do apply font-variant-numeric: tabular-nums to every numeric cell. Use .num, .strong-num, or set the rule directly.",
+      "Do float surfaces with 1px border-subtle, not drop shadows. Cards are flat at rest.",
+      "Do use shadow-hover (inset 1px #BCBAB5) for hover affordance on inputs, search, icon buttons, secondary buttons, and chips. Elements do not lift.",
+      "Do focus inputs with box-shadow: 0 0 0 2px #000 inset — the focus ring lives inside the field's footprint.",
+      "Do start each table column header in IBM Plex Mono 10.5px uppercase with 0.06em letter-spacing, fg-3 text, on a bg-2 row with a border-subtle bottom.",
+      "Do prefix every status badge with a ::before colored dot using currentColor. The dot is the badge's signature.",
+      "Do treat warm beige (bg-3 / #F7F3EB) as the 'warm-surface' voice — callouts, dropzones, active-nav background, empty-state illustrations.",
+      "Do keep the night + cyan combination on exactly two surfaces: the simulator's score card and the login frame."
+    ],
+    "donts": [
+      "Don't use border-left or border-right greater than 1px as a colored severity accent on cards, KPIs, alerts, or callouts. The pattern exists only on the active sidebar nav item (a known navigation idiom) and the editorial blockquote inside list-items. Do not extend it elsewhere.",
+      "Don't apply background-clip: text with a gradient. Decorative gradient text is forbidden across this system. Hierarchy comes from weight (400 vs 600) and family (DM Serif vs Poppins vs Manrope), never from color tricks.",
+      "Don't use glassmorphism, frosted backdrops, or backdrop-filter: blur decoratively. The system has zero glass surfaces and that is intentional.",
+      "Don't build a 'hero metric' template (giant number + small label + supporting stats + gradient accent). The KPI card is deliberately quiet — restrained padding, mono label, serif numeral, optional outline-stroke kpi-grafismo decoration at 0.5 opacity bottom-right.",
+      "Don't lay out the page as a grid of identical cards with icon + heading + paragraph. Vary the card sizes, vary their content density, mix in tables and lists.",
+      "Don't open a modal as the first answer to any new interaction. Inline editing, side panels (detail-grid's 360px sidebar), and progressive disclosure come first.",
+      "Don't introduce a new font. Five fonts are already loaded (DM Serif Display, Poppins, Work Sans, Manrope, IBM Plex Mono). Each has a fixed role.",
+      "Don't use --warning-dark as a text color on --warning-lightest. Use the warning text variant #9A6B0F for that pairing — --warning-dark is a fill color only.",
+      "Don't use the chart palette (blue-dark through peach-regular) for UI accents, button colors, or surface tints. They live inside chart legends, axes, and bars only.",
+      "Don't use saturated dark blue (night) outside the score card and the login frame. It is an identity color, not a generic surface.",
+      "Don't lift cards on hover with translateY or larger shadows. The only hover signal is shadow-hover (inset border darkening).",
+      "Don't write em dashes in UI copy. Use commas, colons, periods, or parentheses."
+    ]
+  }
+}

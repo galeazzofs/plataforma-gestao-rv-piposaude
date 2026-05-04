@@ -47,7 +47,7 @@
             [inputs/select
              {:label "EV Responsável"
               :value (or (:ev_id @form) "")
-              :options (into [{:value "" :label "— Sem EV —"}]
+              :options (into [{:value "" :label "Sem EV"}]
                              (map (fn [u] {:value (:id u) :label (:name u)}) ev-users))
               :on-change #(swap! form assoc :ev_id %)}]
 

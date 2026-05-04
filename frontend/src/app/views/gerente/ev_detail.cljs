@@ -28,8 +28,8 @@
             route    @(rf/subscribe [:current-route-name])
             policies (or (:policies ev-data) [])
             ev-name  (or (:name ev-data) "EV")
-            quarter  (or (:quarter ev-data) "—")
-            year     (or (:year ev-data) "—")
+            quarter  (or (:quarter ev-data) "·")
+            year     (or (:year ev-data) "·")
             pct      (or (:achievement_pct ev-data) 0)]
         [layout/page-shell
          {:current-route route :user user
@@ -51,7 +51,7 @@
             [:div.kpi-grid
              [:div.kpi
               [:div.kpi-label "comissão total"]
-              [:div.kpi-value [:span.currency "R$"] (or (fmt-int (:commission_total ev-data)) "—")]]
+              [:div.kpi-value [:span.currency "R$"] (or (fmt-int (:commission_total ev-data)) "·")]]
              [:div.kpi
               [:div.kpi-label "atingimento"]
               [:div.kpi-value (str (.toFixed pct 0)) [:span.frac "%"]]
@@ -87,12 +87,12 @@
                  (for [p policies]
                    ^{:key (or (:id p) (:numero_apolice p) (hash p))}
                    [:tr
-                    [:td.name.num (or (:numero_apolice p) "—")]
+                    [:td.name.num (or (:numero_apolice p) "·")]
                     [:td (:client_name p)]
-                    [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr_for_commission p)) "—"))]
-                    [:td.right.num (str (or (:commission_pct p) "—") "%")]
+                    [:td.right.strong-num (str "R$ " (or (fmt-int (:mrr_for_commission p)) "·"))]
+                    [:td.right.num (str (or (:commission_pct p) "·") "%")]
                     [:td.right.num (str (or (:multiplier p) "1,00") "x")]
-                    [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount p)) "—"))]
+                    [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount p)) "·"))]
                     [:td (case (:commission_status p)
                            "SETTLED"   [:span.badge.badge-paid "OK"]
                            "PROJECTED" [:span.badge.badge-paid "OK"]

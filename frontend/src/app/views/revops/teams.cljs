@@ -110,7 +110,7 @@
               [:div.card
                [:div.card-head
                 [:div [:h3 (:name t)]
-                 [:div.card-sub (str "gerente: " (or (:leader_name t) "—"))]]
+                 [:div.card-sub (str "gerente: " (or (:leader_name t) "·"))]]
                 [:button.btn.btn-ghost.btn-sm
                  {:on-click #(do (reset! editing-team t) (reset! modal-open? true))
                   :title "Editar time"}

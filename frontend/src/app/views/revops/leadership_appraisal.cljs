@@ -126,7 +126,7 @@
                  [:div.muted {:style {:font-family "var(--font-mono)" :font-size "11px"}}
                   (str "id " gerente_id)]]
                 [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
-                 (str "Meta MRR (auto): R$ " (or (fmt-int meta_mrr) "—"))]
+                 (str "Meta MRR (auto): R$ " (or (fmt-int meta_mrr) "·"))]
                 [inputs/input
                  {:label "MRR Realizado"
                   :value (get-in @form-inputs [gerente_id :realizado_mrr] "")
@@ -164,11 +164,11 @@
                 ^{:key (:id row)}
                 [:tr
                  [:td.name (:gerente_name row)]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:meta_mrr row)) "—"))]
-                 [:td.right.num (str (or (pct (:pct_mrr row)) "—") "%")]
-                 [:td.right.num (str (or (pct (:pct_sql row)) "—") "%")]
-                 [:td.right.num (str (or (mult (:multiplicador row)) "—") "x")]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:bonus_amount row)) "—"))]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:meta_mrr row)) "·"))]
+                 [:td.right.num (str (or (pct (:pct_mrr row)) "·") "%")]
+                 [:td.right.num (str (or (pct (:pct_sql row)) "·") "%")]
+                 [:td.right.num (str (or (mult (:multiplicador row)) "·") "x")]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:bonus_amount row)) "·"))]
                  [:td (if (:is_final row)
                         [:span.badge.badge-paid "Final"]
                         [:button.btn.btn-primary.btn-sm

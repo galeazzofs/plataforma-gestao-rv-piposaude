@@ -22,8 +22,8 @@
    {:key :revops/contestations   :label "Contestações"         :icon "alert"   :route :revops/contestations}
 
    {:section "vendas"}
-   {:key :ev/dashboard           :label "EV — Dashboard"       :icon "trend"  :route :ev/dashboard}
-   {:key :cn/simulator           :label "CN — Simulador"       :icon "target" :route :cn/simulator}
+   {:key :ev/dashboard           :label "EV · Dashboard"       :icon "trend"  :route :ev/dashboard}
+   {:key :cn/simulator           :label "CN · Simulador"       :icon "target" :route :cn/simulator}
 
    {:section "configuração"}
    {:key :revops/policies         :label "Apólices"            :icon "doc"     :route :revops/policies}

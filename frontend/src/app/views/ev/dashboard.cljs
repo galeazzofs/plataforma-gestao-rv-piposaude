@@ -92,12 +92,12 @@
          (for [row items]
            ^{:key (or (:id row) (:hubspot_ticket_id row) (hash row))}
            [:tr
-            [:td.name.num (or (:policy_id row) (:hubspot_ticket_id row) "—")]
+            [:td.name.num (or (:policy_id row) (:hubspot_ticket_id row) "·")]
             [:td (:client_name row)]
-            [:td.muted (or (:benefit_type row) "—")]
-            [:td.center.num (str (or (:lives row) (:installments_paid row) "—"))]
-            [:td.right.strong-num (str "R$ " (or (fmt/int-brl (:mrr_projected row)) "—"))]
-            [:td.right.strong-num (str "R$ " (or (fmt/int-brl (:mrr_for_commission row)) "—"))]
+            [:td.muted (or (:benefit_type row) "·")]
+            [:td.center.num (str (or (:lives row) (:installments_paid row) "·"))]
+            [:td.right.strong-num (str "R$ " (or (fmt/int-brl (:mrr_projected row)) "·"))]
+            [:td.right.strong-num (str "R$ " (or (fmt/int-brl (:mrr_for_commission row)) "·"))]
             [:td [status->badge (:commission_status row)]]]))]]]))
 
 (defn dashboard-page []
@@ -136,7 +136,7 @@
           "saldo a receber"]
          [:div.kpi-value {:style {:color "#fff"}}
           [:span.currency {:style {:color "rgba(255,255,255,.65)"}} "R$"]
-          (or (fmt/int-brl balance) "—")]
+          (or (fmt/int-brl balance) "·")]
          [:div.kpi-foot {:style {:color "rgba(255,255,255,.65)"}}
           [:span.badge {:style {:background "rgba(255,255,255,.12)" :color "#fff"}}
            (str (count (or policies [])) " negócios")]
@@ -147,14 +147,14 @@
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "atingimento do período"]
          [:div.kpi-value
-          (if (some? pct) [:<> (.toFixed pct 0) [:span.frac "%"]] "—")]
+          (if (some? pct) [:<> (.toFixed pct 0) [:span.frac "%"]] "·")]
          [:div.kpi-foot
           (when (some? pct)
             [pct-bar pct (cond (>= pct 100) "success" (>= pct 70) "warn" :else "danger")])]]
 
         [:div.kpi
          [:div.kpi-label [layout/icon "target" {:width 14 :height 14}] "meta do período"]
-         [:div.kpi-value [:span.currency "R$"] (or (fmt/int-brl target) "—")]
+         [:div.kpi-value [:span.currency "R$"] (or (fmt/int-brl target) "·")]
          [:div.kpi-foot
           (when mrr-sold
             [:<> "MRR vendido: "

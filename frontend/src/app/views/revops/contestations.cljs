@@ -16,7 +16,7 @@
 (defn- avatar-bg [variant]
   (case variant
     :danger  {:background "var(--danger-lightest)" :color "var(--danger-dark)"}
-    :warning {:background "var(--warning-lightest)" :color "#9A6B0F"}
+    :warning {:background "var(--warning-lightest)" :color "var(--warning-text)"}
     :neutral {:background "var(--beige-light)" :color "var(--neutral-darkest)"}
     {:background "var(--beige-light)" :color "var(--neutral-darkest)"}))
 
@@ -32,10 +32,10 @@
      [:div.avatar {:style (avatar-bg (or avatar-variant :neutral))} initial]
      [:div.meta
       [:div.meta-top
-       [:span.who (or (:ev_name c) (:client_name c) "—")]
+       [:span.who (or (:ev_name c) (:client_name c) "·")]
        [:span.when when-text]
        [:span.badge.badge-contested "Contestada"]]
-      [:div.quote (or (:comment c) "—")]
+      [:div.quote (or (:comment c) "·")]
       (let [pol (:policy_id c)
             disputed (or (:disputed_amount c) (:amount c))]
         (when (or pol disputed)
@@ -67,7 +67,7 @@
                            :color "var(--fg-3)"}}
             "Comentário do EV"]
            [:p {:style {:margin "4px 0 0" :font-size "13px" :color "var(--fg-2)"}}
-            (or (:comment contestation) "—")]]
+            (or (:comment contestation) "·")]]
           [inputs/input
            {:label "Resolução"
             :value @resolution

@@ -20,7 +20,7 @@
     "VALIDATING" [:span.badge.badge-validating "Validating"]
     "APPROVED"   [:span.badge.badge-approved "Approved"]
     "LOCKED"     [:span.badge.badge-locked "Locked"]
-    [:span.badge.badge-locked (or status "—")]))
+    [:span.badge.badge-locked (or status "·")]))
 
 (def ^:private steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"])
 (def ^:private step-labels
@@ -83,7 +83,7 @@
                       :color "var(--fg-3)" :text-transform "lowercase"}}
         "apuração ativa"]
        [:h2 {:style {:font-family "var(--font-display)" :font-weight 400 :font-size "24px" :margin-top "2px"}}
-        (str (or period "—") " · em revisão")]]
+        (str (or period "·") " · em revisão")]]
       [:div.card-actions
        [status->badge status]
        (when active
@@ -216,10 +216,10 @@
                 [:tr
                  [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
                  [:td [status->badge (:status a)]]
-                 [:td.center.num (str (or (:ev_count a) "—"))]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:total_amount a)) "—"))]
-                 [:td.num.muted (or (:created_at_short a) "—")]
-                 [:td.num.muted (or (:closed_at_short a) "—")]
+                 [:td.center.num (str (or (:ev_count a) "·"))]
+                 [:td.right.strong-num (str "R$ " (or (fmt-int (:total_amount a)) "·"))]
+                 [:td.num.muted (or (:created_at_short a) "·")]
+                 [:td.num.muted (or (:closed_at_short a) "·")]
                  [:td.right [step-actions a]]]))]]]
 
          [new-appraisal-modal {:open? @modal-open? :on-close #(reset! modal-open? false)}]]))))
