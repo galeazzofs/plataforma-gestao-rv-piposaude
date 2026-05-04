@@ -137,23 +137,15 @@ def transition(appraisal_id):
 @workflow_bp.route("/<appraisal_id>", methods=["DELETE"])
 @require_role(UserRole.ADMIN)
 def delete_appraisal(appraisal_id):
-    """Delete an appraisal and its associated commissions / NF matches.
-
-    Only allowed when status is NOT LOCKED.
-    """
+    """Delete an appraisal and its associated commissions / NF matches."""
     appraisal = db.session.get(Appraisal, appraisal_id)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
 
-    if appraisal.status == AppraisalStatus.LOCKED:
-        return jsonify({
-            "error": {"code": "CONFLICT", "message": "Não é possível deletar apuração LOCKED"},
-        }), 409
-
     quarter, year = appraisal.quarter, appraisal.year
 
-    # Delete non-final commissions for this quarter
-    Commission.query.filter_by(quarter=quarter, year=year, is_final=False).delete()
+    # Delete ALL commissions for this quarter (including is_final when LOCKED)
+    Commission.query.filter_by(quarter=quarter, year=year).delete()
 
     # Reset NF match status back to UNMATCHED
     FinancialImport.query.filter(

@@ -160,9 +160,11 @@
      "Liberar"]
 
     "LOCKED"
-    [:button.btn.btn-ghost.btn-sm
-     {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
-     "Ver"]
+    [:<>
+     [:button.btn.btn-ghost.btn-sm
+      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+      "Ver"]
+     [delete-btn id]]
 
     [:button.btn.btn-ghost.btn-sm
      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
