@@ -31,10 +31,17 @@ def normalize_apolice_number(s):
     HubSpot tends to store these with surrounding whitespace; spreadsheets
     sometimes pad with a leading apostrophe or quotes. We strip both ends
     and uppercase so 'AB-123 ' and 'ab-123' index the same key.
+
+    Excel numeric cells read as text produce a trailing '.0' (e.g. 9797 →
+    '9797.0'). Strip it so NF numbers match policy numbers.
     """
     if s is None:
         return ""
-    return str(s).strip().strip("'\"").upper()
+    result = str(s).strip().strip("'\"")
+    # Strip Excel float suffix: "9797.0" → "9797" (only when purely numeric)
+    if result.endswith(".0") and result[:-2].isdigit():
+        result = result[:-2]
+    return result.upper()
 
 
 # Regex: common prefixes like "Apólice(s):", "Apolice:", "Nº:", etc.

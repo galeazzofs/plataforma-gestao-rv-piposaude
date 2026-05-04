@@ -59,6 +59,17 @@ def test_normalize_apolice_number_handles_none_and_empty():
     assert normalize_apolice_number("") == ""
 
 
+def test_normalize_apolice_number_strips_excel_float_suffix():
+    """Excel numeric cells read as text produce '9797.0' instead of '9797'."""
+    assert normalize_apolice_number("9797.0") == "9797"
+    assert normalize_apolice_number("10180.0") == "10180"
+
+
+def test_normalize_apolice_number_keeps_non_numeric_dot():
+    """Dots inside non-numeric strings are structural and must be kept."""
+    assert normalize_apolice_number("277.615/2024") == "277.615/2024"
+
+
 def test_normalize_apolice_number_keeps_internal_chars():
     assert normalize_apolice_number("277.615/2024") == "277.615/2024"
 
