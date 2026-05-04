@@ -121,20 +121,26 @@ def run_quarterly_appraisal(quarter, year):
         if p.id not in locked_policy_ids
     ]
 
-    locked_nf_count_rows = (
+    # Count unique months (not raw NF rows) for previously locked matches
+    locked_nf_rows = (
         db.session.query(
             FinancialImport.policy_id,
-            db.func.count(FinancialImport.id),
+            db.func.extract('year', FinancialImport.data_recebimento),
+            db.func.extract('month', FinancialImport.data_recebimento),
         )
         .join(Commission, Commission.policy_id == FinancialImport.policy_id)
         .filter(
             Commission.is_final.is_(True),
             FinancialImport.match_status == 'MATCHED',
+            FinancialImport.data_recebimento.isnot(None),
         )
-        .group_by(FinancialImport.policy_id)
+        .distinct()
         .all()
     )
-    locked_nf_count = {pid: int(cnt) for pid, cnt in locked_nf_count_rows}
+    locked_month_sets = defaultdict(set)
+    for pid, yr, mo in locked_nf_rows:
+        locked_month_sets[pid].add((int(yr), int(mo)))
+    locked_nf_count = {pid: len(months) for pid, months in locked_month_sets.items()}
 
     for p in policies:
         p.installments_paid = (
@@ -154,6 +160,7 @@ def run_quarterly_appraisal(quarter, year):
     client_nf_totals = defaultdict(Decimal)        # client_id -> sum NF values
     matched_policies = {}                           # policy_id -> Policy
     earliest_nf_dates = {}                          # policy_id -> earliest date
+    policy_months = defaultdict(set)               # policy_id -> set of (year, month)
 
     for nf in nfs:
         # Apolice-number-anchored matching: every match is keyed on the
@@ -222,13 +229,27 @@ def run_quarterly_appraisal(quarter, year):
         policy_nf_subtotals[matched.id] += amount
         client_nf_totals[matched.client_id] += amount
         matched_policies[matched.id] = matched
-        matched.installments_paid = (matched.installments_paid or 0) + 1
+
+        # Track unique months per policy (for installments_paid)
+        if nf.data_recebimento:
+            policy_months[matched.id].add(
+                (nf.data_recebimento.year, nf.data_recebimento.month)
+            )
 
         # Track earliest NF date per policy (for first_payment_real inference)
         if nf.data_recebimento:
             prev = earliest_nf_dates.get(matched.id)
             if prev is None or nf.data_recebimento < prev:
                 earliest_nf_dates[matched.id] = nf.data_recebimento
+
+    # -- 4b. Update installments_paid with unique month count ----------
+    for policy_id, months in policy_months.items():
+        policy = matched_policies[policy_id]
+        policy.installments_paid = (
+            (policy.initial_installments_paid or 0)
+            + locked_nf_count.get(policy_id, 0)
+            + len(months)
+        )
 
     # -- 5. Load perks per client -------------------------------------
     perks_by_client = defaultdict(Decimal)
