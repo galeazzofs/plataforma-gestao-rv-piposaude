@@ -32,7 +32,7 @@ class Policy(db.Model):
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     hubspot_apolice_id = db.Column(db.String(100), nullable=True, index=True)
     hubspot_ticket_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
-    numero_apolice = db.Column(db.String(100), nullable=True, index=True)
+    numero_apolice = db.Column(db.Text, nullable=True)
     ev_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=True)
     client_id = db.Column(GUID, db.ForeignKey("clients.id"), nullable=True)
     deal_id = db.Column(db.String(100), nullable=True)

@@ -394,6 +394,9 @@ main:focus{outline:none}
   display:flex;flex-direction:column;gap:10px;
   margin:4px -4px 0;
   position:relative;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:thin;
 }
 .fluxo-card .chart-legend{
   display:flex;align-items:center;gap:18px;flex-wrap:wrap;
@@ -410,7 +413,24 @@ main:focus{outline:none}
   content:"";width:14px;height:8px;border-radius:2px;
   background:var(--beige-lightest);border:1px solid var(--beige-light);
 }
-.chart-fluxo{height:300px}
+.chart-fluxo{height:300px;min-width:760px}
+.chart-point{outline:none}
+.chart-point-hit{fill:transparent;cursor:crosshair}
+.chart-tooltip{opacity:0;pointer-events:none;transition:opacity var(--d) var(--ease)}
+.chart-point:hover .chart-tooltip,
+.chart-point:focus .chart-tooltip{opacity:1}
+.chart-tooltip rect{
+  fill:var(--bg-1);stroke:var(--border-subtle);stroke-width:1;
+  filter:drop-shadow(0 2px 8px rgba(0,0,0,.10));
+}
+.chart-tooltip text{
+  font-family:var(--font-mono);font-size:10.5px;fill:var(--fg-3);
+  letter-spacing:0.02em;text-transform:lowercase;
+}
+.chart-tooltip text.value{
+  font-family:var(--font-ui);font-size:12px;font-weight:600;
+  fill:var(--fg-1);letter-spacing:0;text-transform:none;
+}
 @media (max-width: 1024px){
   .period-control{flex-wrap:wrap;justify-content:flex-end}
   .chart-fluxo{height:260px}
@@ -425,7 +445,7 @@ main:focus{outline:none}
   .fluxo-card .chart-frame{margin-left:-2px;margin-right:-2px}
   .fluxo-card .chart-legend{font-size:11px;gap:12px}
   .fluxo-card .chart-legend .legend-band{margin-left:0;width:100%}
-  .chart-fluxo{height:220px}
+  .chart-fluxo{height:220px;min-width:680px}
 }
 
 /* Filter row */

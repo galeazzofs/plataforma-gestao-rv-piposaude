@@ -99,27 +99,34 @@ class HubSpotClient:
     def get_all_owners(self):
         """Fetch all owners (including deactivated) and return a dict mapping owner_id → {email, name}.
 
-        includeDeactivated=true is required so that tickets assigned to former team members
+        archived=true is required so that tickets assigned to former team members
         (who appear as 'Proprietário desativado/removido' in HubSpot) are still matched
         against platform EV users.
         """
         owner_map = {}
-        after = None
-        while True:
-            params = {"limit": 100, "includeDeactivated": "true"}
-            if after:
-                params["after"] = after
-            result = self._request("GET", "/crm/v3/owners", params=params)
-            for o in result.get("results", []):
-                first = (o.get("firstName") or "").strip()
-                last = (o.get("lastName") or "").strip()
-                owner_map[str(o["id"])] = {
-                    "email": o.get("email"),
-                    "name": f"{first} {last}".strip(),
-                }
-            after = result.get("paging", {}).get("next", {}).get("after")
-            if not after:
-                break
+
+        def fetch_page_set(archived=False):
+            after = None
+            while True:
+                params = {"limit": 100}
+                if archived:
+                    params["archived"] = "true"
+                if after:
+                    params["after"] = after
+                result = self._request("GET", "/crm/v3/owners", params=params)
+                for o in result.get("results", []):
+                    first = (o.get("firstName") or "").strip()
+                    last = (o.get("lastName") or "").strip()
+                    owner_map[str(o["id"])] = {
+                        "email": o.get("email"),
+                        "name": f"{first} {last}".strip(),
+                    }
+                after = result.get("paging", {}).get("next", {}).get("after")
+                if not after:
+                    break
+
+        fetch_page_set(archived=False)
+        fetch_page_set(archived=True)
         return owner_map
 
     def batch_read_objects(self, object_type, ids, properties):

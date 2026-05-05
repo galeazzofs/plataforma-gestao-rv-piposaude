@@ -1,5 +1,6 @@
 (ns app.views.finance.dashboard
   (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.auth.subs]
@@ -111,6 +112,9 @@
                        (str (js/Math.round k) "k")
                        (str (.toFixed k 1) "k")))
     :else (str (js/Math.round v))))
+
+(defn- tooltip-label [p kind v]
+  (str (:label p) " · " kind " · " (or (fmt/fmt-brl v) "R$ 0,00")))
 
 ;; ----- Row 2: Comissão x Agenciamento ---------------------------------
 
@@ -246,10 +250,10 @@
    Today is marked with a vertical guide; +30/60/90d horizon receives a
    subtle paper-tinted band so the strip above the chart anchors here."
   [data]
-  (if (empty? data)
-    [chart-empty "Sem fluxo de caixa para o período"]
-    (let [pts (trim-fluxo-series data)
-          n   (count pts)
+  (let [pts (trim-fluxo-series data)]
+    (if (empty? pts)
+      [chart-empty "Sem fluxo de caixa para o período"]
+      (let [n   (count pts)
 
           vb-w 1200  vb-h 300
           lft 88   rgt 1168   tp 24    btm 248
@@ -357,16 +361,38 @@
        ;; stays circular because vector-effect prevents marker scaling.
        [:g
         (for [[i p] (map-indexed vector pts)
-              :let [v (or (->num (:projetado p)) (->num (:realizado p)))
-                    proj? (some? (->num (:projetado p)))]
+              :let [proj-v (->num (:projetado p))
+                    real-v (->num (:realizado p))
+                    v (or proj-v real-v)
+                    proj? (some? proj-v)
+                    kind (if proj? "projetado" "realizado")
+                    label (tooltip-label p kind v)
+                    px (xf i)
+                    py (yf v)
+                    tip-w 142
+                    tip-h 42
+                    tip-x (cond
+                            (> px (- vb-w 180)) (- px tip-w 12)
+                            (< px (+ lft 40)) (+ px 12)
+                            :else (- px (/ tip-w 2)))
+                    tip-y (if (< py (+ tp 56)) (+ py 16) (- py tip-h 14))]
               :when v]
           ^{:key (str "d" i)}
-          [:path {:d (str "M " (xf i) " " (yf v) " h 0.01")
-                  :fill "none"
-                  :stroke (if proj? "var(--fg-1)" "var(--beige-light)")
-                  :stroke-width 5
-                  :stroke-linecap "round"
-                  :vector-effect "non-scaling-stroke"}])]
+          [:g.chart-point {:tabIndex 0 :role "img" :aria-label label}
+           [:title label]
+           [:circle.chart-point-hit {:cx px :cy py :r 15}]
+           [:path {:d (str "M " px " " py " h 0.01")
+                   :fill "none"
+                   :stroke (if proj? "var(--fg-1)" "var(--beige-light)")
+                   :stroke-width 5
+                   :stroke-linecap "round"
+                   :vector-effect "non-scaling-stroke"}]
+           [:g.chart-tooltip
+            [:rect {:x tip-x :y tip-y :width tip-w :height tip-h :rx 8}]
+            [:text {:x (+ tip-x 10) :y (+ tip-y 16)}
+             (:label p)]
+            [:text.value {:x (+ tip-x 10) :y (+ tip-y 32)}
+             (str kind " · " (or (fmt/fmt-brl v) "R$ 0,00"))]]])]
 
        ;; Today vertical guide + label. Pill floats above the top gridline
        ;; so it never collides with axis ticks.
@@ -394,7 +420,7 @@
         (for [[i p] (map-indexed vector pts)
               :when (zero? (mod i label-nth))]
           ^{:key (str "x" i)}
-          [:text {:x (xf i) :y lbl-y} (:label p)])]])))
+          [:text {:x (xf i) :y lbl-y} (:label p)])]]))))
 
 (defn- horizon-col [{:keys [label value detail]}]
   [:div.col
@@ -490,8 +516,7 @@
         "limpar"])]))
 
 (defn finance-dashboard-page []
-  (rf/dispatch [:finance/fetch-dashboard])
-  (fn []
+  (r/with-let [_ (rf/dispatch [:finance/fetch-dashboard])]
     (let [dashboard @(rf/subscribe [:finance/dashboard])
           loading?  @(rf/subscribe [:finance/loading?])
           period    @(rf/subscribe [:finance/period])

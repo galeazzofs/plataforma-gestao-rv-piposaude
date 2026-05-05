@@ -387,6 +387,21 @@ def test_upsert_creates_new_policy(db_session):
     assert policy.closed_date == date(2025, 6, 1)
 
 
+def test_upsert_persists_long_hubspot_policy_number(db_session):
+    _ev("ev-long-numero@x")
+    long_numero = "AP-" + ("texto livre vindo do hubspot " * 10)
+    apolice = _apolice("A-LONG", numero=long_numero)
+    deal = _default_deal()
+    ticket = _ticket_for_upsert(ev_email="ev-long-numero@x")
+
+    is_new = _upsert_policy("T-LONG", ticket, apolice, deal, {})
+    db.session.flush()
+
+    assert is_new is True
+    policy = Policy.query.filter_by(hubspot_ticket_id="T-LONG").one()
+    assert policy.numero_apolice == long_numero
+
+
 def test_upsert_closed_date_comes_from_default_deal_not_ticket(db_session):
     """closed_date sourced from default deal's `closedate`, not ticket's `closed_date`."""
     _ev("ev-cd@x")

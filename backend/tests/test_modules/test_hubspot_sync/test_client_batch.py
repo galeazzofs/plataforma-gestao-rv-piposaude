@@ -129,3 +129,86 @@ def test_batch_read_objects_chunks_above_100():
         assert len(result) == 250
         assert result["id-0"]["foo"] == "id-0"
         assert result["id-249"]["foo"] == "id-249"
+
+
+def test_get_all_owners_combines_active_and_archived_owners():
+    c = _client()
+    with patch.object(c, "_request") as mock_req:
+        mock_req.side_effect = [
+            {
+                "results": [
+                    {
+                        "id": "1",
+                        "email": "active@x",
+                        "firstName": "Active",
+                        "lastName": "Owner",
+                        "archived": False,
+                    }
+                ],
+                "paging": {},
+            },
+            {
+                "results": [
+                    {
+                        "id": "2",
+                        "email": "inactive@x",
+                        "firstName": "Inactive",
+                        "lastName": "Owner",
+                        "archived": True,
+                    }
+                ],
+                "paging": {},
+            },
+        ]
+
+        result = c.get_all_owners()
+
+    assert result == {
+        "1": {"email": "active@x", "name": "Active Owner"},
+        "2": {"email": "inactive@x", "name": "Inactive Owner"},
+    }
+    assert mock_req.call_args_list[0].kwargs["params"] == {"limit": 100}
+    assert mock_req.call_args_list[1].kwargs["params"] == {
+        "limit": 100,
+        "archived": "true",
+    }
+
+
+def test_get_all_owners_paginates_archived_owners():
+    c = _client()
+    with patch.object(c, "_request") as mock_req:
+        mock_req.side_effect = [
+            {"results": [], "paging": {}},
+            {
+                "results": [
+                    {
+                        "id": "2",
+                        "email": "inactive-1@x",
+                        "firstName": "Inactive",
+                        "lastName": "One",
+                    }
+                ],
+                "paging": {"next": {"after": "archived-cursor"}},
+            },
+            {
+                "results": [
+                    {
+                        "id": "3",
+                        "email": "inactive-2@x",
+                        "firstName": "Inactive",
+                        "lastName": "Two",
+                    }
+                ],
+                "paging": {},
+            },
+        ]
+
+        result = c.get_all_owners()
+
+    assert result["2"] == {"email": "inactive-1@x", "name": "Inactive One"}
+    assert result["3"] == {"email": "inactive-2@x", "name": "Inactive Two"}
+    assert mock_req.call_args_list[2].kwargs["params"] == {
+        "limit": 100,
+        "archived": "true",
+        "after": "archived-cursor",
+    }

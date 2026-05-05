@@ -240,23 +240,105 @@ def _project_policy(
 def dashboard():
     today = date.today()
     year_raw = request.args.get("year")
+    quarter_raw = request.args.get("quarter")
+    if year_raw and not (
+        year_raw.isdigit()
+        or (year_raw.endswith("_plus") and year_raw.replace("_plus", "").isdigit())
+    ):
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "year must be YYYY or YYYY_plus",
+            }
+        }), 400
+    if quarter_raw and not quarter_raw.isdigit():
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "quarter must be between 1 and 4",
+            }
+        }), 400
     year_param, year_floor, year_bucket = _parse_year_filter(year_raw)
-    quarter_param = request.args.get("quarter", type=int)
+    quarter_param = int(quarter_raw) if quarter_raw else None
+    if quarter_param is not None and quarter_param not in (1, 2, 3, 4):
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "quarter must be between 1 and 4",
+            }
+        }), 400
     has_period = bool(year_param or year_floor or quarter_param)
+
+    # Build the payment-calendar view up front. Period filters in Finance should
+    # answer "what is expected/received in this calendar window?", not only
+    # "which policies were gongoed in this window?".
+    future_months = 24
+    active_policies = Policy.query.filter(
+        Policy.commission_status.notin_(
+            [CommissionStatus.SETTLED, CommissionStatus.CANCELLED]
+        ),
+        Policy.installments_paid < 12,
+    ).all()
+
+    projected_by_month: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    apolices_by_month: dict[str, set] = defaultdict(set)
+    for p in active_policies:
+        for ym, amount in _project_policy(p, today, future_months).items():
+            projected_by_month[ym] += amount
+            apolices_by_month[ym].add(p.id)
+
+    realizado_rows = (
+        db.session.query(
+            FinancialImport.nf_mes_recebimento,
+            func.coalesce(func.sum(FinancialImport.nf_valor_liquido), 0),
+        )
+        .filter(
+            FinancialImport.match_status == "MATCHED",
+            or_(
+                FinancialImport.tipo_receita.ilike("%comiss%"),
+                FinancialImport.tipo_receita.ilike("%agenc%"),
+            ),
+        )
+        .group_by(FinancialImport.nf_mes_recebimento)
+        .all()
+    )
+    realizado_by_month = {
+        ym: total or Decimal("0") for ym, total in realizado_rows if ym
+    }
+
+    visible_realizado_calendar = Decimal("0")
+    visible_projetado_calendar = Decimal("0")
+    if has_period:
+        visible_realizado_calendar = sum(
+            total
+            for ym, total in realizado_by_month.items()
+            if _month_matches_period(ym, year_param, quarter_param, year_floor)
+        )
+        visible_projetado_calendar = sum(
+            total
+            for ym, total in projected_by_month.items()
+            if _month_matches_period(ym, year_param, quarter_param, year_floor)
+        )
 
     # ---- Row 1: KPIs ----------------------------------------------------
 
-    # Comissão Potencial: Σ commission_potential across policies in scope.
-    # commission_potential is MRR × 12 × commission_pct (from the segment +
-    # achievement table) — already includes agenciamento.
-    pot_query = _filter_policies_by_period(
-        Policy.query, year_param, quarter_param, year_floor
-    )
-    comissao_potencial = Decimal("0")
-    for p in pot_query.all():
-        cp = p.commission_potential
-        if cp is not None:
-            comissao_potencial += cp
+    # Comissão Potencial:
+    # - no filter: full-lifecycle potential across policies.
+    # - with period: realized receipts + projected open receipts scheduled
+    #   inside the selected calendar window.
+    if has_period:
+        comissao_potencial = (
+            visible_realizado_calendar + visible_projetado_calendar
+        )
+    else:
+        pot_query = _filter_policies_by_period(
+            Policy.query, year_param, quarter_param, year_floor
+        )
+        comissao_potencial = Decimal("0")
+        for p in pot_query.all():
+            cp = p.commission_potential
+            if cp is not None:
+                comissao_potencial += cp
 
     # Comissão Paga: when a period is selected, slice by FinancialImport
     # receipts in that quarter+year. Otherwise prefer Policy.total_paid_*
@@ -298,25 +380,28 @@ def dashboard():
                 or Decimal("0")
             )
 
-    # Saldo Devedor: Σ max(potential − paid, 0) for policies still inside
-    # their 12-month commission lifecycle (installments_paid < 12 and not
-    # SETTLED/CANCELLED). No contestações in the math.
-    open_query = _filter_policies_by_period(
-        Policy.query.filter(
-            Policy.installments_paid < 12,
-            Policy.commission_status.notin_(
-                [CommissionStatus.SETTLED, CommissionStatus.CANCELLED]
+    # Saldo Devedor:
+    # - no filter: open lifecycle obligation.
+    # - with period: still-open projected receipts scheduled for that window.
+    if has_period:
+        saldo_devedor = visible_projetado_calendar
+    else:
+        open_query = _filter_policies_by_period(
+            Policy.query.filter(
+                Policy.installments_paid < 12,
+                Policy.commission_status.notin_(
+                    [CommissionStatus.SETTLED, CommissionStatus.CANCELLED]
+                ),
             ),
-        ),
-        year_param,
-        quarter_param,
-        year_floor,
-    )
-    saldo_devedor = Decimal("0")
-    for p in open_query.all():
-        potencial = p.commission_potential or Decimal("0")
-        paid = _sum_paid_for_policy(p)
-        saldo_devedor += max(potencial - paid, Decimal("0"))
+            year_param,
+            quarter_param,
+            year_floor,
+        )
+        saldo_devedor = Decimal("0")
+        for p in open_query.all():
+            potencial = p.commission_potential or Decimal("0")
+            paid = _sum_paid_for_policy(p)
+            saldo_devedor += max(potencial - paid, Decimal("0"))
 
     # ---- Row 2: Comissão x Agenciamento ---------------------------------
 
@@ -536,12 +621,18 @@ def dashboard():
 
     # ---- Available years for the period selector -----------------------
 
-    year_rows = (
+    fi_year_rows = (
         db.session.query(func.distinct(FinancialImport.year))
         .order_by(FinancialImport.year.asc())
         .all()
     )
-    available_years = [y for (y,) in year_rows if y]
+    policy_year_rows = (
+        db.session.query(func.distinct(func.extract("year", Policy.closed_date)))
+        .filter(Policy.closed_date.isnot(None))
+        .all()
+    )
+    available_years = [int(y) for (y,) in fi_year_rows if y]
+    available_years.extend(int(y) for (y,) in policy_year_rows if y)
     if not available_years:
         available_years = [today.year]
     if today.year not in available_years:
