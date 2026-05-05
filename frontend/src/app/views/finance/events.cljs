@@ -1,15 +1,33 @@
 (ns app.views.finance.events
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [app.api.endpoints :as ep]))
+
+(defn- period-query
+  "Build ?year=&quarter= query string from the current finance period filter.
+   :all values are dropped — the backend treats their absence as all-time."
+  [{:keys [year quarter]}]
+  (let [parts (cond-> []
+                (and year (not= :all year))       (conj (str "year=" year))
+                (and quarter (not= :all quarter)) (conj (str "quarter=" quarter)))]
+    (when (seq parts) (str "?" (str/join "&" parts)))))
 
 (rf/reg-event-fx
  :finance/fetch-dashboard
  (fn [{:keys [db]} _]
-   {:db   (assoc-in db [:finance :loading?] true)
-    :http {:method     :get
-           :url        ep/finance-dashboard
-           :on-success [:finance/dashboard-loaded]
-           :on-failure [:finance/dashboard-error]}}))
+   (let [period (or (get-in db [:finance :period]) {:year :all :quarter :all})
+         url    (str ep/finance-dashboard (period-query period))]
+     {:db   (assoc-in db [:finance :loading?] true)
+      :http {:method     :get
+             :url        url
+             :on-success [:finance/dashboard-loaded]
+             :on-failure [:finance/dashboard-error]}})))
+
+(rf/reg-event-fx
+ :finance/set-period
+ (fn [{:keys [db]} [_ kind value]]
+   {:db       (assoc-in db [:finance :period kind] value)
+    :dispatch [:finance/fetch-dashboard]}))
 
 (rf/reg-event-db
  :finance/dashboard-loaded

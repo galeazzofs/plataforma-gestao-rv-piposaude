@@ -239,6 +239,46 @@ main:focus{outline:none}
 .delta svg{width:12px;height:12px}
 .kpi-grafismo{position:absolute;right:-30px;bottom:-30px;width:140px;height:140px;opacity:.5;pointer-events:none;color:var(--neutral-regular)}
 
+/* Editorial split — two display numerics separated by a 1px hairline rule */
+.split-numerics{display:grid;grid-template-columns:1fr 1px 1fr;gap:24px;align-items:start;padding:4px 0}
+.split-numerics .col{display:flex;flex-direction:column;gap:4px;min-width:0}
+.split-numerics .rule{background:var(--border-subtle);width:1px;justify-self:center;align-self:stretch}
+.split-numerics .num{font-family:var(--font-display);font-size:34px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.split-numerics .num .currency{font-family:var(--font-ui);font-size:13px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
+.split-numerics .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
+
+/* Continuous proportion strip — two segments on a single rail */
+.proportion-strip{height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;display:flex}
+.proportion-strip .seg{height:100%}
+.proportion-strip .seg.primary{background:var(--black)}
+.proportion-strip .seg.beige{background:var(--beige-light)}
+
+/* Cash-flow horizon strip — 30/60/90 day mini-stats */
+.horizon-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;padding:4px 0 12px;border-bottom:1px solid var(--border-subtle);margin-bottom:8px}
+.horizon-strip .col{display:flex;flex-direction:column;gap:4px;min-width:0}
+.horizon-strip .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
+.horizon-strip .num{font-family:var(--font-display);font-size:24px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.horizon-strip .num .currency{font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--fg-3);margin-right:4px;letter-spacing:0}
+.horizon-strip .meta{font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);letter-spacing:0.04em}
+
+/* As-of timestamp on a card head — quiet ledger metadata */
+.card-asof{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);letter-spacing:0.04em;text-transform:lowercase}
+
+/* Topbar period filter — year + quarter selectors */
+.period-control{display:inline-flex;align-items:center;gap:8px}
+.period-label{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);text-transform:lowercase;letter-spacing:0.04em}
+.period-select{
+  font-family:var(--font-ui);font-size:13px;font-weight:600;color:var(--fg-1);
+  background:var(--bg-1);border:1px solid var(--border-subtle);
+  border-radius:var(--r-sm);padding:7px 28px 7px 12px;cursor:pointer;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B6663' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat:no-repeat;background-position:right 8px center;
+  transition:box-shadow var(--d) var(--ease);
+}
+.period-select:hover{box-shadow:0 1px 1px rgba(0,0,0,.05),0 0 0 1px var(--neutral-regular) inset}
+.period-select:focus{outline:none;box-shadow:0 0 0 2px var(--black) inset}
+
 /* Card */
 .card{
   background:var(--bg-1);border:1px solid var(--border-subtle);
@@ -581,6 +621,8 @@ main:focus{outline:none}
   .kpi-grid.-three{grid-template-columns:repeat(2,1fr)}
   .two-col{grid-template-columns:1fr}
   .two-col-eq{grid-template-columns:1fr}
+  .split-numerics{grid-template-columns:1fr;gap:12px}
+  .split-numerics .rule{display:none}
   .sim-grid{grid-template-columns:1fr}
   .detail-grid{grid-template-columns:1fr}
   .login-frame{grid-template-columns:1fr}
@@ -621,6 +663,8 @@ main:focus{outline:none}
   .kpi-grid{grid-template-columns:1fr;gap:12px}
   .kpi-grid.-three{grid-template-columns:1fr}
   .kpi{padding:18px}
+  .horizon-strip{grid-template-columns:1fr;gap:10px;padding-bottom:10px}
+  .horizon-strip .num{font-size:22px}
   .card{padding:18px}
   .card-head{flex-direction:column;align-items:flex-start;gap:8px}
   .table thead th{padding:9px 12px;font-size:10px}

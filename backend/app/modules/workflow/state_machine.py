@@ -57,6 +57,15 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             year=appraisal.year,
             is_final=False,
         ).update({"is_final": True}, synchronize_session=False)
+        # Roll the Σ NF amounts (split by tipo_receita) into Policy.total_paid_*.
+        # Recomputes from scratch across all locked apurações, so re-locking
+        # or rerunning this step is idempotent.
+        from app.modules.financial.policy_paid_totals import (
+            recompute_policy_paid_totals_for_apuracao,
+        )
+        recompute_policy_paid_totals_for_apuracao(
+            appraisal.quarter, appraisal.year
+        )
 
     if new_status == AppraisalStatus.VALIDATING:
         deadline = kwargs.get("validation_deadline")

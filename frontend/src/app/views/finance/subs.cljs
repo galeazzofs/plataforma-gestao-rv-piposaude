@@ -20,3 +20,9 @@
  :finance/approval-loading?
  (fn [db _]
    (get-in db [:finance :approval-loading?])))
+
+(rf/reg-sub
+ :finance/period
+ (fn [db _]
+   (or (get-in db [:finance :period])
+       {:year :all :quarter :all})))
