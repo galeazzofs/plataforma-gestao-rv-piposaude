@@ -423,9 +423,11 @@
  (fn [{:keys [db]} [_ response]]
    (let [updated (get-in response [:data])
          id      (:id updated)]
-     {:db (update-in db [:admin :policies]
-                     (fn [items]
-                       (mapv #(if (= (:id %) id) (merge % updated) %) (or items []))))
+     {:db (-> db
+              (update-in [:admin :policies]
+                         (fn [items]
+                           (mapv #(if (= (:id %) id) (merge % updated) %) (or items []))))
+              (assoc-in [:admin :last-updated-policy] updated))
       :dispatch [:ui/show-toast {:type :success :message "Apólice atualizada"}]})))
 
 (rf/reg-event-fx

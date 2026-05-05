@@ -278,6 +278,14 @@ main:focus{outline:none}
 }
 .period-select:hover{box-shadow:0 1px 1px rgba(0,0,0,.05),0 0 0 1px var(--neutral-regular) inset}
 .period-select:focus{outline:none;box-shadow:0 0 0 2px var(--black) inset}
+.period-reset{
+  border:1px solid var(--border-subtle);background:var(--bg-2);color:var(--fg-2);
+  border-radius:var(--r-sm);padding:8px 11px;
+  font-family:var(--font-ui);font-size:12px;font-weight:600;line-height:1;
+  transition:box-shadow var(--d) var(--ease),background var(--d) var(--ease);
+}
+.period-reset:hover{background:var(--bg-1);box-shadow:var(--shadow-hover)}
+.period-reset:focus{outline:none;box-shadow:0 0 0 2px var(--black) inset}
 
 /* Card */
 .card{
@@ -357,6 +365,68 @@ main:focus{outline:none}
 .legend-dot::before{content:"";width:10px;height:10px;border-radius:2px;background:currentColor}
 .legend-line{display:inline-flex;align-items:center;gap:6px}
 .legend-line::before{content:"";width:14px;height:2px;background:currentColor}
+.series-fallback{
+  display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:14px;row-gap:2px;
+  min-height:72px;margin-top:2px;padding:14px 16px;
+  border:1px solid var(--border-subtle);border-radius:var(--r-sm);background:var(--bg-2);
+}
+.series-fallback .lab{
+  grid-row:1 / span 2;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
+  letter-spacing:0.04em;text-transform:lowercase;
+}
+.series-fallback strong{font-family:var(--font-ui);font-size:13px;color:var(--fg-1)}
+.series-fallback span{font-size:12px;color:var(--fg-3)}
+
+/* Fluxo de caixa card — forecast chart with today-anchor + horizon band.
+   The card body breathes: the horizon strip (30/60/90d) sits flush above
+   a dedicated chart frame, with the legend tucked between them. The chart
+   itself is wider (4:1) and lets the data run from edge to edge. */
+.fluxo-card .horizon-strip{
+  border-bottom:0;
+  padding:4px 0 12px;
+  margin-bottom:0;
+}
+.fluxo-card .horizon-strip.period-summary{
+  background:var(--bg-2);border:1px solid var(--border-subtle);
+  border-radius:var(--r-sm);padding:14px 16px;margin-bottom:2px;
+}
+.fluxo-card .chart-frame{
+  display:flex;flex-direction:column;gap:10px;
+  margin:4px -4px 0;
+  position:relative;
+}
+.fluxo-card .chart-legend{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  font-family:var(--font-ui);font-size:12px;color:var(--fg-3);
+  padding:0 4px;
+}
+.fluxo-card .chart-legend .legend-band{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);
+  letter-spacing:0.02em;
+  margin-left:auto;
+}
+.fluxo-card .chart-legend .legend-band::before{
+  content:"";width:14px;height:8px;border-radius:2px;
+  background:var(--beige-lightest);border:1px solid var(--beige-light);
+}
+.chart-fluxo{height:300px}
+@media (max-width: 1024px){
+  .period-control{flex-wrap:wrap;justify-content:flex-end}
+  .chart-fluxo{height:260px}
+}
+@media (max-width: 768px){
+  .topbar{align-items:flex-start;gap:10px}
+  .topbar-r{width:100%;justify-content:flex-start;flex-wrap:wrap}
+  .period-control{display:flex;width:100%;gap:6px}
+  .period-label{display:none}
+  .period-select{flex:1;min-width:0;padding-right:24px}
+  .period-reset{padding-left:10px;padding-right:10px}
+  .fluxo-card .chart-frame{margin-left:-2px;margin-right:-2px}
+  .fluxo-card .chart-legend{font-size:11px;gap:12px}
+  .fluxo-card .chart-legend .legend-band{margin-left:0;width:100%}
+  .chart-fluxo{height:220px}
+}
 
 /* Filter row */
 .filter-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}

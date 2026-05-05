@@ -210,14 +210,14 @@ def update_policy(policy_id):
                     LAST_APPRAISAL_DATE - relativedelta(months=meses - 1)
                 )
 
-        # Only RAISE installments_paid if the new baseline is higher than the
-        # running counter. The calculator increments installments_paid each
-        # apuração — clobbering on every PUT erases that progress.
-        if "initial_installments_paid" in new_values or "first_payment_real" in new_values:
-            new_baseline = policy.initial_installments_paid or 0
-            if new_baseline > (policy.installments_paid or 0):
-                policy.installments_paid = new_baseline
-            update_policy_statuses([policy])
+        # Always sync installments_paid to the current baseline on any
+        # manual edit. This covers both direct changes to
+        # initial_installments_paid AND cases where a previous edit set the
+        # baseline but installments_paid was out of sync (old > guard bug).
+        new_baseline = policy.initial_installments_paid or 0
+        if policy.installments_paid != new_baseline:
+            policy.installments_paid = new_baseline
+        update_policy_statuses([policy])
 
         log_audit(
             "policies", policy.id, "UPDATE",

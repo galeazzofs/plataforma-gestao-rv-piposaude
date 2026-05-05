@@ -5,7 +5,8 @@
 
 (defn- period-query
   "Build ?year=&quarter= query string from the current finance period filter.
-   :all values are dropped — the backend treats their absence as all-time."
+   :all values are dropped — the backend treats their absence as all-time.
+   Future buckets travel as stable strings, e.g. \"2027_plus\"."
   [{:keys [year quarter]}]
   (let [parts (cond-> []
                 (and year (not= :all year))       (conj (str "year=" year))
@@ -27,6 +28,12 @@
  :finance/set-period
  (fn [{:keys [db]} [_ kind value]]
    {:db       (assoc-in db [:finance :period kind] value)
+    :dispatch [:finance/fetch-dashboard]}))
+
+(rf/reg-event-fx
+ :finance/reset-period
+ (fn [{:keys [db]} _]
+   {:db       (assoc-in db [:finance :period] {:year :all :quarter :all})
     :dispatch [:finance/fetch-dashboard]}))
 
 (rf/reg-event-db

@@ -81,9 +81,13 @@ def _is_agenciamento(tipo: str | None) -> bool:
     return "agenc" in (tipo or "").strip().lower()
 
 
-def _filter_policies_by_period(query, year: int | None, quarter: int | None):
+def _filter_policies_by_period(
+    query, year: int | None, quarter: int | None, year_floor: int | None = None
+):
     """Filter a Policy query by closed_date (gongo) quarter and/or year."""
-    if year is not None:
+    if year_floor is not None:
+        query = query.filter(Policy.closed_date >= date(year_floor, 1, 1))
+    elif year is not None:
         query = query.filter(func.extract("year", Policy.closed_date) == year)
     if quarter is not None:
         start_month = (quarter - 1) * 3 + 1
@@ -94,13 +98,52 @@ def _filter_policies_by_period(query, year: int | None, quarter: int | None):
     return query
 
 
-def _filter_fi_by_period(query, year: int | None, quarter: int | None):
+def _filter_fi_by_period(
+    query, year: int | None, quarter: int | None, year_floor: int | None = None
+):
     """Filter a FinancialImport query by its quarter+year columns."""
-    if year is not None:
+    if year_floor is not None:
+        query = query.filter(FinancialImport.year >= year_floor)
+    elif year is not None:
         query = query.filter(FinancialImport.year == year)
     if quarter is not None:
         query = query.filter(FinancialImport.quarter == quarter)
     return query
+
+
+def _parse_year_filter(raw: str | None) -> tuple[int | None, int | None, str | None]:
+    """Return (exact_year, future_floor, normalized_bucket)."""
+    if not raw:
+        return None, None, None
+    if raw.endswith("_plus"):
+        try:
+            floor = int(raw.replace("_plus", ""))
+            return None, floor, raw
+        except ValueError:
+            return None, None, None
+    try:
+        return int(raw), None, None
+    except ValueError:
+        return None, None, None
+
+
+def _month_matches_period(
+    ym: str, year: int | None, quarter: int | None, year_floor: int | None
+) -> bool:
+    try:
+        y, m = (int(part) for part in ym.split("-"))
+    except ValueError:
+        return False
+
+    if year_floor is not None and y < year_floor:
+        return False
+    if year is not None and y != year:
+        return False
+    if quarter is not None:
+        start_month = (quarter - 1) * 3 + 1
+        if m < start_month or m > start_month + 2:
+            return False
+    return True
 
 
 def _sum_paid_for_policy(p: Policy) -> Decimal:
@@ -196,16 +239,19 @@ def _project_policy(
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def dashboard():
     today = date.today()
-    year_param = request.args.get("year", type=int)
+    year_raw = request.args.get("year")
+    year_param, year_floor, year_bucket = _parse_year_filter(year_raw)
     quarter_param = request.args.get("quarter", type=int)
-    has_period = bool(year_param or quarter_param)
+    has_period = bool(year_param or year_floor or quarter_param)
 
     # ---- Row 1: KPIs ----------------------------------------------------
 
     # Comissão Potencial: Σ commission_potential across policies in scope.
     # commission_potential is MRR × 12 × commission_pct (from the segment +
     # achievement table) — already includes agenciamento.
-    pot_query = _filter_policies_by_period(Policy.query, year_param, quarter_param)
+    pot_query = _filter_policies_by_period(
+        Policy.query, year_param, quarter_param, year_floor
+    )
     comissao_potencial = Decimal("0")
     for p in pot_query.all():
         cp = p.commission_potential
@@ -228,6 +274,7 @@ def dashboard():
             ),
             year_param,
             quarter_param,
+            year_floor,
         )
         comissao_paga = paga_q.scalar() or Decimal("0")
     else:
@@ -263,6 +310,7 @@ def dashboard():
         ),
         year_param,
         quarter_param,
+        year_floor,
     )
     saldo_devedor = Decimal("0")
     for p in open_query.all():
@@ -286,6 +334,7 @@ def dashboard():
                 ),
                 year_param,
                 quarter_param,
+                year_floor,
             ).scalar()
             or Decimal("0")
         )
@@ -299,6 +348,7 @@ def dashboard():
                 ),
                 year_param,
                 quarter_param,
+                year_floor,
             ).scalar()
             or Decimal("0")
         )
@@ -344,7 +394,7 @@ def dashboard():
         )
         .filter(FinancialImport.match_status == "MATCHED")
     )
-    series_q = _filter_fi_by_period(series_q, year_param, quarter_param)
+    series_q = _filter_fi_by_period(series_q, year_param, quarter_param, year_floor)
     series_rows = (
         series_q.group_by(
             FinancialImport.nf_mes_recebimento, FinancialImport.tipo_receita
@@ -383,7 +433,12 @@ def dashboard():
         period_label = (
             f"Q{quarter_param}" if quarter_param else "Todos os trimestres"
         )
-        period_label += f" · {year_param}" if year_param else " · Todos os anos"
+        if year_floor is not None:
+            period_label += f" · {year_floor}+"
+        elif year_param is not None:
+            period_label += f" · {year_param}"
+        else:
+            period_label += " · Todos os anos"
     else:
         period_label = "Liberado · todo o histórico"
 
@@ -419,7 +474,7 @@ def dashboard():
         Policy.installments_paid < 12,
     ).all()
 
-    future_months = 12
+    future_months = 24
     projected_by_month: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     apolices_by_month: dict[str, set] = defaultdict(set)
     for p in active_policies:
@@ -429,20 +484,39 @@ def dashboard():
 
     # Build the chart window: 6 past months + the projected horizon.
     today_ym = today.strftime("%Y-%m")
-    fluxo_series = []
+    fluxo_series_all = []
     for i in range(-6, future_months + 1):
         d = today + relativedelta(months=i)
         ym = d.strftime("%Y-%m")
         is_past = ym < today_ym
         realized = realizado_by_month.get(ym)
         projected = projected_by_month.get(ym)
-        fluxo_series.append(
+        fluxo_series_all.append(
             {
+                "ym": ym,
                 "label": _short_pt_month(ym),
                 "realizado": str(realized) if (is_past and realized is not None) else None,
                 "projetado": str(projected) if (not is_past and projected is not None) else None,
+                "is_current_month": ym == today_ym,
             }
         )
+
+    fluxo_series = [
+        point
+        for point in fluxo_series_all
+        if _month_matches_period(point["ym"], year_param, quarter_param, year_floor)
+    ]
+
+    visible_realizado = Decimal("0")
+    visible_projetado = Decimal("0")
+    visible_apolices: set = set()
+    for point in fluxo_series:
+        ym = point["ym"]
+        if point["realizado"] is not None:
+            visible_realizado += Decimal(point["realizado"])
+        if point["projetado"] is not None:
+            visible_projetado += Decimal(point["projetado"])
+            visible_apolices.update(apolices_by_month.get(ym, set()))
 
     # Horizon strip: cumulative 30/60/90 days, snapped to whole months
     # (1 / 2 / 3 calendar months from today). Apólices = distinct policies
@@ -464,19 +538,32 @@ def dashboard():
 
     year_rows = (
         db.session.query(func.distinct(FinancialImport.year))
-        .order_by(FinancialImport.year.desc())
+        .order_by(FinancialImport.year.asc())
         .all()
     )
     available_years = [y for (y,) in year_rows if y]
     if not available_years:
         available_years = [today.year]
+    if today.year not in available_years:
+        available_years.append(today.year)
+    available_years = sorted(set(available_years))
+
+    future_year_floor = today.year + 1
+    has_future_projection = any(
+        int(ym.split("-")[0]) >= future_year_floor
+        for ym in projected_by_month.keys()
+    )
 
     return jsonify(
         {
             "data": {
                 "as_of": datetime.now(timezone.utc).isoformat(),
                 "available_years": available_years,
-                "period": {"year": year_param, "quarter": quarter_param},
+                "future_year_floor": future_year_floor if has_future_projection else None,
+                "period": {
+                    "year": year_bucket or year_param,
+                    "quarter": quarter_param,
+                },
                 "comissao_potencial": str(comissao_potencial),
                 "comissao_paga": str(comissao_paga),
                 "saldo_devedor_total": str(saldo_devedor),
@@ -495,6 +582,12 @@ def dashboard():
                         "next_60_apolices": len(ap_60),
                         "next_90_apolices": len(ap_90),
                     },
+                    "period_summary": {
+                        "realizado": str(visible_realizado),
+                        "projetado": str(visible_projetado),
+                        "apolices": len(visible_apolices),
+                    },
+                    "period_label": period_label,
                     "series": fluxo_series,
                 },
             }
