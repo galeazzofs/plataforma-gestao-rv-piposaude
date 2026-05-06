@@ -16,6 +16,7 @@ from app.modules.workflow.state_machine import (
     InvalidTransitionError,
 )
 from app.modules.commissions.calculator import MissingAchievementsError
+from app.modules.financial.monthly_engine import COMISSAO, classify_revenue_type
 
 workflow_bp = Blueprint("workflow", __name__, url_prefix="/api/v1/appraisals")
 
@@ -247,13 +248,21 @@ def _build_appraisal_detail(appraisal):
     nfs_matched = FinancialImport.query.filter_by(
         quarter=quarter, year=year, match_status='MATCHED',
     ).all()
+    nfs_finalized = FinancialImport.query.filter_by(
+        quarter=quarter, year=year, match_status='APOLICE_FINALIZADA',
+    ).all()
 
     nfs_by_policy = defaultdict(list)
     for nf in nfs_matched:
         if nf.policy_id:
             nfs_by_policy[nf.policy_id].append(nf)
 
-    policy_ids = {c.policy_id for c in commissions} | set(nfs_by_policy.keys())
+    finalized_policy_ids = {nf.policy_id for nf in nfs_finalized if nf.policy_id}
+    policy_ids = (
+        {c.policy_id for c in commissions}
+        | set(nfs_by_policy.keys())
+        | finalized_policy_ids
+    )
     policies = (
         {p.id: p for p in Policy.query.filter(Policy.id.in_(policy_ids)).all()}
         if policy_ids else {}
@@ -324,6 +333,10 @@ def _build_appraisal_detail(appraisal):
         })
     ev_summary.sort(key=lambda s: s["ev_name"])
 
+    finalized_completion_months = _finalized_completion_months(
+        quarter, year, finalized_policy_ids, policies
+    )
+
     def _serialize_nf(nf):
         return {
             "id": str(nf.id),
@@ -337,6 +350,11 @@ def _build_appraisal_detail(appraisal):
             "tipo_receita": nf.tipo_receita,
             "match_status": nf.match_status,
             "policy_id": str(nf.policy_id) if nf.policy_id else None,
+            "apolice_finalizada_mes": (
+                finalized_completion_months.get(nf.policy_id)
+                if nf.match_status == 'APOLICE_FINALIZADA' and nf.policy_id
+                else None
+            ),
         }
 
     unmatched = [
@@ -357,9 +375,7 @@ def _build_appraisal_detail(appraisal):
         ).all()
     ]
     apolices_finalizadas = [
-        _serialize_nf(n) for n in FinancialImport.query.filter_by(
-            quarter=quarter, year=year, match_status='APOLICE_FINALIZADA',
-        ).all()
+        _serialize_nf(n) for n in nfs_finalized
     ]
 
     totals = {
@@ -381,3 +397,104 @@ def _build_appraisal_detail(appraisal):
         "nao_suportado": nao_suportado,
         "apolices_finalizadas": apolices_finalizadas,
     }
+
+
+def _period_before(left: tuple[int, int], right: tuple[int, int]) -> bool:
+    left_q, left_y = left
+    right_q, right_y = right
+    return (left_y, left_q) < (right_y, right_q)
+
+
+def _locked_period_pairs_before(quarter: int, year: int) -> set[tuple[int, int]]:
+    current = (quarter, year)
+    appraisal_pairs = {
+        (q, y) for q, y in db.session.query(Appraisal.quarter, Appraisal.year)
+        .filter(Appraisal.status == AppraisalStatus.LOCKED)
+        .all()
+    }
+    commission_pairs = {
+        (q, y) for q, y in db.session.query(Commission.quarter, Commission.year)
+        .filter(Commission.is_final.is_(True))
+        .all()
+    }
+    return {
+        pair for pair in (appraisal_pairs | commission_pairs)
+        if _period_before(pair, current)
+    }
+
+
+def _positive_locked_comissao_month_counts(
+    policy_ids: set,
+    quarter: int,
+    year: int,
+) -> dict:
+    pairs = _locked_period_pairs_before(quarter, year)
+    if not policy_ids or not pairs:
+        return {}
+
+    rows = FinancialImport.query.filter(
+        FinancialImport.match_status == 'MATCHED',
+        FinancialImport.policy_id.in_(policy_ids),
+    ).all()
+
+    monthly = defaultdict(lambda: defaultdict(Decimal))
+    for row in rows:
+        if (row.quarter, row.year) not in pairs:
+            continue
+        if classify_revenue_type(row.tipo_receita) != COMISSAO:
+            continue
+        monthly[row.policy_id][row.nf_mes_recebimento] += (
+            row.nf_valor_liquido or Decimal("0")
+        )
+
+    return {
+        policy_id: sum(1 for total in months.values() if total > 0)
+        for policy_id, months in monthly.items()
+    }
+
+
+def _finalized_completion_months(
+    quarter: int,
+    year: int,
+    policy_ids: set,
+    policies: dict,
+) -> dict:
+    if not policy_ids:
+        return {}
+
+    prior_counts = _positive_locked_comissao_month_counts(policy_ids, quarter, year)
+    rows = FinancialImport.query.filter_by(
+        quarter=quarter,
+        year=year,
+        match_status='MATCHED',
+    ).filter(FinancialImport.policy_id.in_(policy_ids)).all()
+
+    current_monthly = defaultdict(lambda: defaultdict(Decimal))
+    for row in rows:
+        if classify_revenue_type(row.tipo_receita) != COMISSAO:
+            continue
+        current_monthly[row.policy_id][row.nf_mes_recebimento] += (
+            row.nf_valor_liquido or Decimal("0")
+        )
+
+    completion_months = {}
+    for policy_id in policy_ids:
+        policy = policies.get(policy_id)
+        if policy is None:
+            continue
+        clock = min(
+            12,
+            (policy.initial_installments_paid or 0)
+            + prior_counts.get(policy_id, 0),
+        )
+        if clock >= 12:
+            continue
+        for month in sorted(current_monthly.get(policy_id, {})):
+            if current_monthly[policy_id][month] <= 0:
+                continue
+            clock += 1
+            if clock >= 12:
+                completion_months[policy_id] = month
+                break
+
+    return completion_months

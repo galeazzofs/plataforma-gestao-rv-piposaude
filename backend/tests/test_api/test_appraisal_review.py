@@ -191,3 +191,41 @@ def test_get_appraisal_detail_includes_finalized_policy_bucket(client, review_se
     assert body["totals"]["apolices_finalizadas_count"] == 1
     assert body["apolices_finalizadas"][0]["match_status"] == "APOLICE_FINALIZADA"
     assert body["apolices_finalizadas"][0]["policy_id"] == str(policy.id)
+
+
+def test_finalized_policy_bucket_includes_completion_month(client, review_setup):
+    admin, _, client_obj, policy, appraisal, nf = review_setup
+    policy.initial_installments_paid = 11
+    policy.installments_paid = 12
+    nf.match_status = "MATCHED"
+    nf.policy_id = policy.id
+    nf.nf_mes_recebimento = "2026-08"
+    nf.tipo_receita = "Comissao"
+
+    finalized_nf = FinancialImport(
+        import_batch_id=nf.import_batch_id,
+        quarter=3,
+        year=2026,
+        nf_valor_liquido=Decimal("500.00"),
+        nf_mes_recebimento="2026-09",
+        cliente_mae=client_obj.name,
+        operadora="SulAmerica",
+        produto="Saude",
+        numero_apolice=policy.numero_apolice,
+        tipo_receita="Comissao",
+        status_recebimento="RECEBIDO",
+        data_recebimento=date(2026, 9, 10),
+        match_status="APOLICE_FINALIZADA",
+        policy_id=policy.id,
+    )
+    db.session.add(finalized_nf)
+    db.session.commit()
+
+    resp = client.get(
+        f"/api/v1/appraisals/{appraisal.id}",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_json()["data"]
+    assert body["apolices_finalizadas"][0]["apolice_finalizada_mes"] == "2026-08"

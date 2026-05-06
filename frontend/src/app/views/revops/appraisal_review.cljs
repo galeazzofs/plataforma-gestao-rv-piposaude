@@ -26,14 +26,17 @@
 ;; ── NF table for unmatched/expired/nao-suportado ──
 
 (defn- nf-table [rows]
-  [:table.table
+  (let [show-finalizada-mes? (boolean (some :apolice_finalizada_mes rows))
+        col-span (if show-finalizada-mes? 8 7)]
+    [:table.table
    [:thead
     [:tr
      [:th "Cliente"] [:th "Operadora"] [:th "Produto"] [:th "Data"]
-     [:th "Tipo receita"] [:th.right "NF Líquido"] [:th "Status"]]]
+     [:th "Tipo receita"] [:th.right "NF Líquido"] [:th "Status"]
+     (when show-finalizada-mes? [:th "Ciclo 12/12"])]]
    [:tbody
     (if (empty? rows)
-      [:tr [:td {:col-span 7 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+      [:tr [:td {:col-span col-span :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
             "Nenhuma linha"]]
       (for [r rows]
         ^{:key (or (:id r) (hash r))}
@@ -44,14 +47,17 @@
          [:td.num.muted (:data_recebimento r)]
          [:td (:tipo_receita r)]
          [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "·"))]
-         [:td [:span.badge.badge-review (or (:match_status r) "·")]]]))]])
+         [:td [:span.badge.badge-review (or (:match_status r) "·")]]
+         (when show-finalizada-mes?
+           [:td.num.muted (or (:apolice_finalizada_mes r) "·")])]))]]))
 
 (defn- export-csv-button [rows filename]
   [:button.btn.btn-secondary.btn-sm
    {:on-click
     (fn []
       (let [headers ["cliente_mae" "operadora" "produto" "data_recebimento"
-                     "tipo_receita" "nf_liquido" "match_status"]
+                     "tipo_receita" "nf_liquido" "match_status"
+                     "apolice_finalizada_mes"]
             quote (fn [v] (str "\"" (or v "") "\""))
             line (fn [r] (str/join "," (map #(quote (get r (keyword %))) headers)))
             csv (str/join "\n" (cons (str/join "," headers) (map line rows)))
