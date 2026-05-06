@@ -92,7 +92,7 @@
 (defn search-input
   "Pipo search pill. opts: {:placeholder ... :value ... :on-change ... :aria-label ...}"
   [{:keys [placeholder value on-change] :as props}]
-  (let [label (or (:aria-label props) (or placeholder "Buscar"))]
+  (let [label (or (:aria-label props) placeholder "Buscar")]
     [:div.search {:role "search"}
      [icon "search" {:width 14 :height 14}]
      [:input {:placeholder (or placeholder "Buscar")

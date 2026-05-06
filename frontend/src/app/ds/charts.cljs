@@ -1,10 +1,9 @@
 (ns app.ds.charts
-  (:require [app.ds.tokens :as t]))
+  (:require [clojure.string :as str]))
 
 ;; Pipo-themed lightweight chart helpers — pure SVG, no external deps.
 ;; The dashboard view files (Finance, EV, History) draw their own SVG charts
-;; tuned to the design; these wrappers exist for legacy callers
-;; (finance/fluxo-caixa, orcado-realizado).
+;; tuned to the design; these wrappers exist for legacy callers.
 
 (defn- max-of
   ([data ks]
@@ -72,7 +71,7 @@
                                                    (str (x-of i) " " (y-of v)))))
                           (filter some?))]]
        ^{:key (str "line-" (name key))}
-       [:path {:d (str "M " (clojure.string/join " L " pts))
+       [:path {:d (str "M " (str/join " L " pts))
                :fill "none"
                :stroke (or color "#000")
                :stroke-width 2.5

@@ -1,5 +1,6 @@
 (ns app.views.revops.leadership-appraisal
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
@@ -65,7 +66,7 @@
 
 (defn- mult [v]
   (when v (-> v js/parseFloat (.toFixed 2)
-              (clojure.string/replace "." ","))))
+              (str/replace "." ","))))
 
 (defn page []
   (let [filter-s    (r/atom {:quarter "2" :year "2026"})
@@ -97,17 +98,22 @@
                                             @form-inputs)}]))}
             [layout/icon "target" {:width 14 :height 14}] "Calcular bônus"]]}
 
-         [:div.filter-row
+         [:div.filter-row {:role "group" :aria-label "Filtrar por período"}
           (for [q ["1" "2" "3" "4"]]
             ^{:key q}
-            [:div {:class (str "chip" (when (= q (:quarter @filter-s)) " active"))
-                   :on-click #(swap! filter-s assoc :quarter q)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= q (:quarter @filter-s)) " active"))
+                      :aria-pressed (str (= q (:quarter @filter-s)))
+                      :on-click #(swap! filter-s assoc :quarter q)}
              (str "Q" q)])
-          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          [:div {:role "separator" :aria-hidden "true"
+                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
           (for [y ["2025" "2026"]]
             ^{:key y}
-            [:div {:class (str "chip" (when (= y (:year @filter-s)) " active"))
-                   :on-click #(swap! filter-s assoc :year y)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= y (:year @filter-s)) " active"))
+                      :aria-pressed (str (= y (:year @filter-s)))
+                      :on-click #(swap! filter-s assoc :year y)}
              y])]
 
          (when (seq preview)
@@ -118,9 +124,7 @@
             [:div {:style {:display "flex" :flex-direction "column" :gap "12px"}}
              (for [{:keys [gerente_id gerente_name meta_mrr]} preview]
                ^{:key gerente_id}
-               [:div {:style {:display "grid" :grid-template-columns "180px 200px 1fr 1fr 1fr"
-                              :gap "12px" :align-items "end"
-                              :padding "12px 0" :border-bottom "1px solid var(--border-subtle)"}}
+               [:div.appraisal-row
                 [:div
                  [:div.name gerente_name]
                  [:div.muted {:style {:font-family "var(--font-mono)" :font-size "11px"}}

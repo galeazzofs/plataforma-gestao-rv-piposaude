@@ -9,9 +9,9 @@
    variant: :default :success :warning :error :info."
   [{:keys [variant]} & children]
   (let [styles {:default {:bg "#F6F6F6"          :color "#6B6663"}
-                :success {:bg t/success-light    :color t/success-default}
+                :success {:bg t/success-light    :color t/success-dark}
                 :warning {:bg t/warning-light    :color t/warning-dark}
-                :error   {:bg t/error-light      :color t/error-default}
+                :error   {:bg t/error-light      :color t/error-dark}
                 :info    {:bg "var(--badge-calc-bg)" :color t/blue-700}}
         s (get styles (or variant :default))]
     (into [:span {:style {:display "inline-flex"

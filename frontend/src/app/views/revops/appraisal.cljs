@@ -91,8 +91,8 @@
           {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]])}
           "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]])]]
      [stepper status]
-     [:div {:style {:display "grid" :grid-template-columns "repeat(4,1fr)" :gap "16px"
-                    :border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
+     [:div.form-grid.-four
+      {:style {:border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
       [:div
        [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
                       :color "var(--fg-3)" :text-transform "lowercase"}}

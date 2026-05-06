@@ -8,9 +8,7 @@
 ;; promovido a um role. Reúsa a estética do login (painel night à esquerda).
 
 (defn no-role-page []
-  [:div {:style {:min-height "100vh"
-                 :display "grid" :grid-template-columns "1fr 1fr"
-                 :background t/color-night :font-family t/font-body}}
+  [:div.login-frame
    ;; Brand panel
    [:div {:style {:position "relative" :padding "64px"
                   :display "flex" :flex-direction "column" :justify-content "space-between"

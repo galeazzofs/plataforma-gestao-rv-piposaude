@@ -25,7 +25,7 @@
                       :font-weight (:semibold t/font-weights)
                       :margin "0"}} "Exportar Dados"]
 
-        [:div {:style {:display "grid" :grid-template-columns "1fr 1fr 1fr 1fr" :gap "16px"}}
+        [:div.form-grid.-four
          [inputs/select
           {:label     "Formato"
            :value     @fmt

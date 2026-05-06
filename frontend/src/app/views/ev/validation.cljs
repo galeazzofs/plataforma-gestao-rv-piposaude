@@ -84,23 +84,29 @@
 
          [:div.card {:style {:padding 0}}
           [:div {:style {:padding "0 24px"}}
-           [:div.tabs
-            [:div {:class (str "tab" (when (= @active-tab :pending) " active"))
-                   :on-click #(reset! active-tab :pending)}
+           [:div.tabs {:role "tablist" :aria-label "Status da validação"}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :pending) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :pending))
+                      :on-click #(reset! active-tab :pending)}
              "Pendentes "
              [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count pending)]]
-            [:div {:class (str "tab" (when (= @active-tab :approved) " active"))
-                   :on-click #(reset! active-tab :approved)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :approved) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :approved))
+                      :on-click #(reset! active-tab :approved)}
              "Aprovados " [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
                                           :font-family "var(--font-mono)" :font-size "11px"
                                           :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
                            (count approved)]]
-            [:div {:class (str "tab" (when (= @active-tab :contested) " active"))
-                   :on-click #(reset! active-tab :contested)}
-             "Contestados " [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-dark)"
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :contested) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :contested))
+                      :on-click #(reset! active-tab :contested)}
+             "Contestados " [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-text)"
                                             :font-family "var(--font-mono)" :font-size "11px"
                                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
                              (count contested)]]]]

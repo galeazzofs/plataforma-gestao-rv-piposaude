@@ -2,7 +2,6 @@
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [app.ds.layout :as layout]
-            [app.ds.inputs :as inputs]
             [app.auth.subs]))
 
 (defn- fmt-int [v]
@@ -86,17 +85,22 @@
             {:on-click #(rf/dispatch [:revops/auto-calc-achievements @filter-state])}
             [layout/icon "refresh" {:width 14 :height 14}] "Auto-calcular baseline"]]}
 
-         [:div.filter-row
+         [:div.filter-row {:role "group" :aria-label "Filtrar por período"}
           (for [q [1 2 3 4]]
             ^{:key q}
-            [:div {:class (str "chip" (when (= q (:quarter @filter-state)) " active"))
-                   :on-click #(on-filter-change :quarter q)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= q (:quarter @filter-state)) " active"))
+                      :aria-pressed (str (= q (:quarter @filter-state)))
+                      :on-click #(on-filter-change :quarter q)}
              (str "Q" q)])
-          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          [:div {:role "separator" :aria-hidden "true"
+                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
           (for [y [2024 2025 2026 2027]]
             ^{:key y}
-            [:div {:class (str "chip" (when (= y (:year @filter-state)) " active"))
-                   :on-click #(on-filter-change :year y)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= y (:year @filter-state)) " active"))
+                      :aria-pressed (str (= y (:year @filter-state)))
+                      :on-click #(on-filter-change :year y)}
              (str y)])
           [:div {:style {:margin-left "auto" :font-family "var(--font-mono)" :font-size "11px"
                          :color "var(--fg-3)"}}

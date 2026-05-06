@@ -3,6 +3,7 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [app.ds.layout :as layout]
+            [app.ds.tokens :as t]
             [app.auth.subs]
             [app.utils.format :as fmt]))
 
@@ -168,10 +169,10 @@
           ^{:key (str "y" tv)}
           [:g
            [:line {:x1 lft :y1 (yf tv) :x2 rgt :y2 (yf tv)
-                   :stroke "#E2E1DF" :stroke-width 1}]
+                   :stroke t/border-default :stroke-width 1}]
            [:text {:x (- lft 8) :y (+ (yf tv) 3.5) :text-anchor "end"
-                   :font-family "IBM Plex Mono, monospace" :font-size 10
-                   :fill "#BCBAB5" :letter-spacing "0.02em"}
+                   :font-family t/font-mono :font-size 10
+                   :fill t/text-disabled :letter-spacing "0.02em"}
             (fmt-axis-val tv)]])]
 
        ;; Bars
@@ -183,15 +184,15 @@
            (when-let [cv (->num (:comissao p))]
              [:rect {:x base :y (yf cv)
                      :width 18 :height (max 1 (- btm (yf cv)))
-                     :fill "#000" :rx 2}])
+                     :fill t/color-primary :rx 2}])
            (when-let [av (->num (:agenciamento p))]
              [:rect {:x (+ base 22) :y (yf av)
                      :width 18 :height (max 1 (- btm (yf av)))
-                     :fill "#E6D9C2" :rx 2}])])]
+                     :fill t/beige-300 :rx 2}])])]
 
        ;; X-axis labels
-       [:g {:font-family "IBM Plex Mono, monospace" :font-size 10
-            :fill "#6B6663" :text-anchor "middle" :letter-spacing "0.02em"}
+       [:g {:font-family t/font-mono :font-size 10
+            :fill t/text-tertiary :text-anchor "middle" :letter-spacing "0.02em"}
         (for [[i p] (map-indexed vector pts)]
           ^{:key (str "x" i)}
           [:text {:x (+ lft 32 (* i slot)) :y lbl-y} (:label p)])]])))
@@ -498,6 +499,37 @@
                (brl-value value "·"))]
    (when detail [:div.meta detail])])
 
+(defn- chart-fluxo-caixa-table
+  "Tabular alternative to the cash-flow SVG chart. Wrapped in <details> so
+   sighted users can disclose it on demand; screen readers read the table
+   regardless. Renders only rows that carry at least one numeric value."
+  [series]
+  (let [rows (filter (fn [p] (or (->num (:realizado p))
+                                 (->num (:a_apurar p))
+                                 (->num (:projetado p))))
+                     series)]
+    (when (seq rows)
+      [:details.chart-data-table
+       [:summary "Ver dados em tabela"]
+       [:div.table-wrap
+        [:table.table
+         [:caption.sr-only
+          "Fluxo de caixa mensal por competência: realizado, a apurar e projetado em reais."]
+         [:thead
+          [:tr
+           [:th {:scope "col"} "Mês"]
+           [:th.right {:scope "col"} "Realizado"]
+           [:th.right {:scope "col"} "A apurar"]
+           [:th.right {:scope "col"} "Projetado"]]]
+         [:tbody
+          (for [p rows]
+            ^{:key (:label p)}
+            [:tr
+             [:th {:scope "row"} (:label p)]
+             [:td.right.num (or (fmt/fmt-brl-int (:realizado p)) "·")]
+             [:td.right.num (or (fmt/fmt-brl-int (:a_apurar p)) "·")]
+             [:td.right.num (or (fmt/fmt-brl-int (:projetado p)) "·")]])]]]])))
+
 (defn- fluxo-caixa-card [{:keys [horizon period-summary filtered? series as-of]}]
   (let [has-realizado? (some #(->num (:realizado %)) series)
         has-a-apurar? (some #(->num (:a_apurar %)) series)
@@ -540,7 +572,8 @@
        [:span.legend-line {:style {:color "var(--blue-regular)"}} "projetado"]
        (when-not filtered?
          [:span.legend-band "horizonte 90d"])]
-      [chart-fluxo-caixa series]]]))
+      [chart-fluxo-caixa series]
+      [chart-fluxo-caixa-table series]]]))
 
 ;; ----- Topbar period control ------------------------------------------
 

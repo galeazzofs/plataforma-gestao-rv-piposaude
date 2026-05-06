@@ -1,5 +1,6 @@
 (ns app.views.cn.dashboard
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
             [app.auth.subs]))
@@ -43,7 +44,7 @@
 
 (defn- mult [v]
   (when v (-> v js/parseFloat (.toFixed 2)
-              (clojure.string/replace "." ","))))
+              (str/replace "." ","))))
 
 (defn page []
   (rf/dispatch [:cn/fetch-appraisals])

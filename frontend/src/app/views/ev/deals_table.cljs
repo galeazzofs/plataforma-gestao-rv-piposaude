@@ -1,8 +1,6 @@
 (ns app.views.ev.deals-table
-  (:require [re-frame.core :as rf]
-            [app.ds.table :as tbl]
+  (:require [app.ds.table :as tbl]
             [app.ds.badge :as badge]
-            [app.ds.tokens :as t]
             [app.utils.format :as fmt]))
 
 (def columns

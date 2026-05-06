@@ -3,7 +3,6 @@
             [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
-            [app.ds.inputs :as inputs]
             [app.auth.subs]))
 
 (rf/reg-event-fx
@@ -74,17 +73,23 @@
                                           :items items}])))}
             [layout/icon "check" {:width 14 :height 14}] "Salvar metas"]]}
 
-         [:div.filter-row
+         [:div.filter-row {:role "group" :aria-label "Filtrar por período"}
           (for [m (range 1 13)]
             ^{:key m}
-            [:div {:class (str "chip" (when (= (str m) (:month @filter-state)) " active"))
-                   :on-click #(swap! filter-state assoc :month (str m))}
+            [:button {:type "button"
+                      :class (str "chip" (when (= (str m) (:month @filter-state)) " active"))
+                      :aria-pressed (str (= (str m) (:month @filter-state)))
+                      :aria-label (str "Mês " m)
+                      :on-click #(swap! filter-state assoc :month (str m))}
              (str m)])
-          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          [:div {:role "separator" :aria-hidden "true"
+                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
           (for [y ["2025" "2026"]]
             ^{:key y}
-            [:div {:class (str "chip" (when (= y (:year @filter-state)) " active"))
-                   :on-click #(swap! filter-state assoc :year y)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= y (:year @filter-state)) " active"))
+                      :aria-pressed (str (= y (:year @filter-state)))
+                      :on-click #(swap! filter-state assoc :year y)}
              y])]
 
          [:div.card {:style {:padding 0}}

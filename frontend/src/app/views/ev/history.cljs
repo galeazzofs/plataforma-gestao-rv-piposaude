@@ -1,8 +1,8 @@
 (ns app.views.ev.history
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
-            [clojure.string :as str]
             [app.ds.layout :as layout]
+            [app.ds.tokens :as t]
             [app.auth.subs]))
 
 (defn- fmt-int [v]
@@ -24,7 +24,7 @@
           max-v (or (->> pts (map :amount) (filter some?) (reduce max 1)) 1)
           scale (fn [v] (* (/ (or v 0) max-v) 180))]
       [:svg.chart {:viewBox "0 0 600 240" :preserveAspectRatio "none"}
-       [:g {:stroke "#E2E1DF"}
+       [:g {:stroke t/border-default}
         [:line {:x1 40 :y1 40 :x2 600 :y2 40}]
         [:line {:x1 40 :y1 100 :x2 600 :y2 100}]
         [:line {:x1 40 :y1 160 :x2 600 :y2 160}]
@@ -34,8 +34,8 @@
                    x (+ 60 (* i slot))]]
          ^{:key i}
          [:rect {:x x :y (- 220 h) :width 44 :height h
-                 :fill (if (:current? p) "#000" "#E6D9C2") :rx 2}])
-       [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
+                 :fill (if (:current? p) t/color-primary t/beige-300) :rx 2}])
+       [:g {:font-family t/font-ui :font-size 11 :fill t/text-tertiary}
         (for [[i p] (map-indexed vector pts)]
           ^{:key i}
           [:text {:x (+ 66 (* i slot)) :y 238} (:label p)])]])))

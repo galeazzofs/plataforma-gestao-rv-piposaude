@@ -15,7 +15,7 @@
 
 (defn- avatar-bg [variant]
   (case variant
-    :danger  {:background "var(--danger-lightest)" :color "var(--danger-dark)"}
+    :danger  {:background "var(--danger-lightest)" :color "var(--danger-text)"}
     :warning {:background "var(--warning-lightest)" :color "var(--warning-text)"}
     :neutral {:background "var(--beige-light)" :color "var(--neutral-darkest)"}
     {:background "var(--beige-light)" :color "var(--neutral-darkest)"}))
@@ -111,23 +111,29 @@
          [:div.card {:style {:padding 0}}
           ;; Tabs
           [:div {:style {:padding "0 24px"}}
-           [:div.tabs
-            [:div {:class (str "tab" (when (= @tab :open) " active"))
-                   :on-click #(reset! tab :open)}
+           [:div.tabs {:role "tablist" :aria-label "Status das contestações"}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @tab :open) " active"))
+                      :role "tab" :aria-selected (str (= @tab :open))
+                      :on-click #(reset! tab :open)}
              "Abertas "
-             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-dark)"
+             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count open-rows)]]
-            [:div {:class (str "tab" (when (= @tab :resolved) " active"))
-                   :on-click #(reset! tab :resolved)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @tab :resolved) " active"))
+                      :role "tab" :aria-selected (str (= @tab :resolved))
+                      :on-click #(reset! tab :resolved)}
              "Resolvidas "
              [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count resolved-rows)]]
-            [:div {:class (str "tab" (when (= @tab :all) " active"))
-                   :on-click #(reset! tab :all)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @tab :all) " active"))
+                      :role "tab" :aria-selected (str (= @tab :all))
+                      :on-click #(reset! tab :all)}
              "Todas"]]]
 
           ;; List

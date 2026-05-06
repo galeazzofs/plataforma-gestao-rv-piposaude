@@ -1,0 +1,30 @@
+{;; Reagent/re-frame friendly defaults.
+ ;; Hiccup-heavy CLJS code uses many anonymous components and r/atom/reactions
+ ;; that would otherwise be flagged as unused. Keep linting strict elsewhere.
+ :linters
+ {:unused-binding              {:level :off}      ; render-fn args often look unused
+  :unused-private-var          {:level :warning}
+  :missing-docstring           {:level :off}
+  :unresolved-symbol           {:exclude [(reagent.core)
+                                          (re-frame.core)]}
+  :consistent-alias            {:aliases {reagent.core   r
+                                          re-frame.core  rf
+                                          clojure.string str
+                                          app.ds.tokens  t
+                                          app.ds.layout  layout
+                                          app.ds.buttons btn
+                                          app.ds.inputs  inputs
+                                          app.ds.cards   cards
+                                          app.ds.charts  charts
+                                          app.ds.badge   badge
+                                          app.ds.modal   modal
+                                          app.ds.toast   toast}}}
+
+ ;; Macros that take a body without explicit binding rules — tell clj-kondo
+ ;; to treat them as let-style so unused-binding stays quiet there too.
+ :lint-as
+ {reagent.core/with-let clojure.core/let
+  re-frame.core/reg-event-db   clj-kondo.lint-as/def-catch-all
+  re-frame.core/reg-event-fx   clj-kondo.lint-as/def-catch-all
+  re-frame.core/reg-sub        clj-kondo.lint-as/def-catch-all
+  re-frame.core/reg-fx         clj-kondo.lint-as/def-catch-all}}

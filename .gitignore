@@ -26,6 +26,10 @@ node_modules/
 
 # Frontend compiled output
 frontend/resources/public/js/compiled/
+frontend/target/
+
+# clj-kondo cache (config.edn is committed; .cache/ is regenerated)
+frontend/.clj-kondo/.cache/
 
 # Env
 .env

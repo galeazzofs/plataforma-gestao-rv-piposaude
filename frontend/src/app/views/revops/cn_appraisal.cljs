@@ -1,5 +1,6 @@
 (ns app.views.revops.cn-appraisal
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
@@ -59,7 +60,7 @@
 
 (defn- mult [v]
   (when v (-> v js/parseFloat (.toFixed 2)
-              (clojure.string/replace "." ","))))
+              (str/replace "." ","))))
 
 (defn page []
   (let [filter-s    (r/atom {:month "4" :year "2026"})
@@ -90,17 +91,23 @@
                                                        @form-inputs)}]))}
             [layout/icon "target" {:width 14 :height 14}] "Rodar apuração"]]}
 
-         [:div.filter-row
+         [:div.filter-row {:role "group" :aria-label "Filtrar por período"}
           (for [m (range 1 13)]
             ^{:key m}
-            [:div {:class (str "chip" (when (= (str m) (:month @filter-s)) " active"))
-                   :on-click #(swap! filter-s assoc :month (str m))}
+            [:button {:type "button"
+                      :class (str "chip" (when (= (str m) (:month @filter-s)) " active"))
+                      :aria-pressed (str (= (str m) (:month @filter-s)))
+                      :aria-label (str "Mês " m)
+                      :on-click #(swap! filter-s assoc :month (str m))}
              (str m)])
-          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          [:div {:role "separator" :aria-hidden "true"
+                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
           (for [y ["2025" "2026"]]
             ^{:key y}
-            [:div {:class (str "chip" (when (= y (:year @filter-s)) " active"))
-                   :on-click #(swap! filter-s assoc :year y)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= y (:year @filter-s)) " active"))
+                      :aria-pressed (str (= y (:year @filter-s)))
+                      :on-click #(swap! filter-s assoc :year y)}
              y])]
 
          [:div.kpi-grid.-three

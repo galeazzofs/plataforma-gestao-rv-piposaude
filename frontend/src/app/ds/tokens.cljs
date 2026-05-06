@@ -41,14 +41,19 @@
 ;; Overlay
 (def overlay "rgba(6, 13, 65, 0.55)")
 
-;; Semantic — feedback (matches CSS vars --success-*, --warning-*, --danger-*)
+;; Semantic — feedback
+;; Naming differs from CSS vars: here `light` matches CSS `--*-lightest` (the
+;; pale tint used as a badge background) and `dark` matches CSS `--*-text`
+;; (the AA-compliant text color used on that background). The saturated brand
+;; fills (CSS `--*-dark`) live as `*-default` below.
 (def success-default "#17A66D")
 (def success-light   "#D4F8E7")
 (def success-dark    "#0F7C50")
 
 (def warning-default "#FFB033")
 (def warning-light   "#FFEEC2")
-(def warning-dark    "#9A6B0F")
+;; Bumped from #9A6B0F (4.07:1 — failed AA) to #7A5410 (~5.9:1 on warning-light).
+(def warning-dark    "#7A5410")
 
 (def error-default "#F04646")
 (def error-light   "#FFDEDE")

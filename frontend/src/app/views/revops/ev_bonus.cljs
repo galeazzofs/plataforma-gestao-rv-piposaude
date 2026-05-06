@@ -3,7 +3,6 @@
             [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
-            [app.ds.inputs :as inputs]
             [app.auth.subs]))
 
 (rf/reg-event-fx
@@ -61,17 +60,22 @@
             {:on-click #(rf/dispatch [:revops/run-ev-bonus (:quarter @filter-s) (:year @filter-s)])}
             [layout/icon "target" {:width 14 :height 14}] "Calcular bônus"]]}
 
-         [:div.filter-row
+         [:div.filter-row {:role "group" :aria-label "Filtrar por período"}
           (for [q ["1" "2" "3" "4"]]
             ^{:key q}
-            [:div {:class (str "chip" (when (= q (:quarter @filter-s)) " active"))
-                   :on-click #(swap! filter-s assoc :quarter q)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= q (:quarter @filter-s)) " active"))
+                      :aria-pressed (str (= q (:quarter @filter-s)))
+                      :on-click #(swap! filter-s assoc :quarter q)}
              (str "Q" q)])
-          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          [:div {:role "separator" :aria-hidden "true"
+                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
           (for [y ["2025" "2026"]]
             ^{:key y}
-            [:div {:class (str "chip" (when (= y (:year @filter-s)) " active"))
-                   :on-click #(swap! filter-s assoc :year y)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= y (:year @filter-s)) " active"))
+                      :aria-pressed (str (= y (:year @filter-s)))
+                      :on-click #(swap! filter-s assoc :year y)}
              y])]
 
          [:div.kpi-grid.-three

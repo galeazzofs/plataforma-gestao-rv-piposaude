@@ -8,9 +8,6 @@
 
 ;; Upload Financeiro — design's dropzone + history table.
 
-(defn- fmt-int [v]
-  (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
-
 (defn- upload-result-stats [result]
   (let [stats (or (:stats result) {})]
     [:div.callout {:style {:border-color "var(--success-light)" :background "var(--success-lightest)"}}

@@ -133,11 +133,7 @@
 (defn login-page []
   (let [loading? @(rf/subscribe [:auth/loading?])
         error    @(rf/subscribe [:auth/error])]
-    [:div {:style {:min-height "100vh"
-                   :display "grid"
-                   :grid-template-columns "1fr 1fr"
-                   :background t/color-night
-                   :font-family t/font-body}}
+    [:div.login-frame
      ;; Left brand pane
      [brand-panel]
 

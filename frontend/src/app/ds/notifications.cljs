@@ -7,12 +7,18 @@
 (defn notification-item
   "Single notification row."
   [{:keys [title body read? created-at on-click]}]
-  [:div {:on-click on-click
-         :style {:padding "12px 16px"
-                 :border-bottom (str "1px solid " t/border-default)
-                 :cursor "pointer"
-                 :background (if read? t/bg-card t/beige-100)
-                 :transition (str "background " t/transition-fast)}}
+  [:button {:type "button"
+            :on-click on-click
+            :aria-label (if read?
+                          (str title (when body (str " — " body)))
+                          (str "Não lida: " title (when body (str " — " body))))
+            :style {:display "block" :width "100%" :text-align "left"
+                    :padding "12px 16px" :margin 0
+                    :border "0" :border-bottom (str "1px solid " t/border-default)
+                    :cursor "pointer"
+                    :background (if read? t/bg-card t/beige-100)
+                    :transition (str "background " t/transition-fast)
+                    :font-family t/font-ui}}
    [:div {:style {:display "flex" :justify-content "space-between" :align-items "flex-start" :gap "8px"}}
     [:div {:style {:flex 1}}
      [:p {:style {:font-family t/font-ui :font-size "13px"
@@ -48,14 +54,14 @@
    Props: open?, notifications, on-close, on-mark-read-all"
   [{:keys [open? notifications on-close on-mark-read-all]}]
   (when open?
-    [:div {:style {:position "absolute" :top "100%" :right 0
-                   :width "380px"
-                   :background t/bg-card
-                   :border (str "1px solid " t/border-default)
-                   :border-radius (:md t/border-radius)
-                   :box-shadow (:lg t/shadows)
-                   :z-index 1000 :overflow "hidden"
-                   :margin-top "8px"}}
+    [:div.notification-dropdown
+     {:style {:position "absolute" :top "100%" :right 0
+              :background t/bg-card
+              :border (str "1px solid " t/border-default)
+              :border-radius (:md t/border-radius)
+              :box-shadow (:lg t/shadows)
+              :z-index 1000 :overflow "hidden"
+              :margin-top "8px"}}
      [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"
                     :padding "16px 20px" :border-bottom (str "1px solid " t/border-default)}}
       [:strong {:style {:font-family t/font-heading :font-size "14px" :font-weight "600"

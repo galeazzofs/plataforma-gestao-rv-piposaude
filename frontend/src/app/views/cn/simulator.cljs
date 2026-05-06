@@ -1,8 +1,10 @@
 (ns app.views.cn.simulator
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
+            [app.ds.tokens :as t]
             [app.auth.subs]))
 
 ;; CN simulator — mirrors the design's split layout with parameters card
@@ -40,7 +42,7 @@
 (defn- pct [v] (some-> v js/parseFloat (* 100) (.toFixed 0)))
 
 (defn- mult [v]
-  (when v (-> v js/parseFloat (.toFixed 2) (clojure.string/replace "." ","))))
+  (when v (-> v js/parseFloat (.toFixed 2) (str/replace "." ","))))
 
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
@@ -98,21 +100,21 @@
         ;; Map score to y on the step curve (clamp).
         y (cond (< s 60) 180  (< s 80) 140  (< s 100) 80  (< s 120) 50  :else 30)]
     [:svg.chart {:viewBox "0 0 600 200" :preserveAspectRatio "none"}
-     [:g {:stroke "#E2E1DF" :stroke-width 1}
+     [:g {:stroke t/border-default :stroke-width 1}
       [:line {:x1 40 :y1 20  :x2 600 :y2 20}]
       [:line {:x1 40 :y1 80  :x2 600 :y2 80}]
       [:line {:x1 40 :y1 140 :x2 600 :y2 140}]
       [:line {:x1 40 :y1 180 :x2 600 :y2 180}]]
-     [:g {:font-family "IBM Plex Mono" :font-size 10 :fill "#BCBAB5"}
+     [:g {:font-family t/font-mono :font-size 10 :fill t/text-disabled}
       [:text {:x 0 :y 24} "1.5x"]
       [:text {:x 0 :y 84} "1.0x"]
       [:text {:x 0 :y 144} "0.5x"]
       [:text {:x 0 :y 184} "0x"]]
      [:path {:d "M40 180 L180 180 L180 140 L300 140 L300 80 L420 80 L420 50 L600 50"
-             :fill "none" :stroke "#000" :stroke-width 2.5 :stroke-linejoin "round"}]
-     [:line {:x1 x :y1 20 :x2 x :y2 180 :stroke "#3B9AFF" :stroke-width 1 :stroke-dasharray "3 4"}]
-     [:circle {:cx x :cy y :r 6 :fill "#3B9AFF" :stroke "#fff" :stroke-width 2}]
-     [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
+             :fill "none" :stroke t/color-primary :stroke-width 2.5 :stroke-linejoin "round"}]
+     [:line {:x1 x :y1 20 :x2 x :y2 180 :stroke t/color-cyan :stroke-width 1 :stroke-dasharray "3 4"}]
+     [:circle {:cx x :cy y :r 6 :fill t/color-cyan :stroke t/color-white :stroke-width 2}]
+     [:g {:font-family t/font-ui :font-size 11 :fill t/text-tertiary}
       [:text {:x 36 :y 198} "0%"]
       [:text {:x 170 :y 198} "60%"]
       [:text {:x 290 :y 198} "80%"]
@@ -146,14 +148,14 @@
            [:div.card-head
             [:div [:h3 "Parâmetros"] [:div.card-sub "Informe metas e realizados do período"]]]
            [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
-            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+            [:div.form-grid.-tight
              [field {:label "Meta SAO (R$)" :value (:sao_meta @form)
                      :help "soma anual de operações"
                      :on-change #(swap! form assoc :sao_meta %)}]
              [field {:label "SAO realizado (R$)" :value (:sao_realizado @form)
                      :help "vendas confirmadas"
                      :on-change #(swap! form assoc :sao_realizado %)}]]
-            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+            [:div.form-grid.-tight
              [field {:label "Meta de vidas" :value (:vidas_meta @form)
                      :help "vidas vendidas"
                      :on-change #(swap! form assoc :vidas_meta %)}]

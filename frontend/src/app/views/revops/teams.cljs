@@ -104,7 +104,7 @@
               "Novo time"]]]
 
            :else
-           [:div {:style {:display "grid" :grid-template-columns "repeat(3,1fr)" :gap "16px"}}
+           [:div.form-grid.-three
             (for [t team-rows]
               ^{:key (:id t)}
               [:div.card

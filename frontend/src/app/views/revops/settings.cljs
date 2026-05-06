@@ -3,22 +3,28 @@
             [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.ds.inputs :as inputs]
-            [app.ds.buttons :as btn]
             [app.auth.subs]))
 
 ;; Settings — design styling: stacked cards with toggles, fields, owner mapper.
 
 (defn- toggle-field [{:keys [label description value on-change]}]
-  [:div {:style {:display "flex" :justify-content "space-between" :align-items "flex-start"
-                 :padding "16px 0" :border-bottom "1px solid var(--border-subtle)" :gap "16px"}}
-   [:div {:style {:flex 1}}
-    [:div {:style {:font-family "var(--font-ui)" :font-size "13px" :font-weight 600
-                   :color "var(--fg-1)"}}
-     label]
-    (when description
-      [:div {:style {:font-size "12px" :color "var(--fg-3)" :margin-top "2px"}} description])]
-   [:div {:class (str "tog" (when value " on"))
-          :on-click #(when on-change (on-change (not value)))}]])
+  (let [label-id (str "tog-" (gensym))]
+    [:div {:style {:display "flex" :justify-content "space-between" :align-items "flex-start"
+                   :padding "16px 0" :border-bottom "1px solid var(--border-subtle)" :gap "16px"}}
+     [:div {:style {:flex 1}}
+      [:label {:id label-id
+               :style {:font-family "var(--font-ui)" :font-size "13px" :font-weight 600
+                       :color "var(--fg-1)" :display "block" :cursor "pointer"}
+               :on-click #(when on-change (on-change (not value)))}
+       label]
+      (when description
+        [:div {:style {:font-size "12px" :color "var(--fg-3)" :margin-top "2px"}} description])]
+     [:button {:type "button"
+               :class (str "tog" (when value " on"))
+               :role "switch"
+               :aria-checked (str (boolean value))
+               :aria-labelledby label-id
+               :on-click #(when on-change (on-change (not value)))}]]))
 
 (defn- map->rows [m]
   (mapv (fn [[k v]] {:owner-id (if (keyword? k) (name k) (str k))
@@ -97,7 +103,7 @@
           [:div.card
            [:div.card-head
             [:div [:h3 "Prazos"] [:div.card-sub "Janelas de validação e sincronização"]]]
-           [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "16px"}}
+           [:div.form-grid
             [inputs/input
              {:label "Prazo de Validação (dias)" :type "number"
               :value (str (or (:validation_deadline_days form) ""))

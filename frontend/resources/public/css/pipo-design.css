@@ -18,15 +18,21 @@
   --success-dark:#17A66D;
   --success-light:#A8F2CE;
   --success-lightest:#D4F8E7;
+  /* Text variant for use on success-lightest backgrounds — --success-dark
+     itself is the fill (#17A66D) and is below WCAG AA as text. */
+  --success-text:#0F7C50;
   --warning-dark:#FFB033;
   --warning-light:#FFD17D;
   --warning-lightest:#FFEEC2;
   /* Text variant for use on warning-lightest backgrounds — --warning-dark
      itself is the fill (#FFB033) and lacks contrast as text. */
-  --warning-text:#9A6B0F;
+  --warning-text:#7A5410;
   --danger-dark:#F04646;
   --danger-light:#FFACAC;
   --danger-lightest:#FFDEDE;
+  /* Text variant for use on danger-lightest backgrounds — --danger-dark
+     itself is the fill (#F04646) and is below WCAG AA as text. */
+  --danger-text:#B91C1C;
   /* Calc / Validating badge backgrounds — outside the success/warning/danger
      family but used in the badge palette. */
   --badge-calc-bg:#EAF1FB;
@@ -145,7 +151,7 @@ main:focus{outline:none}
 .nav-item.active svg{color:var(--fg-1)}
 .nav-item .badge{
   margin-left:auto;font-family:var(--font-mono);font-size:11px;
-  background:var(--danger-lightest);color:var(--danger-dark);
+  background:var(--danger-lightest);color:var(--danger-text);
   padding:1px 6px;border-radius:var(--r-pill);font-weight:600;
 }
 
@@ -213,7 +219,7 @@ main:focus{outline:none}
 .btn-secondary:hover{box-shadow:var(--shadow-hover)}
 .btn-ghost{background:transparent;color:var(--fg-2)}
 .btn-ghost:hover{background:var(--bg-2)}
-.btn-danger{background:var(--danger-lightest);color:var(--danger-dark);border-color:var(--danger-light)}
+.btn-danger{background:var(--danger-lightest);color:var(--danger-text);border-color:var(--danger-light)}
 .btn-sm{padding:6px 11px;font-size:12px}
 
 /* ============ Content ============ */
@@ -234,8 +240,8 @@ main:focus{outline:none}
 .kpi-value .frac{font-family:var(--font-display);font-size:24px;color:var(--fg-3)}
 .kpi-foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3);margin-top:auto}
 .delta{display:inline-flex;align-items:center;gap:3px;font-family:var(--font-ui);font-weight:600;font-size:12px;padding:2px 8px;border-radius:var(--r-pill)}
-.delta-up{background:var(--success-lightest);color:var(--success-dark)}
-.delta-down{background:var(--danger-lightest);color:var(--danger-dark)}
+.delta-up{background:var(--success-lightest);color:var(--success-text)}
+.delta-down{background:var(--danger-lightest);color:var(--danger-text)}
 .delta svg{width:12px;height:12px}
 .kpi-grafismo{position:absolute;right:-30px;bottom:-30px;width:140px;height:140px;opacity:.5;pointer-events:none;color:var(--neutral-regular)}
 
@@ -301,15 +307,67 @@ main:focus{outline:none}
 .two-col{display:grid;grid-template-columns:2fr 1fr;gap:16px}
 .two-col-eq{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 
+/* Form grid — responsive utility for stacked form/panel layouts.
+   Default 2 equal cols. Modifiers: .-three (3), .-four (4), .-auto (auto-fit
+   minmax(220px,1fr)). Gap modifiers: .-tight (12px), .-loose (24px).
+   Collapses to 2 cols at 1024px and 1 col at 768px so inline pixel grids
+   in views can become a single semantic class. */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-grid.-three{grid-template-columns:repeat(3,1fr)}
+.form-grid.-four{grid-template-columns:repeat(4,1fr)}
+.form-grid.-auto{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.form-grid.-tight{gap:12px}
+.form-grid.-loose{gap:24px}
+
+/* Leadership appraisal row — name(180) + meta(200) + 3 inputs.
+   Reflows to 3 inputs/row at 1140px and 1 col at 768px. */
+.appraisal-row{
+  display:grid;grid-template-columns:180px 200px 1fr 1fr 1fr;
+  gap:12px;align-items:end;
+  padding:12px 0;border-bottom:1px solid var(--border-subtle);
+}
+
+/* Notification dropdown — pinned 380px panel that becomes viewport-fluid
+   on narrow screens so it never overflows the topbar. */
+.notification-dropdown{width:380px;max-width:calc(100vw - 32px)}
+@media (max-width: 480px){
+  .notification-dropdown{width:calc(100vw - 24px)}
+}
+
+/* Chart data table — assistive-tech alternative to SVG charts. <details>
+   so sighted users can disclose it on demand without it taking space. The
+   summary reads as a quiet text link; the table inherits the regular .table
+   look but sits in a tighter frame so it doesn't compete with the chart. */
+.chart-data-table{margin-top:12px}
+.chart-data-table>summary{
+  list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  padding:6px 0;font-family:var(--font-ui);font-size:12px;font-weight:600;
+  color:var(--fg-3);user-select:none;
+}
+.chart-data-table>summary:hover{color:var(--fg-1)}
+.chart-data-table>summary:focus-visible{
+  outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px;
+}
+.chart-data-table>summary::-webkit-details-marker{display:none}
+.chart-data-table>summary::before{
+  content:"›";display:inline-block;font-size:14px;line-height:1;
+  transition:transform var(--d) var(--ease);
+}
+.chart-data-table[open]>summary::before{transform:rotate(90deg)}
+.chart-data-table .table-wrap{margin-top:8px}
+
 /* Tabs */
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border-subtle);margin-bottom:-1px}
 .tab{
   padding:10px 14px;font-family:var(--font-ui);font-weight:600;font-size:13px;
-  color:var(--fg-3);border-bottom:2px solid transparent;cursor:pointer;
+  color:var(--fg-3);border:0;border-bottom:2px solid transparent;cursor:pointer;
   transition:color var(--d) var(--ease),border-color var(--d) var(--ease);
+  /* button reset — .tab may be rendered as <button> for keyboard a11y. */
+  background:transparent;margin:0;line-height:1.4;
 }
 .tab:hover{color:var(--fg-1)}
-.tab.active{color:var(--fg-1);border-bottom-color:var(--black)}
+.tab.active,.tab[aria-selected="true"]{color:var(--fg-1);border-bottom-color:var(--black)}
+.tab:focus-visible{outline:2px solid var(--cyan);outline-offset:-2px;border-radius:2px}
 
 /* Status badges */
 .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-pill);font-family:var(--font-mono);font-size:11px;font-weight:500;line-height:1.4}
@@ -318,11 +376,11 @@ main:focus{outline:none}
 .badge-calc{background:var(--badge-calc-bg);color:var(--blue-dark)}
 .badge-review{background:var(--warning-lightest);color:var(--warning-text)}
 .badge-validating{background:var(--badge-validating-bg);color:var(--purple-regular)}
-.badge-approved{background:var(--success-lightest);color:var(--success-dark)}
+.badge-approved{background:var(--success-lightest);color:var(--success-text)}
 .badge-locked{background:var(--neutral-light);color:var(--neutral-darkest)}
-.badge-contested{background:var(--danger-lightest);color:var(--danger-dark)}
-.badge-resolved{background:var(--success-lightest);color:var(--success-dark)}
-.badge-paid{background:var(--success-lightest);color:var(--success-dark)}
+.badge-contested{background:var(--danger-lightest);color:var(--danger-text)}
+.badge-resolved{background:var(--success-lightest);color:var(--success-text)}
+.badge-paid{background:var(--success-lightest);color:var(--success-text)}
 .badge-pending{background:var(--warning-lightest);color:var(--warning-text)}
 
 /* Table */
@@ -460,9 +518,12 @@ main:focus{outline:none}
   border:1px solid var(--border-subtle);background:#fff;
   font-family:var(--font-ui);font-size:12px;font-weight:500;color:var(--fg-2);
   cursor:pointer;transition:box-shadow var(--d) var(--ease);
+  /* button reset — .chip may be rendered as <button> for keyboard a11y. */
+  margin:0;line-height:1.4;
 }
 .chip:hover{box-shadow:var(--shadow-hover)}
-.chip.active{background:var(--black);color:#fff;border-color:var(--black)}
+.chip.active,.chip[aria-pressed="true"]{background:var(--black);color:#fff;border-color:var(--black)}
+.chip:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 .chip svg{width:12px;height:12px}
 
 /* Stepper (apuração) */
@@ -641,14 +702,17 @@ main:focus{outline:none}
   width:34px;height:20px;background:var(--neutral-light);border-radius:var(--r-pill);
   position:relative;cursor:pointer;transition:background var(--d) var(--ease);
   flex-shrink:0;
+  /* button reset — .tog may be rendered as <button role="switch"> for keyboard a11y. */
+  border:0;padding:0;margin:0;
 }
 .tog::after{
   content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
   background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.15);
   transition:transform var(--d) var(--ease);
 }
-.tog.on{background:var(--black)}
-.tog.on::after{transform:translateX(14px)}
+.tog.on,.tog[aria-checked="true"]{background:var(--black)}
+.tog.on::after,.tog[aria-checked="true"]::after{transform:translateX(14px)}
+.tog:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 
 /* Login frame & dot grid */
 .login-frame{
@@ -672,7 +736,7 @@ main:focus{outline:none}
 .matrix th,.matrix td{padding:10px 12px;text-align:center;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle)}
 .matrix th{background:var(--bg-2);font-weight:600;color:var(--fg-3);text-transform:uppercase;font-size:10.5px;letter-spacing:0.06em}
 .matrix th:first-child,.matrix td:first-child{text-align:left;background:var(--bg-2);font-weight:600;color:var(--fg-1)}
-.matrix td.cur{background:var(--success-lightest);color:var(--success-dark);font-weight:700;border:2px solid var(--success-dark)}
+.matrix td.cur{background:var(--success-lightest);color:var(--success-text);font-weight:700;border:2px solid var(--success-text)}
 
 /* Audit log row */
 .log-row{
@@ -695,7 +759,7 @@ main:focus{outline:none}
 .diff>div{padding:12px 16px;border-bottom:1px solid var(--border-subtle)}
 .diff>div:nth-last-child(-n+2){border-bottom:0}
 .diff .head{background:var(--bg-2);font-family:var(--font-ui);font-weight:600;color:var(--fg-3);font-size:11px;text-transform:uppercase;letter-spacing:0.06em}
-.diff .new{background:var(--success-lightest);color:var(--success-dark);font-weight:600}
+.diff .new{background:var(--success-lightest);color:var(--success-text);font-weight:600}
 .diff .old{color:var(--fg-3);text-decoration:line-through}
 
 /* ==========================================================================
@@ -715,6 +779,8 @@ main:focus{outline:none}
   .kpi-grid.-three{grid-template-columns:repeat(2,1fr)}
   .two-col{grid-template-columns:1fr}
   .two-col-eq{grid-template-columns:1fr}
+  .form-grid.-three{grid-template-columns:repeat(2,1fr)}
+  .form-grid.-four{grid-template-columns:repeat(2,1fr)}
   .split-numerics{grid-template-columns:1fr;gap:12px}
   .split-numerics .rule{display:none}
   .sim-grid{grid-template-columns:1fr}
@@ -724,6 +790,12 @@ main:focus{outline:none}
   .login-form-side{padding:40px 32px}
   .search{width:200px}
   .stepper{flex-wrap:wrap;gap:12px}
+}
+
+/* Wide laptop — 1140px and below: appraisal row reflows to 3 cols,
+   leaving meta info above the inputs. */
+@media (max-width: 1140px){
+  .appraisal-row{grid-template-columns:1fr 1fr 1fr;row-gap:16px}
 }
 
 /* Mobile / phone — 768px and below. Sidebar shrinks to icons; chrome
@@ -756,6 +828,10 @@ main:focus{outline:none}
   .page{padding:16px 16px 64px;gap:16px}
   .kpi-grid{grid-template-columns:1fr;gap:12px}
   .kpi-grid.-three{grid-template-columns:1fr}
+  .form-grid,
+  .form-grid.-three,
+  .form-grid.-four{grid-template-columns:1fr}
+  .appraisal-row{grid-template-columns:1fr;row-gap:12px}
   .kpi{padding:18px}
   .horizon-strip{grid-template-columns:1fr;gap:10px;padding-bottom:10px}
   .horizon-strip .num{font-size:22px}

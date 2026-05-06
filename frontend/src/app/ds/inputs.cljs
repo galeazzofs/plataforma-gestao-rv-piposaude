@@ -1,6 +1,5 @@
 (ns app.ds.inputs
-  (:require [reagent.core :as r]
-            [app.ds.tokens :as t]
+  (:require [app.ds.tokens :as t]
             [app.ds.typography :as typo]))
 
 (defn- field-style [{:keys [error disabled]}]

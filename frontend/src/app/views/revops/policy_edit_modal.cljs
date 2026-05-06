@@ -53,7 +53,7 @@
                              (map (fn [u] {:value (:id u) :label (:name u)}) ev-users))
               :on-change #(swap! form assoc :ev_id %)}]
 
-            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+            [:div.form-grid.-tight
              [inputs/input
               {:label "Início vigência" :type "date"
                :value (:first_payment_real @form)
@@ -63,7 +63,7 @@
                :value (:closed_date @form)
                :on-change #(swap! form assoc :closed_date %)}]]
 
-            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+            [:div.form-grid.-tight
              [inputs/input
               {:label "Parcelas pagas antes da plataforma (0–12)" :type "number"
                :value (str (:initial_installments_paid @form))
@@ -75,7 +75,7 @@
                          {:value "M" :label "M"} {:value "G" :label "G"}]
                :on-change #(swap! form assoc :segment %)}]]
 
-            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+            [:div.form-grid.-tight
              [inputs/input
               {:label "Operadora"
                :value (:partner_operator @form)
@@ -85,7 +85,7 @@
                :value (str (:commission_paid_legacy @form))
                :on-change #(swap! form assoc :commission_paid_legacy %)}]]
 
-            [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "12px"}}
+            [:div.form-grid.-tight
              [inputs/input
               {:label "Total Pago Comissão (R$)" :type "number"
                :value (str (:total_paid_comissao @form))

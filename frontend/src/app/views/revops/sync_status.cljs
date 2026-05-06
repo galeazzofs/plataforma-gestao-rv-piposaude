@@ -97,10 +97,10 @@
           (when (seq (:errors status))
             [:div.card
              [:div.card-head
-              [:div [:h3 {:style {:color "var(--danger-dark)"}} "Erros"]
+              [:div [:h3 {:style {:color "var(--danger-text)"}} "Erros"]
                [:div.card-sub "Falhas reportadas durante a última sincronização"]]]
              [:ul {:style {:margin 0 :padding-left "20px"}}
               (for [e (:errors status)]
                 ^{:key e}
-                [:li {:style {:font-size "13px" :color "var(--danger-dark)" :margin-bottom "4px"}}
+                [:li {:style {:font-size "13px" :color "var(--danger-text)" :margin-bottom "4px"}}
                  e])]])])])))

@@ -104,14 +104,18 @@
             {:on-click #(do (reset! editing-user nil) (reset! modal-open? true))}
             [layout/icon "plus" {:width 14 :height 14}] "Convidar usuário"]]}
 
-         [:div.filter-row
-          [:div {:class (str "chip" (when (nil? @active-role) " active"))
-                 :on-click #(reset! active-role nil)}
+         [:div.filter-row {:role "group" :aria-label "Filtrar por papel"}
+          [:button {:type "button"
+                    :class (str "chip" (when (nil? @active-role) " active"))
+                    :aria-pressed (str (nil? @active-role))
+                    :on-click #(reset! active-role nil)}
            (str "Todos (" (count users) ")")]
           (for [role ["EV" "CN" "GERENTE" "FINANCE" "ADMIN"]]
             ^{:key role}
-            [:div {:class (str "chip" (when (= @active-role role) " active"))
-                   :on-click #(reset! active-role role)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= @active-role role) " active"))
+                      :aria-pressed (str (= @active-role role))
+                      :on-click #(reset! active-role role)}
              (str role " (" (or (counts role) 0) ")")])]
 
          [:div.card {:style {:padding 0}}

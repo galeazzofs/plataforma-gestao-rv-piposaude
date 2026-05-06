@@ -1,6 +1,8 @@
 (ns app.views.ev.dashboard
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [app.ds.layout :as layout]
+            [app.ds.tokens :as t]
             [app.auth.subs]
             [app.utils.format :as fmt]))
 
@@ -35,24 +37,24 @@
                         (filter some?))
           actual-pts (filter :actual (map-indexed #(assoc %2 :i %1) data))
           actual-d (->> actual-pts (map (fn [p] (str (x (:i p)) " " (y (:actual p)))))
-                         (clojure.string/join " L "))]
+                         (str/join " L "))]
       [:svg.chart {:viewBox "0 0 600 240" :preserveAspectRatio "none"}
-       [:g {:stroke "#E2E1DF" :stroke-width 1}
+       [:g {:stroke t/border-default :stroke-width 1}
         [:line {:x1 40 :y1 40  :x2 600 :y2 40}]
         [:line {:x1 40 :y1 100 :x2 600 :y2 100}]
         [:line {:x1 40 :y1 160 :x2 600 :y2 160}]
         [:line {:x1 40 :y1 220 :x2 600 :y2 220}]]
        (when (seq proj-pts)
-         [:path {:d (str "M " (clojure.string/join " L " proj-pts))
-                 :fill "none" :stroke "#3370D1"
+         [:path {:d (str "M " (str/join " L " proj-pts))
+                 :fill "none" :stroke t/blue-500
                  :stroke-width 2 :stroke-dasharray "6 4" :stroke-linecap "round"}])
        (when (seq actual-pts)
-         [:path {:d (str "M " actual-d) :fill "none" :stroke "#000"
+         [:path {:d (str "M " actual-d) :fill "none" :stroke t/color-primary
                  :stroke-width 2.5 :stroke-linecap "round"}])
-       [:g {:fill "#000"}
+       [:g {:fill t/color-primary}
         (for [p actual-pts]
           ^{:key (:i p)} [:circle {:cx (x (:i p)) :cy (y (:actual p)) :r 3.5}])]
-       [:g {:font-family "Manrope" :font-size 11 :fill "#6B6663"}
+       [:g {:font-family t/font-ui :font-size 11 :fill t/text-tertiary}
         (for [[i p] (map-indexed vector data)]
           ^{:key i} [:text {:x (- (x i) 6) :y 238} (:label p)])]])))
 

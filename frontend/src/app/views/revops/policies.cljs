@@ -72,21 +72,32 @@
                                   (fetch-fn))}]]]}
 
          ;; Filter chips reflect real counts loaded from the API
-         [:div.filter-row {:style {:display "flex" :align-items "center" :gap "12px"}}
-          [:div {:class (str "chip" (when (= "" (:status @filters)) " active"))
-                 :on-click #(do (swap! filters assoc :status "") (fetch-fn))}
+         [:div.filter-row {:role "group" :aria-label "Filtrar por status"
+                           :style {:display "flex" :align-items "center" :gap "12px"}}
+          [:button {:type "button"
+                    :class (str "chip" (when (= "" (:status @filters)) " active"))
+                    :aria-pressed (str (= "" (:status @filters)))
+                    :on-click #(do (swap! filters assoc :status "") (fetch-fn))}
            (str "Todas (" total ")")]
-          [:div {:class (str "chip" (when (= "PROJECTED" (:status @filters)) " active"))
-                 :on-click #(do (swap! filters assoc :status "PROJECTED") (fetch-fn))}
+          [:button {:type "button"
+                    :class (str "chip" (when (= "PROJECTED" (:status @filters)) " active"))
+                    :aria-pressed (str (= "PROJECTED" (:status @filters)))
+                    :on-click #(do (swap! filters assoc :status "PROJECTED") (fetch-fn))}
            (str "Ativas (" actives ")")]
-          [:div {:class (str "chip" (when (= "IN_PAYMENT" (:status @filters)) " active"))
-                 :on-click #(do (swap! filters assoc :status "IN_PAYMENT") (fetch-fn))}
+          [:button {:type "button"
+                    :class (str "chip" (when (= "IN_PAYMENT" (:status @filters)) " active"))
+                    :aria-pressed (str (= "IN_PAYMENT" (:status @filters)))
+                    :on-click #(do (swap! filters assoc :status "IN_PAYMENT") (fetch-fn))}
            (str "Em pagamento (" in-validation ")")]
-          [:div {:class (str "chip" (when (= "SETTLED" (:status @filters)) " active"))
-                 :on-click #(do (swap! filters assoc :status "SETTLED") (fetch-fn))}
+          [:button {:type "button"
+                    :class (str "chip" (when (= "SETTLED" (:status @filters)) " active"))
+                    :aria-pressed (str (= "SETTLED" (:status @filters)))
+                    :on-click #(do (swap! filters assoc :status "SETTLED") (fetch-fn))}
            (str "Totalmente pagas (" settled ")")]
-          [:div {:class (str "chip" (when (= "CANCELLED" (:status @filters)) " active"))
-                 :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
+          [:button {:type "button"
+                    :class (str "chip" (when (= "CANCELLED" (:status @filters)) " active"))
+                    :aria-pressed (str (= "CANCELLED" (:status @filters)))
+                    :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
            (str "Canceladas (" suspended ")")]
           [:div {:style {:margin-left "auto" :display "flex" :gap "8px" :align-items "center"}}
            [:select.period-select

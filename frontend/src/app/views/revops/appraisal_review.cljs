@@ -79,9 +79,13 @@
                      :border-radius "var(--r-sm)"
                      :margin-bottom "8px"
                      :background "var(--bg-1)"}}
-       [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"
-                      :padding "12px 14px" :cursor "pointer"}
-              :on-click #(swap! open? not)}
+       [:button {:type "button"
+                 :aria-expanded (str @open?)
+                 :style {:display "flex" :justify-content "space-between" :align-items "center"
+                         :padding "12px 14px" :cursor "pointer"
+                         :width "100%" :background "transparent" :border 0
+                         :font "inherit" :color "inherit" :text-align "left"}
+                 :on-click #(swap! open? not)}
         [:div
          [:strong (or (:client_name policy) "·")]
          [:span.muted {:style {:margin-left "8px" :font-size "12px"}}
@@ -127,9 +131,13 @@
                                         (= (:operadora p) operadora-filter))))
                           (map (fn [p] (update p :nfs filter-nfs))))]
         [:div.card {:style {:padding 0 :margin-bottom "12px"}}
-         [:div {:style {:padding "16px 20px" :cursor "pointer"
-                        :display "flex" :justify-content "space-between" :align-items "center"}
-                :on-click #(swap! open? not)}
+         [:button {:type "button"
+                   :aria-expanded (str @open?)
+                   :style {:padding "16px 20px" :cursor "pointer"
+                           :display "flex" :justify-content "space-between" :align-items "center"
+                           :width "100%" :background "transparent" :border 0
+                           :font "inherit" :color "inherit" :text-align "left"}
+                   :on-click #(swap! open? not)}
           [:div
            [:div.name {:style {:font-size "14px"}} (:ev_name ev)]
            [:div.muted {:style {:font-size "12px" :margin-top "4px"}}
@@ -155,19 +163,26 @@
                          (remove nil?)
                          distinct sort)]
         [:div
-         [:div.filter-row
+         [:div.filter-row {:role "group" :aria-label "Filtros"}
           (for [t ["Todos" "Comissão" "Fee por Vida" "Premiação" "Patrocínio - Eventos" "Agenciamento"]]
             ^{:key t}
-            [:div {:class (str "chip" (when (= t @tipo-filter) " active"))
-                   :on-click #(reset! tipo-filter t)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= t @tipo-filter) " active"))
+                      :aria-pressed (str (= t @tipo-filter))
+                      :on-click #(reset! tipo-filter t)}
              t])
-          [:div {:style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
-          [:div {:class (str "chip" (when (= "Todas" @op-filter) " active"))
-                 :on-click #(reset! op-filter "Todas")} "Todas"]
+          [:div {:role "separator" :aria-hidden "true"
+                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
+          [:button {:type "button"
+                    :class (str "chip" (when (= "Todas" @op-filter) " active"))
+                    :aria-pressed (str (= "Todas" @op-filter))
+                    :on-click #(reset! op-filter "Todas")} "Todas"]
           (for [o all-ops]
             ^{:key o}
-            [:div {:class (str "chip" (when (= o @op-filter) " active"))
-                   :on-click #(reset! op-filter o)}
+            [:button {:type "button"
+                      :class (str "chip" (when (= o @op-filter) " active"))
+                      :aria-pressed (str (= o @op-filter))
+                      :on-click #(reset! op-filter o)}
              o])]
          (if (empty? ev-summary)
            [:div.card [:div {:style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
@@ -233,37 +248,47 @@
          ;; Tabs card
          [:div.card {:style {:padding 0}}
           [:div {:style {:padding "0 24px"}}
-           [:div.tabs
-            [:div {:class (str "tab" (when (= @active-tab :por-ev) " active"))
-                   :on-click #(reset! active-tab :por-ev)}
+           [:div.tabs {:role "tablist" :aria-label "Visões de apuração"}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :por-ev) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :por-ev))
+                      :on-click #(reset! active-tab :por-ev)}
              "Por EV "
              [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count ev-summary)]]
-            [:div {:class (str "tab" (when (= @active-tab :unmatched) " active"))
-                   :on-click #(reset! active-tab :unmatched)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :unmatched) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :unmatched))
+                      :on-click #(reset! active-tab :unmatched)}
              "Não matcheadas "
-             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-dark)"
+             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count unmatched)]]
-            [:div {:class (str "tab" (when (= @active-tab :expired) " active"))
-                   :on-click #(reset! active-tab :expired)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :expired) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :expired))
+                      :on-click #(reset! active-tab :expired)}
              "Fora de vigência "
              [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count expired)]]
-            [:div {:class (str "tab" (when (= @active-tab :apolices-finalizadas) " active"))
-                   :on-click #(reset! active-tab :apolices-finalizadas)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :apolices-finalizadas) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :apolices-finalizadas))
+                      :on-click #(reset! active-tab :apolices-finalizadas)}
              "Apólices finalizadas "
-             [:span {:style {:background "var(--success-lightest)" :color "var(--success-dark)"
+             [:span {:style {:background "var(--success-lightest)" :color "var(--success-text)"
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count apolices-finalizadas)]]
-            [:div {:class (str "tab" (when (= @active-tab :nao-sup) " active"))
-                   :on-click #(reset! active-tab :nao-sup)}
+            [:button {:type "button"
+                      :class (str "tab" (when (= @active-tab :nao-sup) " active"))
+                      :role "tab" :aria-selected (str (= @active-tab :nao-sup))
+                      :on-click #(reset! active-tab :nao-sup)}
              "Não suportado "
              [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
                              :font-family "var(--font-mono)" :font-size "11px"

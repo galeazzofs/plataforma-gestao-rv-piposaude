@@ -17,7 +17,7 @@
               :color   (first t/chart-colors)
               :label   "Realizado"}
              {:key     :a_apurar
-              :color   "#FFB033"
+              :color   t/warning-default
               :label   "A apurar"}
              {:key     :projetado
               :color   (second t/chart-colors)
