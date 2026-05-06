@@ -7,7 +7,7 @@
             [app.utils.format :as fmt]))
 
 ;; Finance dashboard — three editorial rows.
-;; Row 1: Comissão Potencial · Comissão Paga · Saldo Devedor Total
+;; Row 1: Potencial a pagar · Comissão Paga · Obrigação aberta
 ;; Row 2: Comissão x Agenciamento (split numerics + 6-month trend)
 ;; Row 3: Fluxo de Caixa Projetado (30/60/90 horizons + chart)
 ;; Renders only data returned by the API; empty states stand in until the
@@ -59,20 +59,19 @@
       (catch :default _ nil))))
 
 ;; ----- Row 1: KPI cards ------------------------------------------------
-;; Comissão Potencial = Σ commission.total_estimated across all policies in the
-;;   policies index, including agenciamento.
-;; Comissão Paga      = Σ policies.total_paid_comissao + total_paid_agenciamento.
-;; Saldo Devedor      = projected obligation − paid, restricted to policies
-;;   still inside their 12-month commission lifecycle.
+;; Potencial a pagar = A apurar + Projetado, restricted to policies still
+;;   inside their 12-month commission lifecycle.
+;; Comissão Paga     = Σ policies.total_paid_comissao + total_paid_agenciamento.
+;; Obrigação aberta  = non-realized monthly competencies in current filter.
 
 (defn- kpi-potencial [{:keys [value caption]}]
   [:div.kpi
    [:div.kpi-label
     [layout/icon "target" {:width 14 :height 14}]
-    "comissão potencial"]
+    "potencial a pagar"]
    [:div.kpi-value (brl-value value "·")]
    [:div.kpi-foot
-    [:span (or caption "todas as apólices · estimado")]]
+    [:span (or caption "a apurar + projetado · exclui realizado")]]
    [:svg.kpi-grafismo {:style {:color "var(--beige-light)"}}
     [:use {:href "#i-grafismo"}]]])
 
@@ -89,10 +88,10 @@
   [:div.kpi
    [:div.kpi-label
     [layout/icon "money" {:width 14 :height 14}]
-    "saldo devedor · total"]
+    "obrigação aberta"]
    [:div.kpi-value (brl-value value "·")]
    [:div.kpi-foot
-    [:span (or caption "apólices em curso · até 12 meses")]]
+    [:span (or caption "competências não realizadas · até 12 meses")]]
    [:svg.kpi-grafismo {:style {:color "var(--neutral-light)"}}
     [:use {:href "#i-grafismo-listras"}]]])
 
@@ -230,6 +229,7 @@
    Keeps the chart focused on the months that actually carry signal."
   [series]
   (let [has-data? (fn [p] (or (some? (->num (:realizado p)))
+                              (some? (->num (:a_apurar p)))
                               (some? (->num (:projetado p)))))]
     (->> series
          (drop-while (complement has-data?))
@@ -288,7 +288,7 @@
             xf     (fn [i] (+ lft (* i x-step)))
 
             all-v (->> pts
-                       (mapcat (fn [p] [(:realizado p) (:projetado p)]))
+                       (mapcat (fn [p] [(:realizado p) (:a_apurar p) (:projetado p)]))
                        (keep ->num))
             raw-max (if (seq all-v) (reduce max all-v) 1)
 
@@ -331,13 +331,16 @@
          {:viewBox (str "0 0 " vb-w " " vb-h)
         :preserveAspectRatio "none"
           :role "img"
-          :aria-label "Fluxo de caixa projetado por mês"}
-         [:desc "Barras mostram valores realizados. Linha e área mostram valores projetados. O marcador vertical indica o mês atual quando visível."]
+          :aria-label "Fluxo de caixa mensal por competência"}
+         [:desc "Barras mostram valores realizados e a apurar. Linha e área mostram valores projetados. O marcador vertical indica o mês atual quando visível."]
 
          [:defs
           [:linearGradient {:id "fluxo-realizado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
            [:stop {:offset "0%" :stop-color "var(--beige-light)"}]
            [:stop {:offset "100%" :stop-color "var(--beige-regular)"}]]
+          [:linearGradient {:id "fluxo-a-apurar-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
+           [:stop {:offset "0%" :stop-color "var(--warning-light)"}]
+           [:stop {:offset "100%" :stop-color "var(--warning-dark)"}]]
           [:linearGradient {:id "fluxo-projetado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
            [:stop {:offset "0%" :stop-color "var(--blue-light)" :stop-opacity 0.26}]
            [:stop {:offset "78%" :stop-color "var(--blue-light)" :stop-opacity 0.04}]
@@ -394,6 +397,15 @@
                     :width bar-w :height (max 2 (- btm (yf rv)))
                     :fill "url(#fluxo-realizado-fill)" :rx 4}])]
 
+         [:g {:clip-path "url(#fluxo-plot-clip)"}
+          (for [[i p] (map-indexed vector pts)
+                :let [av (->num (:a_apurar p))]
+                :when av]
+            ^{:key (str "aa" i)}
+            [:rect {:x (- (xf i) (/ bar-w 2)) :y (yf av)
+                    :width bar-w :height (max 2 (- btm (yf av)))
+                    :fill "url(#fluxo-a-apurar-fill)" :rx 4}])]
+
          (when area-d
            [:path {:d area-d
                    :fill "url(#fluxo-projetado-fill)"
@@ -409,10 +421,12 @@
          [:g
           (for [[i p] (map-indexed vector pts)
                 :let [proj-v (->num (:projetado p))
+                      apurar-v (->num (:a_apurar p))
                       real-v (->num (:realizado p))
-                      v (or proj-v real-v)
+                      v (or proj-v apurar-v real-v)
                       proj? (some? proj-v)
-                      kind (if proj? "projetado" "realizado")
+                      apurar? (some? apurar-v)
+                      kind (cond proj? "projetado" apurar? "a apurar" :else "realizado")
                       label (tooltip-label p kind v)
                       px (xf i)
                       py (yf v)
@@ -429,7 +443,9 @@
              [:circle.chart-point-hit {:cx px :cy py :r 18}]
              [:path {:d (str "M " px " " py " h 0.01")
                      :fill "none"
-                     :stroke (if proj? "var(--blue-regular)" "var(--beige-light)")
+                     :stroke (cond proj? "var(--blue-regular)"
+                                   apurar? "var(--warning-dark)"
+                                   :else "var(--beige-light)")
                      :stroke-width 6
                      :stroke-linecap "round"
                      :vector-effect "non-scaling-stroke"}]
@@ -484,16 +500,19 @@
 
 (defn- fluxo-caixa-card [{:keys [horizon period-summary filtered? series as-of]}]
   (let [has-realizado? (some #(->num (:realizado %)) series)
+        has-a-apurar? (some #(->num (:a_apurar %)) series)
         projected-count (:apolices period-summary)]
     [:div.card.fluxo-card
      [:div.card-head
-      [:div [:h3 "Fluxo de caixa projetado"]
-       [:div.card-sub "recebíveis projetados · comissão + agenciamento"]]
+      [:div [:h3 "Fluxo de caixa mensal"]
+       [:div.card-sub "Realizado, A apurar e Projetado por competência mensal"]]
       (when as-of [:span.card-asof (str "atualizado " as-of)])]
      (if filtered?
        [:div.horizon-strip.period-summary
         [summary-col {:label "realizado no período"
                       :value (:realizado period-summary)}]
+        [summary-col {:label "a apurar no período"
+                      :value (:a_apurar period-summary)}]
         [summary-col {:label "projetado no período"
                       :value (:projetado period-summary)}]
         [summary-col {:label "apólices projetadas"
@@ -516,6 +535,8 @@
       [:div.chart-legend
        (when has-realizado?
          [:span.legend-dot {:style {:color "var(--beige-light)"}} "realizado"])
+       (when has-a-apurar?
+         [:span.legend-dot {:style {:color "var(--warning-dark)"}} "a apurar"])
        [:span.legend-line {:style {:color "var(--blue-regular)"}} "projetado"]
        (when-not filtered?
          [:span.legend-band "horizonte 90d"])]
@@ -569,7 +590,7 @@
           user      @(rf/subscribe [:auth/current-user])
           route     @(rf/subscribe [:current-route-name])
 
-          potencial    (:comissao_potencial dashboard)
+          potencial    (or (:potencial_a_pagar dashboard) (:comissao_potencial dashboard))
           paga         (:comissao_paga dashboard)
           saldo-total  (:saldo_devedor_total dashboard)
           as-of        (format-asof (:as_of dashboard))
@@ -607,11 +628,11 @@
        ;; Row 1 — three KPIs
        [:div.kpi-grid.-three
         [kpi-potencial {:value potencial
-                        :caption (str "todas as apólices · estimado · " period-tag)}]
+                        :caption (str "a apurar + projetado · " period-tag)}]
         [kpi-paga      {:value paga
                         :caption (str "comissão + agenciamento · " period-tag)}]
         [kpi-saldo     {:value saldo-total
-                        :caption "apólices em curso · até 12 meses"}]]
+                        :caption "competências não realizadas · até 12 meses"}]]
 
        ;; Row 2 — Comissão x Agenciamento
        [comissao-agenciamento-card

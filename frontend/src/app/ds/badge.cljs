@@ -35,7 +35,7 @@
   [{:keys [status]}]
   (let [config {"PROJECTED"     {:label "Projetado"     :variant :default}
                 "IN_PAYMENT"    {:label "Em pagamento"  :variant :info}
-                "SETTLED"       {:label "Quitado"       :variant :success}
+                "SETTLED"       {:label "Totalmente paga" :variant :success}
                 "CANCELLED"     {:label "Cancelado"     :variant :error}
                 "DRAFT"         {:label "Rascunho"      :variant :default}
                 "CALCULATING"   {:label "Calculando"    :variant :info}

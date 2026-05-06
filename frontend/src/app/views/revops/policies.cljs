@@ -3,6 +3,7 @@
             [re-frame.core :as rf]
             [clojure.string :as str]
             [app.ds.layout :as layout]
+            [app.ds.badge :as badge]
             [app.views.revops.policy-edit-modal :as edit-modal]
             [app.utils.format :as fmt]
             [app.auth.subs]))
@@ -47,6 +48,7 @@
             total    (or (:total meta) (count (or policies [])))
             actives       (count (filter #(= (:commission_status %) "PROJECTED") (or policies [])))
             in-validation (count (filter #(= (:commission_status %) "IN_PAYMENT") (or policies [])))
+            settled       (count (filter #(= (:commission_status %) "SETTLED") (or policies [])))
             suspended     (count (filter #(= (:commission_status %) "CANCELLED") (or policies [])))
             operators-count (count (->> policies (map :partner_operator) (filter some?) distinct))
             ev-options (->> (or users [])
@@ -80,6 +82,9 @@
           [:div {:class (str "chip" (when (= "IN_PAYMENT" (:status @filters)) " active"))
                  :on-click #(do (swap! filters assoc :status "IN_PAYMENT") (fetch-fn))}
            (str "Em pagamento (" in-validation ")")]
+          [:div {:class (str "chip" (when (= "SETTLED" (:status @filters)) " active"))
+                 :on-click #(do (swap! filters assoc :status "SETTLED") (fetch-fn))}
+           (str "Totalmente pagas (" settled ")")]
           [:div {:class (str "chip" (when (= "CANCELLED" (:status @filters)) " active"))
                  :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
            (str "Canceladas (" suspended ")")]
@@ -123,15 +128,16 @@
              [:th.right "Pago Comissão"]
              [:th.right "Pago Agenciamento"]
              [:th.center "Meses"]
+             [:th "Estado"]
              [:th {:style {:width "48px"}} ""]]]
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 14 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 15 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? policies)
-              [:tr [:td {:col-span 14 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 15 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhuma apólice encontrada"]]
 
               :else
@@ -151,6 +157,7 @@
                  [:td.right.strong-num (or (fmt/fmt-brl-int (:total_paid_comissao p)) "·")]
                  [:td.right.strong-num (or (fmt/fmt-brl-int (:total_paid_agenciamento p)) "·")]
                  [:td.center.num (str (or (:installments_paid p) 0) "/12")]
+                 [:td [badge/status-badge {:status (:commission_status p)}]]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm
                    {:on-click #(open-edit p)

@@ -3,8 +3,8 @@
             [app.ds.tokens :as t]))
 
 (defn fluxo-caixa-chart
-  "Cash flow line chart: realizado vs projetado.
-   data: [{:month \"Jan\" :realizado 1000 :projetado 1200} ...]"
+  "Cash flow line chart: realizado, a apurar, projetado.
+   data: [{:month \"Jan\" :realizado 1000 :a_apurar 500 :projetado 1200} ...]"
   [data]
   [:div
    [:h3 {:style {:font-size (:lg t/font-sizes)
@@ -16,6 +16,9 @@
      :lines [{:key     :realizado
               :color   (first t/chart-colors)
               :label   "Realizado"}
+             {:key     :a_apurar
+              :color   "#FFB033"
+              :label   "A apurar"}
              {:key     :projetado
               :color   (second t/chart-colors)
               :label   "Projetado"

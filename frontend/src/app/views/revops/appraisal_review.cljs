@@ -188,6 +188,7 @@
             unmatched  (or (:unmatched appraisal) [])
             expired    (or (:expired appraisal) [])
             nao-sup    (or (:nao_suportado appraisal) [])
+            apolices-finalizadas (or (:apolices_finalizadas appraisal) [])
             totals     (or (:totals appraisal) {})
             user       @(rf/subscribe [:auth/current-user])
             route-name @(rf/subscribe [:current-route-name])]
@@ -248,6 +249,13 @@
                              :font-family "var(--font-mono)" :font-size "11px"
                              :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
               (count expired)]]
+            [:div {:class (str "tab" (when (= @active-tab :apolices-finalizadas) " active"))
+                   :on-click #(reset! active-tab :apolices-finalizadas)}
+             "Apólices finalizadas "
+             [:span {:style {:background "var(--success-lightest)" :color "var(--success-dark)"
+                             :font-family "var(--font-mono)" :font-size "11px"
+                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
+              (count apolices-finalizadas)]]
             [:div {:class (str "tab" (when (= @active-tab :nao-sup) " active"))
                    :on-click #(reset! active-tab :nao-sup)}
              "Não suportado "
@@ -266,6 +274,10 @@
                          [:div {:style {:margin-bottom "12px"}}
                           [export-csv-button expired "fora-vigencia.csv"]]
                          [nf-table expired]]
+             :apolices-finalizadas [:<>
+                                     [:div {:style {:margin-bottom "12px"}}
+                                      [export-csv-button apolices-finalizadas "apolices-finalizadas.csv"]]
+                                     [nf-table apolices-finalizadas]]
              :nao-sup   [:<>
                          [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-bottom "12px"}}
                           "Linhas com produto não suportado pelo modelo (Mental, Fitness)."]
