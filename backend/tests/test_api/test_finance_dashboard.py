@@ -8,9 +8,12 @@ import pytest
 from app.auth.jwt_manager import create_access_token
 from app.extensions import db
 from app.models import (
+    Appraisal,
+    AppraisalStatus,
     BenefitType,
     Client,
     CommissionPctTable,
+    CommissionStatus,
     EvQuarterAchievement,
     FinancialImport,
     ImportBatch,
@@ -46,9 +49,12 @@ def _batch(admin):
     return b
 
 
-def _financial_row(batch, amount, month, quarter, year, tipo="Comissao"):
+def _financial_row(
+    batch, amount, month, quarter, year, tipo="Comissao", policy_id=None
+):
     row = FinancialImport(
         import_batch_id=batch.id,
+        policy_id=policy_id,
         nf_valor_liquido=Decimal(str(amount)),
         nf_mes_recebimento=month,
         quarter=quarter,
@@ -202,6 +208,133 @@ def test_dashboard_projection_splits_policy_potential_across_future_years(
     assert resp_2027.status_code == 200
     assert resp_2026.get_json()["data"]["comissao_potencial"] == "180.00"
     assert resp_2027.get_json()["data"]["comissao_potencial"] == "540.00"
+
+
+def test_dashboard_pending_import_replaces_projected_policy_month(
+    client, db_session, frozen_finance_today
+):
+    _seed_m_pct_table()
+    admin = _admin()
+    batch = _batch(admin)
+    ev, client_obj = _ev_and_client()
+    policy = _projected_policy(
+        ev,
+        client_obj,
+        closed=date(2025, 11, 15),
+        first_payment=date(2026, 1, 1),
+    )
+    _financial_row(
+        batch,
+        "80.00",
+        "2026-01",
+        1,
+        2026,
+        "Comissao",
+        policy_id=policy.id,
+    )
+
+    resp = client.get(
+        "/api/v1/finance/dashboard?year=2026&quarter=1",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    jan = next(p for p in data["fluxo_caixa"]["series"] if p["ym"] == "2026-01")
+    assert jan["a_apurar"] == "80.00"
+    assert jan["projetado"] is None
+    assert jan["estado"] == "A_APURAR"
+    assert data["fluxo_caixa"]["period_summary"]["a_apurar"] == "80.00"
+    assert data["fluxo_caixa"]["period_summary"]["projetado"] == "120.00"
+    assert data["fluxo_caixa"]["period_summary"]["potencial_a_pagar"] == "200.00"
+    assert data["potencial_a_pagar"] == "200.00"
+    assert data["comissao_potencial"] == "200.00"
+    assert data["saldo_devedor_total"] == "200.00"
+
+
+def test_dashboard_locked_apuracao_shows_realizado_and_recalibrates_projection(
+    client, db_session, frozen_finance_today
+):
+    _seed_m_pct_table()
+    admin = _admin()
+    batch = _batch(admin)
+    ev, client_obj = _ev_and_client()
+    policy = _projected_policy(
+        ev,
+        client_obj,
+        closed=date(2025, 11, 15),
+        first_payment=date(2026, 1, 1),
+    )
+    db.session.add(Appraisal(
+        quarter=1,
+        year=2026,
+        status=AppraisalStatus.LOCKED,
+        created_by=admin.id,
+    ))
+    _financial_row(
+        batch,
+        "80.00",
+        "2026-01",
+        1,
+        2026,
+        "Comissao",
+        policy_id=policy.id,
+    )
+    db.session.flush()
+
+    resp = client.get(
+        "/api/v1/finance/dashboard?year=2026&quarter=1",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    jan = next(p for p in data["fluxo_caixa"]["series"] if p["ym"] == "2026-01")
+    assert jan["realizado"] == "80.00"
+    assert jan["a_apurar"] is None
+    assert jan["projetado"] is None
+    assert jan["estado"] == "REALIZADO"
+    assert data["fluxo_caixa"]["period_summary"]["realizado"] == "80.00"
+    assert data["fluxo_caixa"]["period_summary"]["a_apurar"] == "0"
+    assert data["fluxo_caixa"]["period_summary"]["projetado"] == "160.00"
+    assert data["potencial_a_pagar"] == "160.00"
+
+
+def test_dashboard_excludes_settled_policy_from_payable_potential(
+    client, db_session, frozen_finance_today
+):
+    _seed_m_pct_table()
+    admin = _admin()
+    ev, client_obj = _ev_and_client()
+    _projected_policy(
+        ev,
+        client_obj,
+        closed=date(2025, 11, 15),
+        first_payment=date(2026, 1, 1),
+    )
+    settled = Policy(
+        hubspot_ticket_id=f"SETTLED-{uuid.uuid4().hex[:8]}",
+        ev_id=ev.id,
+        client_id=client_obj.id,
+        segment=Segment.M,
+        benefit_type=BenefitType.SAUDE,
+        mrr_projected=Decimal("1000.00"),
+        closed_date=date(2025, 11, 15),
+        first_payment_real=date(2026, 1, 1),
+        installments_paid=12,
+        initial_installments_paid=12,
+        commission_status=CommissionStatus.SETTLED,
+    )
+    db.session.add(settled)
+    db.session.flush()
+
+    resp = client.get(
+        "/api/v1/finance/dashboard?year=2026",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["potencial_a_pagar"] == "720.00"
 
 
 def test_dashboard_available_years_include_policy_closed_years(client, db_session):
