@@ -84,36 +84,20 @@
                  :on-click #(do (swap! filters assoc :status "CANCELLED") (fetch-fn))}
            (str "Canceladas (" suspended ")")]
           [:div {:style {:margin-left "auto" :display "flex" :gap "8px" :align-items "center"}}
-           [:select {:style {:padding "6px 10px"
-                             :border "1px solid var(--border-subtle)"
-                             :border-radius "6px"
-                             :background "var(--bg-card)"
-                             :font-family "inherit"
-                             :font-size "12px"
-                             :color "var(--fg-1)"
-                             :cursor "pointer"
-                             :min-width "140px"}
-                     :value (:sort_by @filters)
-                     :on-change (fn [e]
-                                  (swap! filters assoc :sort_by (.. e -target -value))
-                                  (swap! filters assoc :page 1)
-                                  (fetch-fn))}
+           [:select.period-select
+            {:value (:sort_by @filters)
+             :on-change (fn [e]
+                          (swap! filters assoc :sort_by (.. e -target -value))
+                          (swap! filters assoc :page 1)
+                          (fetch-fn))}
             [:option {:value "closed_date"} "Ordenar por Data"]
             [:option {:value "client_name"} "Ordenar por Cliente A–Z"]]
-           [:select {:style {:padding "6px 10px"
-                             :border "1px solid var(--border-subtle)"
-                             :border-radius "6px"
-                             :background "var(--bg-card)"
-                             :font-family "inherit"
-                             :font-size "12px"
-                             :color "var(--fg-1)"
-                             :cursor "pointer"
-                             :min-width "200px"}
-                     :value (:ev_id @filters)
-                     :on-change (fn [e]
-                                  (swap! filters assoc :ev_id (.. e -target -value))
-                                  (swap! filters assoc :page 1)
-                                  (fetch-fn))}
+           [:select.period-select
+            {:value (:ev_id @filters)
+             :on-change (fn [e]
+                          (swap! filters assoc :ev_id (.. e -target -value))
+                          (swap! filters assoc :page 1)
+                          (fetch-fn))}
             [:option {:value ""} "Todos os EVs"]
             (for [u ev-options]
               ^{:key (:id u)}
@@ -122,7 +106,7 @@
          ;; Table — original column set (Apólice / EV / Cliente / Operadora /
          ;; Benefício / Data Gongo / MRR / Comissão Potencial / Total Pago /
          ;; Meses) plus inline edit.
-         [:div.card {:style {:padding 0}}
+         [:div.table-wrap
           [:table.table
            [:thead
             [:tr
@@ -139,7 +123,7 @@
              [:th.right "Pago Comissão"]
              [:th.right "Pago Agenciamento"]
              [:th.center "Meses"]
-             [:th.right ""]]]
+             [:th {:style {:width "48px"}} ""]]]
            [:tbody
             (cond
               loading?

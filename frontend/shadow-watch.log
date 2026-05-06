@@ -1,0 +1,144 @@
+shadow-cljs - config: C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\shadow-cljs.edn
+shadow-cljs - socket connect failed, server process dead?
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.jboss.threads.JBossExecutors (file:/C:/Users/ferna/.m2/repository/org/jboss/threads/jboss-threads/3.5.0.Final/jboss-threads-3.5.0.Final.jar)
+WARNING: Please consider reporting this to the maintainers of class org.jboss.threads.JBossExecutors
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[2026-05-05 15:18:01.698 - WARNING] :shadow.cljs.devtools.server.dev-http/http-start-ex - {:http-options {:port 8080, :host "0.0.0.0"}, :config {:roots ["resources/public"], :port 8080}}
+RuntimeException UT000202: Failed to initialize path manager for 'C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public' path.
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:145)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+	shadow.undertow/fn--17500 (undertow.clj:178)
+	shadow.undertow/fn--17500 (undertow.clj:155)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+	shadow.undertow/fn--17606 (undertow.clj:350)
+	shadow.undertow/fn--17606 (undertow.clj:346)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+Caused by:
+AccessDeniedException C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public
+	sun.nio.fs.WindowsException.translateToIOException (WindowsException.java:89)
+	sun.nio.fs.WindowsException.rethrowAsIOException (WindowsException.java:96)
+	sun.nio.fs.WindowsLinkSupport.getRealPath (WindowsLinkSupport.java:280)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:907)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:42)
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:140)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+[2026-05-05 15:18:01.706 - WARNING] :shadow.cljs.devtools.server.dev-http/http-start-ex - {:http-options {:port 8081, :host "0.0.0.0"}, :config {:roots ["resources/public"], :port 8080}}
+RuntimeException UT000202: Failed to initialize path manager for 'C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public' path.
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:145)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+	shadow.undertow/fn--17500 (undertow.clj:178)
+	shadow.undertow/fn--17500 (undertow.clj:155)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+	shadow.undertow/fn--17606 (undertow.clj:350)
+	shadow.undertow/fn--17606 (undertow.clj:346)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+Caused by:
+AccessDeniedException C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public
+	sun.nio.fs.WindowsException.translateToIOException (WindowsException.java:89)
+	sun.nio.fs.WindowsException.rethrowAsIOException (WindowsException.java:96)
+	sun.nio.fs.WindowsLinkSupport.getRealPath (WindowsLinkSupport.java:280)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:907)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:42)
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:140)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+[2026-05-05 15:18:01.710 - WARNING] :shadow.cljs.devtools.server.dev-http/http-start-ex - {:http-options {:port 8082, :host "0.0.0.0"}, :config {:roots ["resources/public"], :port 8080}}
+RuntimeException UT000202: Failed to initialize path manager for 'C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public' path.
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:145)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+	shadow.undertow/fn--17500 (undertow.clj:178)
+	shadow.undertow/fn--17500 (undertow.clj:155)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+	shadow.undertow/fn--17606 (undertow.clj:350)
+	shadow.undertow/fn--17606 (undertow.clj:346)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+Caused by:
+AccessDeniedException C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public
+	sun.nio.fs.WindowsException.translateToIOException (WindowsException.java:89)
+	sun.nio.fs.WindowsException.rethrowAsIOException (WindowsException.java:96)
+	sun.nio.fs.WindowsLinkSupport.getRealPath (WindowsLinkSupport.java:280)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:907)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:42)
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:140)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+[2026-05-05 15:18:01.713 - WARNING] :shadow.cljs.devtools.server.dev-http/http-start-ex - {:http-options {:port 8083, :host "0.0.0.0"}, :config {:roots ["resources/public"], :port 8080}}
+RuntimeException UT000202: Failed to initialize path manager for 'C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public' path.
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:145)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+	shadow.undertow/fn--17500 (undertow.clj:178)
+	shadow.undertow/fn--17500 (undertow.clj:155)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+	shadow.undertow/fn--17606 (undertow.clj:350)
+	shadow.undertow/fn--17606 (undertow.clj:346)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+Caused by:
+AccessDeniedException C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public
+	sun.nio.fs.WindowsException.translateToIOException (WindowsException.java:89)
+	sun.nio.fs.WindowsException.rethrowAsIOException (WindowsException.java:96)
+	sun.nio.fs.WindowsLinkSupport.getRealPath (WindowsLinkSupport.java:280)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:907)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:42)
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:140)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+[2026-05-05 15:18:01.715 - WARNING] :shadow.cljs.devtools.server.dev-http/http-start-ex - {:http-options {:port 8084, :host "0.0.0.0"}, :config {:roots ["resources/public"], :port 8080}}
+RuntimeException UT000202: Failed to initialize path manager for 'C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public' path.
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:145)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+	shadow.undertow/fn--17500 (undertow.clj:178)
+	shadow.undertow/fn--17500 (undertow.clj:155)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+	shadow.undertow/fn--17606 (undertow.clj:350)
+	shadow.undertow/fn--17606 (undertow.clj:346)
+	clojure.lang.MultiFn.invoke (MultiFn.java:234)
+	shadow.undertow/build (undertow.clj:556)
+	shadow.undertow/build (undertow.clj:553)
+Caused by:
+AccessDeniedException C:\Users\ferna\plataforma-gestao-rv-piposaude\frontend\resources\public
+	sun.nio.fs.WindowsException.translateToIOException (WindowsException.java:89)
+	sun.nio.fs.WindowsException.rethrowAsIOException (WindowsException.java:96)
+	sun.nio.fs.WindowsLinkSupport.getRealPath (WindowsLinkSupport.java:280)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:907)
+	sun.nio.fs.WindowsPath.toRealPath (WindowsPath.java:42)
+	io.undertow.server.handlers.resource.PathResourceManager.<init> (PathResourceManager.java:140)
+	io.undertow.server.handlers.resource.PathResourceManager$Builder.build (PathResourceManager.java:501)
+[2026-05-05 15:18:01.718 - WARNING] :shadow.cljs.devtools.server.dev-http/start-ex - {:roots ["resources/public"], :port 8080}
+ExceptionInfo gave up trying to start server {}
+	shadow.cljs.devtools.server.dev-http/start-build-server/fn--18252 (dev_http.clj:178)
+	shadow.cljs.devtools.server.dev-http/start-build-server (dev_http.clj:161)
+	shadow.cljs.devtools.server.dev-http/start-build-server (dev_http.clj:51)
+	shadow.cljs.devtools.server.dev-http/start-servers/fn--18317 (dev_http.clj:401)
+	clojure.core/map/fn--5931/fn--5932 (core.clj:2759)
+	clojure.lang.PersistentVector.reduce (PersistentVector.java:343)
+	clojure.core/transduce (core.clj:6946)
+	clojure.core/into (core.clj:6962)
+	clojure.core/into (core.clj:6950)
+	shadow.cljs.devtools.server.dev-http/start-servers (dev_http.clj:401)
+	shadow.cljs.devtools.server.dev-http/start-servers (dev_http.clj:400)
+	shadow.cljs.devtools.server.dev-http/start (dev_http.clj:436)
+shadow-cljs - server version: 2.28.18 running at http://localhost:9630
+shadow-cljs - nREPL server started on port 55756
+shadow-cljs - watching build :app
+[:app] Configuring build.
+[:app] Compiling ...
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+[:app] Build completed. (276 files, 3 compiled, 0 warnings, 9,51s)

@@ -229,7 +229,7 @@ main:focus{outline:none}
 }
 .kpi-label{font-family:var(--font-mono);font-size:11px;text-transform:lowercase;letter-spacing:0.02em;color:var(--fg-3);display:flex;align-items:center;gap:6px}
 .kpi-label svg{width:14px;height:14px;color:var(--fg-3)}
-.kpi-value{font-family:var(--font-display);font-size:38px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em}
+.kpi-value{font-family:var(--font-display);font-size:38px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .kpi-value .currency{font-family:var(--font-ui);font-size:14px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
 .kpi-value .frac{font-family:var(--font-display);font-size:24px;color:var(--fg-3)}
 .kpi-foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3);margin-top:auto}
@@ -259,7 +259,7 @@ main:focus{outline:none}
 .horizon-strip .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
 .horizon-strip .num{font-family:var(--font-display);font-size:24px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .horizon-strip .num .currency{font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--fg-3);margin-right:4px;letter-spacing:0}
-.horizon-strip .meta{font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);letter-spacing:0.04em}
+.horizon-strip .meta{font-family:var(--font-mono);font-size:10px;color:var(--fg-3);letter-spacing:0.04em}
 
 /* As-of timestamp on a card head — quiet ledger metadata */
 .card-asof{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);letter-spacing:0.04em;text-transform:lowercase}
@@ -326,7 +326,7 @@ main:focus{outline:none}
 .badge-pending{background:var(--warning-lightest);color:var(--warning-text)}
 
 /* Table */
-.table-wrap{border:1px solid var(--border-subtle);border-radius:var(--r-md);overflow:hidden;background:var(--bg-1)}
+.table-wrap{border:1px solid var(--border-subtle);border-radius:var(--r-md);overflow-x:auto;background:var(--bg-1)}
 .table{width:100%;border-collapse:collapse;font-size:13px}
 .table thead th{
   background:var(--bg-2);border-bottom:1px solid var(--border-subtle);
@@ -344,7 +344,7 @@ main:focus{outline:none}
 .table .center{text-align:center}
 .table .name{font-weight:600;color:var(--fg-1)}
 .table .muted{color:var(--fg-3);font-size:12px}
-.table .strong-num{font-family:var(--font-mono);font-weight:600;color:var(--fg-1)}
+.table .strong-num{font-family:var(--font-mono);font-weight:600;color:var(--fg-1);white-space:nowrap}
 
 /* Bar in cell */
 .bar{
@@ -392,11 +392,9 @@ main:focus{outline:none}
 }
 .fluxo-card .chart-frame{
   display:flex;flex-direction:column;gap:10px;
-  margin:4px -4px 0;
+  margin:8px 0 0;
   position:relative;
-  overflow-x:auto;
-  overflow-y:hidden;
-  scrollbar-width:thin;
+  overflow:visible;
 }
 .fluxo-card .chart-legend{
   display:flex;align-items:center;gap:18px;flex-wrap:wrap;
@@ -413,19 +411,25 @@ main:focus{outline:none}
   content:"";width:14px;height:8px;border-radius:2px;
   background:var(--beige-lightest);border:1px solid var(--beige-light);
 }
-.chart-fluxo{height:300px;min-width:760px}
+@keyframes chart-load{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.chart-fluxo{width:100%;height:auto;aspect-ratio:1000/420;min-height:200px;display:block;animation:chart-load 0.45s ease-out both}
+.chart-comissao{height:auto;aspect-ratio:700/260;animation:chart-load 0.45s ease-out both}
+@media (prefers-reduced-motion:reduce){.chart-fluxo,.chart-comissao{animation:none}}
 .chart-point{outline:none}
+.chart-point:focus-visible path{filter:drop-shadow(0 0 0.5px var(--fg-1))}
 .chart-point-hit{fill:transparent;cursor:crosshair}
 .chart-tooltip{opacity:0;pointer-events:none;transition:opacity var(--d) var(--ease)}
 .chart-point:hover .chart-tooltip,
 .chart-point:focus .chart-tooltip{opacity:1}
 .chart-tooltip rect{
   fill:var(--bg-1);stroke:var(--border-subtle);stroke-width:1;
-  filter:drop-shadow(0 2px 8px rgba(0,0,0,.10));
 }
 .chart-tooltip text{
   font-family:var(--font-mono);font-size:10.5px;fill:var(--fg-3);
-  letter-spacing:0.02em;text-transform:lowercase;
+  letter-spacing:0;text-transform:lowercase;
+}
+.chart-tooltip text.kind{
+  fill:var(--blue-regular);font-weight:600;
 }
 .chart-tooltip text.value{
   font-family:var(--font-ui);font-size:12px;font-weight:600;
@@ -433,7 +437,7 @@ main:focus{outline:none}
 }
 @media (max-width: 1024px){
   .period-control{flex-wrap:wrap;justify-content:flex-end}
-  .chart-fluxo{height:260px}
+  .chart-fluxo{min-height:240px}
 }
 @media (max-width: 768px){
   .topbar{align-items:flex-start;gap:10px}
@@ -442,10 +446,10 @@ main:focus{outline:none}
   .period-label{display:none}
   .period-select{flex:1;min-width:0;padding-right:24px}
   .period-reset{padding-left:10px;padding-right:10px}
-  .fluxo-card .chart-frame{margin-left:-2px;margin-right:-2px}
+  .fluxo-card .chart-frame{margin-left:0;margin-right:0}
   .fluxo-card .chart-legend{font-size:11px;gap:12px}
   .fluxo-card .chart-legend .legend-band{margin-left:0;width:100%}
-  .chart-fluxo{height:220px;min-width:680px}
+  .chart-fluxo{min-height:180px}
 }
 
 /* Filter row */

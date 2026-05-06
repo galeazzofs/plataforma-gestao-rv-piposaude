@@ -162,7 +162,7 @@
                     (if (> v (+ y-ceil 0.01)) acc (recur (+ v step) (conj acc v))))
           yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))]
 
-      [:svg.chart {:viewBox "0 0 700 260" :preserveAspectRatio "none"}
+      [:svg.chart.chart-comissao {:viewBox "0 0 700 260" :preserveAspectRatio "none"}
        ;; Y-axis grid lines + labels
        [:g
         (for [tv ticks]
@@ -195,9 +195,9 @@
             :fill "#6B6663" :text-anchor "middle" :letter-spacing "0.02em"}
         (for [[i p] (map-indexed vector pts)]
           ^{:key (str "x" i)}
-          [:text {:x (+ lft 22 (* i slot)) :y lbl-y} (:label p)])]])))
+          [:text {:x (+ lft 32 (* i slot)) :y lbl-y} (:label p)])]])))
 
-(defn- comissao-agenciamento-card [{:keys [comissao agenciamento series period as-of]}]
+(defn- comissao-agenciamento-card [{:keys [comissao agenciamento series period]}]
   (let [c (or (->num comissao) 0)
         a (or (->num agenciamento) 0)
         total (+ c a)
@@ -206,8 +206,7 @@
     [:div.card
      [:div.card-head
       [:div [:h3 "Comissão x Agenciamento"]
-       [:div.card-sub (or period "Liberado · últimos 6 meses")]]
-      (when as-of [:span.card-asof (str "atualizado " as-of)])]
+       [:div.card-sub (or period "Liberado · últimos 6 meses")]]]
      [:div.split-numerics
       [:div.col
        [:div.lab "comissão"]
@@ -245,182 +244,229 @@
   (some (fn [[i p]] (when (:is_current_month p) i))
         (map-indexed vector pts)))
 
+(defn- smooth-d
+  "Catmull-Rom → cubic-bezier open path through [[x y] …] pts. tension 0..1."
+  [pts tension]
+  (let [n (count pts)
+        t tension
+        gp (fn [i]
+             (cond
+               (neg? i)  (let [[x0 y0] (first pts) [x1 y1] (second pts)]
+                           [(- (* 2 x0) x1) (- (* 2 y0) y1)])
+               (>= i n)  (let [[xn yn] (peek pts) [xp yp] (nth pts (- n 2))]
+                           [(- (* 2 xn) xp) (- (* 2 yn) yp)])
+               :else     (nth pts i)))]
+    (when (>= n 2)
+      (str "M " (first (first pts)) " " (second (first pts)) " "
+           (str/join " "
+             (for [i (range (dec n))
+                   :let [[p0x p0y] (gp (dec i))
+                         [p1x p1y] (gp i)
+                         [p2x p2y] (gp (inc i))
+                         [p3x p3y] (gp (+ i 2))
+                         c1x (+ p1x (* t (/ (- p2x p0x) 2)))
+                         c1y (+ p1y (* t (/ (- p2y p0y) 2)))
+                         c2x (- p2x (* t (/ (- p3x p1x) 2)))
+                         c2y (- p2y (* t (/ (- p3y p1y) 2)))]]
+               (str "C " c1x " " c1y " " c2x " " c2y " " p2x " " p2y)))))))
+
 (defn- chart-fluxo-caixa
-  "Forecast chart — beige bars for realizado, black line for projetado.
-   Today is marked with a vertical guide; +30/60/90d horizon receives a
-   subtle paper-tinted band so the strip above the chart anchors here."
+  "Forecast chart: realized cash as bars, projected obligation as a line.
+   The chart stays SVG-native so it remains lightweight and responsive."
   [data]
   (let [pts (trim-fluxo-series data)]
     (if (empty? pts)
       [chart-empty "Sem fluxo de caixa para o período"]
       (let [n   (count pts)
+            vb-w 1000  vb-h 420
+            lft 76   rgt 974   tp 44    btm 340
+            lbl-y 382
+            cw  (- rgt lft)
+            ch  (- btm tp)
 
-          vb-w 1200  vb-h 300
-          lft 88   rgt 1168   tp 24    btm 248
-          lbl-y 270
-          cw  (- rgt lft)
-          ch  (- btm tp)
+            x-step (/ cw (max 1 (dec n)))
+            xf     (fn [i] (+ lft (* i x-step)))
 
-          x-step (/ cw (max 1 (dec n)))
-          xf     (fn [i] (+ lft (* i x-step)))
+            all-v (->> pts
+                       (mapcat (fn [p] [(:realizado p) (:projetado p)]))
+                       (keep ->num))
+            raw-max (if (seq all-v) (reduce max all-v) 1)
 
-          all-v (->> pts
-                     (mapcat (fn [p] [(:realizado p) (:projetado p)]))
-                     (keep ->num))
-          raw-max (if (seq all-v) (reduce max all-v) 1)
+            safe    (max 1 raw-max)
+            mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
+            norm    (/ safe mag)
+            step    (* mag (cond (<= norm 1.5) 0.5
+                                 (<= norm 3)   1
+                                 (<= norm 7)   2
+                                 :else          5))
+            y-ceil  (* step (js/Math.ceil (/ safe step)))
+            ticks   (loop [v 0 acc []]
+                      (if (> v (+ y-ceil 0.01)) acc (recur (+ v step) (conj acc v))))
+            yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))
 
-          ;; Nice Y-axis ceiling rounded to ~3 divisions for editorial calm.
-          safe    (max 1 raw-max)
-          mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
-          norm    (/ safe mag)
-          step    (* mag (cond (<= norm 1.5) 0.5
-                               (<= norm 3)   1
-                               (<= norm 7)   2
-                               :else          5))
-          y-ceil  (* step (js/Math.ceil (/ safe step)))
-          ticks   (loop [v 0 acc []]
-                    (if (> v (+ y-ceil 0.01)) acc (recur (+ v step) (conj acc v))))
-          yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))
+            label-nth (cond (> n 14) 3 (> n 8) 2 :else 1)
+            guide-nth (cond (> n 18) 3 (> n 10) 2 :else 1)
 
-          ;; Density-aware label thinning so x-axis never overlaps.
-          label-nth (cond (> n 14) 3 (> n 8) 2 :else 1)
+            today-i  (today-index pts)
+            today-x  (when today-i (xf today-i))
+            horizon-3-x (when today-i
+                          (xf (min (dec n) (+ today-i 3))))
 
-          today-i  (today-index pts)
-          today-x  (when today-i (xf today-i))
+            proj-xy (->> pts
+                         (map-indexed (fn [i p]
+                                        (when-let [v (->num (:projetado p))]
+                                          [(xf i) (yf v)])))
+                         (keep identity)
+                         vec)
 
-          ;; Horizon shading: the next 1/2/3 calendar months from today.
-          horizon-3-x (when today-i
-                        (xf (min (dec n) (+ today-i 3))))
+            line-d (smooth-d proj-xy 0.35)
 
-          proj-xy (->> pts
-                       (map-indexed (fn [i p]
-                                      (when-let [v (->num (:projetado p))]
-                                        [(xf i) (yf v)])))
-                       (keep identity)
-                       vec)
+            area-d (when-let [p (smooth-d proj-xy 0.35)]
+                     (str p " L " (first (peek proj-xy)) " " btm
+                          " L " (ffirst proj-xy) " " btm " Z"))
 
-          area-d (when (> (count proj-xy) 1)
-                   (str "M " (ffirst proj-xy) " " btm " "
-                        (str/join " " (map (fn [[px py]] (str "L " px " " py)) proj-xy))
-                        " L " (first (peek proj-xy)) " " btm " Z"))
+            bar-w (max 10 (min 26 (* x-step 0.28)))]
 
-          line-d (when (> (count proj-xy) 1)
-                   (str "M " (str/join " L "
-                              (map (fn [[px py]] (str px " " py)) proj-xy))))]
-
-      [:svg.chart.chart-fluxo
-       {:viewBox (str "0 0 " vb-w " " vb-h)
+        [:svg.chart.chart-fluxo
+         {:viewBox (str "0 0 " vb-w " " vb-h)
         :preserveAspectRatio "none"
-        :role "img"
-        :aria-label "Fluxo de caixa projetado por mês"}
+          :role "img"
+          :aria-label "Fluxo de caixa projetado por mês"}
+         [:desc "Barras mostram valores realizados. Linha e área mostram valores projetados. O marcador vertical indica o mês atual quando visível."]
 
-       ;; Horizon shading: warm-paper band over the next 90 days.
-       (when (and today-x horizon-3-x)
-         [:rect {:x today-x :y tp
-                 :width (- horizon-3-x today-x)
-                 :height ch
-                 :fill "var(--beige-lightest)"
-                 :fill-opacity 0.55}])
+         [:defs
+          [:linearGradient {:id "fluxo-realizado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
+           [:stop {:offset "0%" :stop-color "var(--beige-light)"}]
+           [:stop {:offset "100%" :stop-color "var(--beige-regular)"}]]
+          [:linearGradient {:id "fluxo-projetado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
+           [:stop {:offset "0%" :stop-color "var(--blue-light)" :stop-opacity 0.26}]
+           [:stop {:offset "78%" :stop-color "var(--blue-light)" :stop-opacity 0.04}]
+           [:stop {:offset "100%" :stop-color "var(--blue-light)" :stop-opacity 0}]]
+          [:filter {:id "fluxo-tooltip-shadow" :x "-20%" :y "-20%" :width "140%" :height "150%"}
+           [:feDropShadow {:dx 0 :dy 8 :stdDeviation 8 :flood-color "#000000" :flood-opacity 0.12}]]
+          [:clipPath {:id "fluxo-plot-clip"}
+           [:rect {:x lft :y tp :width cw :height ch :rx 8}]]]
 
-       ;; Y-axis gridlines + labels.
-       [:g
-        (for [tv ticks]
-          ^{:key (str "y" tv)}
-          [:g
-           [:line {:x1 lft :y1 (yf tv) :x2 rgt :y2 (yf tv)
-                   :stroke "var(--border-subtle)" :stroke-width 1
-                   :vector-effect "non-scaling-stroke"
-                   :stroke-dasharray (when (pos? tv) "2 4")}]
-           [:text {:x (- lft 12) :y (+ (yf tv) 3.5) :text-anchor "end"
-                   :font-family "IBM Plex Mono, monospace" :font-size 11
-                   :fill "var(--fg-3)" :letter-spacing "0.02em"}
-            (fmt-axis-val tv)]])]
+         [:rect {:x lft :y tp :width cw :height ch :rx 8
+                 :fill "var(--bg-1)"
+                 :stroke "var(--border-subtle)"
+                 :stroke-width 1
+                 :vector-effect "non-scaling-stroke"}]
 
-       ;; Realizado bars — past months.
-       [:g
-        (for [[i p] (map-indexed vector pts)
-              :let [rv (->num (:realizado p))]
-              :when rv]
-          ^{:key (str "b" i)}
-          [:rect {:x (- (xf i) 11) :y (yf rv)
-                  :width 22 :height (max 2 (- btm (yf rv)))
-                  :fill "var(--beige-light)" :rx 2}])]
+         (when (and today-x horizon-3-x)
+           [:rect {:x today-x :y tp
+                   :width (- horizon-3-x today-x)
+                   :height ch
+                   :fill "var(--beige-lightest)"
+                   :fill-opacity 0.72
+                   :clip-path "url(#fluxo-plot-clip)"}])
 
-       ;; Projected area fill — subtle tint that hugs the line.
-       (when area-d
-         [:path {:d area-d :fill "var(--fg-1)" :fill-opacity 0.05}])
-
-       ;; Projected line.
-       (when line-d
-         [:path {:d line-d :fill "none" :stroke "var(--fg-1)"
-                 :stroke-width 2 :stroke-linecap "round"
-                 :stroke-linejoin "round"
-                 :vector-effect "non-scaling-stroke"}])
-
-       ;; Data-point dots. A zero-length stroked path with round linecaps
-       ;; stays circular because vector-effect prevents marker scaling.
-       [:g
-        (for [[i p] (map-indexed vector pts)
-              :let [proj-v (->num (:projetado p))
-                    real-v (->num (:realizado p))
-                    v (or proj-v real-v)
-                    proj? (some? proj-v)
-                    kind (if proj? "projetado" "realizado")
-                    label (tooltip-label p kind v)
-                    px (xf i)
-                    py (yf v)
-                    tip-w 142
-                    tip-h 42
-                    tip-x (cond
-                            (> px (- vb-w 180)) (- px tip-w 12)
-                            (< px (+ lft 40)) (+ px 12)
-                            :else (- px (/ tip-w 2)))
-                    tip-y (if (< py (+ tp 56)) (+ py 16) (- py tip-h 14))]
-              :when v]
-          ^{:key (str "d" i)}
-          [:g.chart-point {:tabIndex 0 :role "img" :aria-label label}
-           [:title label]
-           [:circle.chart-point-hit {:cx px :cy py :r 15}]
-           [:path {:d (str "M " px " " py " h 0.01")
-                   :fill "none"
-                   :stroke (if proj? "var(--fg-1)" "var(--beige-light)")
-                   :stroke-width 5
-                   :stroke-linecap "round"
-                   :vector-effect "non-scaling-stroke"}]
-           [:g.chart-tooltip
-            [:rect {:x tip-x :y tip-y :width tip-w :height tip-h :rx 8}]
-            [:text {:x (+ tip-x 10) :y (+ tip-y 16)}
-             (:label p)]
-            [:text.value {:x (+ tip-x 10) :y (+ tip-y 32)}
-             (str kind " · " (or (fmt/fmt-brl v) "R$ 0,00"))]]])]
-
-       ;; Today vertical guide + label. Pill floats above the top gridline
-       ;; so it never collides with axis ticks.
-       (when today-x
          [:g
-          [:line {:x1 today-x :y1 tp :x2 today-x :y2 btm
-                  :stroke "var(--fg-1)" :stroke-width 1
-                  :stroke-dasharray "3 4"
-                  :stroke-opacity 0.45
-                  :vector-effect "non-scaling-stroke"}]
-          [:rect {:x (- today-x 18) :y (- tp 22)
-                  :width 36 :height 18 :rx 9
-                  :fill "var(--fg-1)"}]
-          [:text {:x today-x :y (- tp 13)
-                  :text-anchor "middle"
-                  :dominant-baseline "central"
-                  :font-family "IBM Plex Mono, monospace" :font-size 10
-                  :font-weight 600 :fill "var(--bg-1)"
-                  :letter-spacing "0.04em"}
-           "hoje"]])
+          (for [[i _] (map-indexed vector pts)
+                :when (zero? (mod i guide-nth))]
+            ^{:key (str "vg" i)}
+            [:line {:x1 (xf i) :y1 tp :x2 (xf i) :y2 btm
+                    :stroke "var(--border-subtle)"
+                    :stroke-width 1
+                    :stroke-opacity 0.34
+                    :vector-effect "non-scaling-stroke"}])]
 
-       ;; X-axis labels.
-       [:g {:font-family "IBM Plex Mono, monospace" :font-size 11
-            :fill "var(--fg-3)" :text-anchor "middle" :letter-spacing "0.02em"}
-        (for [[i p] (map-indexed vector pts)
-              :when (zero? (mod i label-nth))]
-          ^{:key (str "x" i)}
-          [:text {:x (xf i) :y lbl-y} (:label p)])]]))))
+         [:g
+          (for [tv ticks]
+            ^{:key (str "y" tv)}
+            [:g
+             [:line {:x1 lft :y1 (yf tv) :x2 rgt :y2 (yf tv)
+                     :stroke "var(--border-subtle)" :stroke-width 1
+                     :vector-effect "non-scaling-stroke"
+                     :stroke-opacity (if (zero? tv) 0.9 0.68)
+                     :stroke-dasharray (when (pos? tv) "3 6")}]
+             [:text {:x (- lft 12) :y (+ (yf tv) 3.5) :text-anchor "end"
+                     :font-family "IBM Plex Mono, monospace" :font-size 11
+                     :fill "var(--fg-3)" :letter-spacing 0}
+              (fmt-axis-val tv)]])]
+
+         [:g {:clip-path "url(#fluxo-plot-clip)"}
+          (for [[i p] (map-indexed vector pts)
+                :let [rv (->num (:realizado p))]
+                :when rv]
+            ^{:key (str "b" i)}
+            [:rect {:x (- (xf i) (/ bar-w 2)) :y (yf rv)
+                    :width bar-w :height (max 2 (- btm (yf rv)))
+                    :fill "url(#fluxo-realizado-fill)" :rx 4}])]
+
+         (when area-d
+           [:path {:d area-d
+                   :fill "url(#fluxo-projetado-fill)"
+                   :clip-path "url(#fluxo-plot-clip)"}])
+
+         (when line-d
+           [:path {:d line-d :fill "none" :stroke "var(--blue-regular)"
+                   :stroke-width 2.6 :stroke-linecap "round"
+                   :stroke-linejoin "round"
+                   :clip-path "url(#fluxo-plot-clip)"
+                   :vector-effect "non-scaling-stroke"}])
+
+         [:g
+          (for [[i p] (map-indexed vector pts)
+                :let [proj-v (->num (:projetado p))
+                      real-v (->num (:realizado p))
+                      v (or proj-v real-v)
+                      proj? (some? proj-v)
+                      kind (if proj? "projetado" "realizado")
+                      label (tooltip-label p kind v)
+                      px (xf i)
+                      py (yf v)
+                      tip-w 176
+                      tip-h 58
+                      tip-x (cond
+                              (> px (- vb-w 208)) (- px tip-w 14)
+                              (< px (+ lft 80)) (+ px 14)
+                              :else (- px (/ tip-w 2)))
+                      tip-y (if (< py (+ tp 72)) (+ py 18) (- py tip-h 16))]
+                :when v]
+            ^{:key (str "d" i)}
+            [:g.chart-point {:tabIndex 0 :role "img" :aria-label label}
+             [:circle.chart-point-hit {:cx px :cy py :r 18}]
+             [:path {:d (str "M " px " " py " h 0.01")
+                     :fill "none"
+                     :stroke (if proj? "var(--blue-regular)" "var(--beige-light)")
+                     :stroke-width 6
+                     :stroke-linecap "round"
+                     :vector-effect "non-scaling-stroke"}]
+             [:g.chart-tooltip
+              [:rect {:x tip-x :y tip-y :width tip-w :height tip-h :rx 8
+                      :filter "url(#fluxo-tooltip-shadow)"}]
+              [:text {:x (+ tip-x 12) :y (+ tip-y 17)}
+               (:label p)]
+              [:text.kind {:x (+ tip-x 12) :y (+ tip-y 33)}
+               kind]
+              [:text.value {:x (+ tip-x 12) :y (+ tip-y 50)}
+               (or (fmt/fmt-brl v) "R$ 0,00")]]])]
+
+         (when today-x
+           [:g
+            [:line {:x1 today-x :y1 tp :x2 today-x :y2 btm
+                    :stroke "var(--fg-1)" :stroke-width 1
+                    :stroke-dasharray "3 4"
+                    :stroke-opacity 0.45
+                    :vector-effect "non-scaling-stroke"}]
+            [:rect {:x (- today-x 32) :y (- tp 30)
+                    :width 64 :height 20 :rx 10
+                    :fill "var(--fg-1)"}]
+            [:text {:x today-x :y (- tp 20)
+                    :text-anchor "middle"
+                    :dominant-baseline "central"
+                    :font-family "IBM Plex Mono, monospace" :font-size 10
+                    :font-weight 600 :fill "var(--bg-1)"
+                    :letter-spacing 0}
+             "mes atual"]])
+
+         [:g {:font-family "IBM Plex Mono, monospace" :font-size 11
+              :fill "var(--fg-3)" :text-anchor "middle" :letter-spacing 0}
+          (for [[i p] (map-indexed vector pts)
+                :when (zero? (mod i label-nth))]
+            ^{:key (str "x" i)}
+            [:text {:x (xf i) :y lbl-y} (:label p)])]]))))
 
 (defn- horizon-col [{:keys [label value detail]}]
   [:div.col
@@ -470,7 +516,7 @@
       [:div.chart-legend
        (when has-realizado?
          [:span.legend-dot {:style {:color "var(--beige-light)"}} "realizado"])
-       [:span.legend-line {:style {:color "var(--fg-1)"}} "projetado"]
+       [:span.legend-line {:style {:color "var(--blue-regular)"}} "projetado"]
        (when-not filtered?
          [:span.legend-band "horizonte 90d"])]
       [chart-fluxo-caixa series]]]))
@@ -572,8 +618,7 @@
         {:comissao comissao-tot
          :agenciamento agenciam-tot
          :series comm-ag-series
-         :period comm-ag-period
-         :as-of as-of}]
+         :period comm-ag-period}]
 
        ;; Row 3 — Fluxo de Caixa Projetado
        [fluxo-caixa-card
