@@ -233,10 +233,12 @@ def _resolve_ticket_deals(client, tickets, summary):
                 if stage not in APOLICE_VALID_STAGES:
                     continue
                 # Deals that skipped pré-ativação (went straight to Ativação+)
-                # won't have the date-entered property. Accept them if the
-                # current stage is past pré-ativação; only enforce the date
-                # floor when the timestamp exists.
+                # won't have the date-entered property. Accept them only when
+                # current stage is past pré-ativação; at pré-ativação itself,
+                # missing date means the gate cannot be proven.
                 entered = parse_date(props.get("hs_v2_date_entered_14038792"))
+                if entered is None and stage == PRE_ATIVACAO_STAGE_ID:
+                    continue
                 if entered is not None and entered < PRE_ATIVACAO_DATE_FLOOR:
                     continue
                 apolices_in_pre_ativacao.append({"id": d, "properties": props})

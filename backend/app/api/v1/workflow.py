@@ -356,6 +356,11 @@ def _build_appraisal_detail(appraisal):
             quarter=quarter, year=year, match_status='PRODUTO_NAO_SUPORTADO',
         ).all()
     ]
+    apolices_finalizadas = [
+        _serialize_nf(n) for n in FinancialImport.query.filter_by(
+            quarter=quarter, year=year, match_status='APOLICE_FINALIZADA',
+        ).all()
+    ]
 
     totals = {
         "total_commission": sum(s["total_commission"] for s in ev_summary),
@@ -365,6 +370,7 @@ def _build_appraisal_detail(appraisal):
         "unmatched_count": len(unmatched),
         "expired_count": len(expired),
         "nao_suportado_count": len(nao_suportado),
+        "apolices_finalizadas_count": len(apolices_finalizadas),
     }
 
     return {
@@ -373,4 +379,5 @@ def _build_appraisal_detail(appraisal):
         "unmatched": unmatched,
         "expired": expired,
         "nao_suportado": nao_suportado,
+        "apolices_finalizadas": apolices_finalizadas,
     }

@@ -91,6 +91,7 @@ class TestPerEmpresaFormula:
                 operadora="Bradesco",
                 produto="Saude",
                 numero_apolice="AP-100",
+                tipo_receita="Comissão",
                 status_recebimento="RECEBIDO",
                 data_recebimento=date(2026, 2 + i, 15),
             ))
@@ -117,6 +118,7 @@ class TestPerEmpresaFormula:
             operadora="Bradesco",
             produto="Saude",
             numero_apolice="AP-100",
+            tipo_receita="Comissão",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -171,6 +173,7 @@ class TestPerEmpresaFormula:
             operadora="Bradesco",
             produto="Saude",
             numero_apolice="AP-100",
+            tipo_receita="Comissão",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -184,6 +187,7 @@ class TestPerEmpresaFormula:
             operadora="Bradesco",
             produto="Odonto",
             numero_apolice="AP-101",
+            tipo_receita="Comissão",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -225,6 +229,7 @@ class TestPerEmpresaFormula:
             operadora="Bradesco",
             produto="Saude",
             numero_apolice="AP-100",
+            tipo_receita="Comissão",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))
@@ -255,6 +260,7 @@ class TestPerEmpresaFormula:
             operadora="Bradesco",
             produto="Saude",
             numero_apolice="AP-100",
+            tipo_receita="Comissão",
             status_recebimento="RECEBIDO",
             data_recebimento=date(2026, 2, 15),
         ))

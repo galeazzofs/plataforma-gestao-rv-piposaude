@@ -10,6 +10,7 @@ from app.modules.hubspot_sync.sync import (
     APOLICE_PIPELINE_ID,
     APOLICE_VALID_STAGES,
     PRE_ATIVACAO_STAGE_ID,
+    ATIVACAO_STAGE_ID,
     PLACEMENT_PIPELINE_ID,
     GONGO_STAGE_ID,
     GONGO_DATE_FLOOR,
@@ -149,6 +150,37 @@ def test_resolve_drops_apolice_without_pre_ativacao_date():
 
     assert result == {}
     assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
+
+
+def test_resolve_drops_apolice_at_pre_ativacao_without_pre_ativacao_date():
+    """Missing entered-pre-ativacao date is accepted only after the apolice
+    moved beyond pre-ativacao."""
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(entered=None, stage=PRE_ATIVACAO_STAGE_ID),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert result == {}
+    assert summary["skipped"]["no_apolice_pre_ativacao"] == 1
+
+
+def test_resolve_accepts_post_pre_ativacao_apolice_without_entered_date():
+    client = MagicMock()
+    client.batch_read_associations.return_value = {"T1": ["D-A", "D-DEFAULT"]}
+    client.batch_read_objects.return_value = {
+        "D-A": _apolice_props(entered=None, stage=ATIVACAO_STAGE_ID),
+        "D-DEFAULT": _default_deal_props(),
+    }
+    summary = _new_summary()
+
+    result = _resolve_ticket_deals(client, [_ticket("T1")], summary)
+
+    assert "T1" in result
 
 
 def test_resolve_drops_apolice_with_pre_ativacao_before_floor():

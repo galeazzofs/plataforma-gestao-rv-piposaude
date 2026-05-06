@@ -7,6 +7,7 @@ from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, EvQuarterAchievement, Segment,
     BenefitType, FinancialImport, ImportBatch, Commission, CommissionPctTable,
+    CommissionStatus,
 )
 
 
@@ -88,6 +89,27 @@ def _setup_basic_scenario():
     db.session.flush()
 
     return ev, policy, nf
+
+
+def _add_nf(policy, batch_id, *, amount, month, received_on, tipo="Comissão"):
+    nf = FinancialImport(
+        import_batch_id=batch_id,
+        quarter=1,
+        year=2026,
+        nf_valor_liquido=Decimal(str(amount)),
+        nf_mes_recebimento=month,
+        cliente_mae=policy.client.name,
+        operadora=policy.partner_operator,
+        produto="Saúde",
+        numero_apolice=policy.numero_apolice,
+        tipo_receita=tipo,
+        status_recebimento="RECEBIDO",
+        data_recebimento=received_on,
+        match_status="UNMATCHED",
+    )
+    db.session.add(nf)
+    db.session.flush()
+    return nf
 
 
 # ── Happy path ────────────────────────────────────────────────
@@ -184,6 +206,7 @@ def test_unmatched_when_no_policy(db_session):
         cliente_mae='Unknown Co',
         operadora='X',
         produto='Saúde',
+        tipo_receita='Comissão',
         status_recebimento='RECEBIDO',
         data_recebimento=date(2026, 2, 15),
         match_status='UNMATCHED',
@@ -306,6 +329,163 @@ def test_negative_nf_subtracts_from_commission(db_session):
     assert comm.total_actual == Decimal('42.00')
 
 
+def test_agenciamento_alone_pays_but_does_not_start_commission_clock(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    nf.tipo_receita = "Agenciamento"
+    db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(policy)
+    db.session.refresh(nf)
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert nf.match_status == "MATCHED"
+    assert comm.total_actual == Decimal("60.00")
+    assert policy.installments_paid == 0
+    assert policy.commission_status == CommissionStatus.PROJECTED
+
+
+def test_comissao_and_agenciamento_same_month_pay_both_and_count_one_month(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    _add_nf(
+        policy,
+        nf.import_batch_id,
+        amount="200.00",
+        month="2026-02",
+        received_on=date(2026, 2, 20),
+        tipo="Agenciamento",
+    )
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(policy)
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert comm.total_actual == Decimal("72.00")
+    assert policy.installments_paid == 1
+
+
+def test_monthly_net_comissao_must_be_positive_to_count_clock(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    nf.nf_valor_liquido = Decimal("100.00")
+    _add_nf(
+        policy,
+        nf.import_batch_id,
+        amount="-120.00",
+        month="2026-02",
+        received_on=date(2026, 2, 20),
+        tipo="Comissão",
+    )
+    _add_nf(
+        policy,
+        nf.import_batch_id,
+        amount="50.00",
+        month="2026-02",
+        received_on=date(2026, 2, 21),
+        tipo="Agenciamento",
+    )
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(policy)
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert comm.total_actual == Decimal("1.80")
+    assert policy.installments_paid == 0
+
+
+def test_non_commissionable_revenue_does_not_enter_appraisal(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    nf.tipo_receita = "Patrocínio"
+    db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(nf)
+    assert nf.match_status == "RECEITA_NAO_COMISSIONAVEL"
+    assert Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first() is None
+
+
+def test_eleventh_month_april_closes_and_may_goes_to_finalized_bucket(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    policy.first_payment_real = date(2026, 4, 1)
+    policy.initial_installments_paid = 11
+    policy.installments_paid = 11
+    nf.nf_mes_recebimento = "2026-04"
+    nf.data_recebimento = date(2026, 4, 15)
+    may_nf = _add_nf(
+        policy,
+        nf.import_batch_id,
+        amount="1000.00",
+        month="2026-05",
+        received_on=date(2026, 5, 15),
+        tipo="Comissão",
+    )
+    db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(policy)
+    db.session.refresh(nf)
+    db.session.refresh(may_nf)
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert nf.match_status == "MATCHED"
+    assert may_nf.match_status == "APOLICE_FINALIZADA"
+    assert comm.total_actual == Decimal("60.00")
+    assert policy.installments_paid == 12
+    assert policy.commission_status == CommissionStatus.SETTLED
+
+
+def test_twelfth_month_pays_agenciamento_in_same_month_before_settling(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    policy.first_payment_real = date(2026, 4, 1)
+    policy.initial_installments_paid = 11
+    policy.installments_paid = 11
+    nf.nf_mes_recebimento = "2026-04"
+    nf.data_recebimento = date(2026, 4, 15)
+    _add_nf(
+        policy,
+        nf.import_batch_id,
+        amount="200.00",
+        month="2026-04",
+        received_on=date(2026, 4, 20),
+        tipo="Agenciamento",
+    )
+    db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(policy)
+    comm = Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first()
+    assert comm.total_actual == Decimal("72.00")
+    assert policy.commission_status == CommissionStatus.SETTLED
+
+
+def test_policy_already_twelve_of_twelve_sends_all_rows_to_finalized_bucket(db_session):
+    from app.modules.commissions.calculator import run_quarterly_appraisal
+
+    ev, policy, nf = _setup_basic_scenario()
+    policy.initial_installments_paid = 12
+    policy.installments_paid = 12
+    db.session.flush()
+
+    run_quarterly_appraisal(1, 2026)
+
+    db.session.refresh(nf)
+    assert nf.match_status == "APOLICE_FINALIZADA"
+    assert Commission.query.filter_by(policy_id=policy.id, quarter=1, year=2026).first() is None
+
+
 # ── Snapshot uses gongo quarter, not apuração quarter ─────────
 
 
@@ -391,6 +571,7 @@ def test_multi_policy_picks_most_recent_within_window(db_session):
         nf_mes_recebimento='2026-02',
         cliente_mae='Zup', operadora='SulAmerica', produto='Saúde',
         numero_apolice='AP-SHARED',
+        tipo_receita='Comissão',
         status_recebimento='RECEBIDO',
         data_recebimento=date(2026, 2, 15),
         match_status='UNMATCHED',

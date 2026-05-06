@@ -171,4 +171,23 @@ def test_get_appraisal_detail_includes_drill_down(client, review_setup):
     assert "unmatched" in body
     assert "expired" in body
     assert "nao_suportado" in body
+    assert "apolices_finalizadas" in body
     assert body["totals"]["matched_nf_count"] == 1
+
+
+def test_get_appraisal_detail_includes_finalized_policy_bucket(client, review_setup):
+    admin, _, _, policy, appraisal, nf = review_setup
+    nf.match_status = "APOLICE_FINALIZADA"
+    nf.policy_id = policy.id
+    db.session.commit()
+
+    resp = client.get(
+        f"/api/v1/appraisals/{appraisal.id}",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_json()["data"]
+    assert body["totals"]["apolices_finalizadas_count"] == 1
+    assert body["apolices_finalizadas"][0]["match_status"] == "APOLICE_FINALIZADA"
+    assert body["apolices_finalizadas"][0]["policy_id"] == str(policy.id)
