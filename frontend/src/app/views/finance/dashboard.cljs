@@ -2,10 +2,23 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            ["recharts" :refer [ResponsiveContainer AreaChart Area XAxis YAxis
+                                CartesianGrid Tooltip ReferenceLine ReferenceArea]]
             [app.ds.layout :as layout]
             [app.ds.tokens :as t]
             [app.auth.subs]
             [app.utils.format :as fmt]))
+
+;; Recharts adapters (kept private to this view).
+(def ^:private rc-responsive (r/adapt-react-class ResponsiveContainer))
+(def ^:private rc-area-chart (r/adapt-react-class AreaChart))
+(def ^:private rc-area (r/adapt-react-class Area))
+(def ^:private rc-x-axis (r/adapt-react-class XAxis))
+(def ^:private rc-y-axis (r/adapt-react-class YAxis))
+(def ^:private rc-cartesian-grid (r/adapt-react-class CartesianGrid))
+(def ^:private rc-tooltip (r/adapt-react-class Tooltip))
+(def ^:private rc-reference-line (r/adapt-react-class ReferenceLine))
+(def ^:private rc-reference-area (r/adapt-react-class ReferenceArea))
 
 ;; Finance dashboard — three editorial rows.
 ;; Row 1: Potencial a pagar · Comissão Paga · Obrigação aberta
@@ -163,9 +176,6 @@
                        (str (.toFixed k 1) "k")))
     :else (str (js/Math.round v))))
 
-(defn- tooltip-label [p kind v]
-  (str (:label p) " · " kind " · " (or (fmt/fmt-brl v) "R$ 0,00")))
-
 ;; ----- Row 2: Comissão x Agenciamento ---------------------------------
 
 (defn- proportion-strip [comissao agenciamento]
@@ -313,267 +323,182 @@
           today-i)
         (:index (first projected)))))
 
-(defn- smooth-d
-  "Catmull-Rom → cubic-bezier open path through [[x y] …] pts. tension 0..1."
-  [pts tension]
-  (let [n (count pts)
-        t tension
-        gp (fn [i]
-             (cond
-               (neg? i)  (let [[x0 y0] (first pts) [x1 y1] (second pts)]
-                           [(- (* 2 x0) x1) (- (* 2 y0) y1)])
-               (>= i n)  (let [[xn yn] (peek pts) [xp yp] (nth pts (- n 2))]
-                           [(- (* 2 xn) xp) (- (* 2 yn) yp)])
-               :else     (nth pts i)))]
-    (when (>= n 2)
-      (str "M " (first (first pts)) " " (second (first pts)) " "
-           (str/join " "
-             (for [i (range (dec n))
-                   :let [[p0x p0y] (gp (dec i))
-                         [p1x p1y] (gp i)
-                         [p2x p2y] (gp (inc i))
-                         [p3x p3y] (gp (+ i 2))
-                         c1x (+ p1x (* t (/ (- p2x p0x) 2)))
-                         c1y (+ p1y (* t (/ (- p2y p0y) 2)))
-                         c2x (- p2x (* t (/ (- p3x p1x) 2)))
-                         c2y (- p2y (* t (/ (- p3y p1y) 2)))]]
-               (str "C " c1x " " c1y " " c2x " " c2y " " p2x " " p2y)))))))
+(defn- nice-y-ceil
+  "Pick a tidy maximum for the y-axis based on the largest projected value.
+   Steps grow on a 1·2·5·10 scale so the last gridline sits on a round figure."
+  [values]
+  (let [raw-max (if (seq values) (reduce max values) 1)
+        safe    (max 1 raw-max)
+        mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
+        norm    (/ safe mag)
+        step    (* mag (cond (<= norm 1.5) 0.5
+                             (<= norm 3)   1
+                             (<= norm 7)   2
+                             :else          5))]
+    (* step (js/Math.ceil (/ safe step)))))
+
+(defn- fluxo-chart-data
+  "Convert backend series to dense points keyed for Recharts. The numeric
+   :idx anchors the x-axis so reference lines can sit at fractional positions
+   (today's day-of-month inside the current month band)."
+  [series]
+  (->> (trim-fluxo-series series)
+       (map-indexed
+        (fn [i p]
+          {:idx i
+           :label (:label p)
+           :ym (:ym p)
+           :is_current_month (boolean (:is_current_month p))
+           :projetado (->num (:projetado p))
+           :a_apurar (->num (:a_apurar p))
+           :realizado (->num (:realizado p))}))
+       vec))
+
+(defn- fluxo-tooltip-render
+  "Dark editorial tooltip — month label in lowercase mono on top, projected
+   value in DM Serif tabular-nums below."
+  [props]
+  (let [p (js->clj props :keywordize-keys true)
+        active? (:active p)
+        payload (first (:payload p))
+        row (when payload (:payload payload))
+        row (cond-> row (and row (not (map? row)))
+                    (js->clj :keywordize-keys true))
+        v (some-> row :projetado)]
+    (when (and active? row (some? v))
+      (r/as-element
+       [:div.fluxo-tooltip
+        [:span.lab (:label row)]
+        [:strong (or (fmt/fmt-brl v) "R$ 0,00")]]))))
+
+(def ^:private fluxo-tooltip-content
+  (r/reactify-component fluxo-tooltip-render))
+
+(defn- today-fraction-of-month
+  "Returns the fraction (0..1) of the current month elapsed today, suitable
+   for placing a 'today' marker between two month gridlines."
+  []
+  (let [d (js/Date.)
+        day (.getDate d)
+        last-day (.getDate (js/Date. (.getFullYear d) (inc (.getMonth d)) 0))]
+    (max 0 (min 1 (/ (dec day) (max 1 (dec last-day)))))))
 
 (defn- chart-fluxo-caixa
   "Forecast chart — projected receivables across the next 12 months.
-   The current month sits inside a quiet beige band labeled 'mês atual';
-   a thin dashed rule marks today's exact position. Only the projected line
-   carries the data, supported by a soft area gradient and small dots that
-   mark each monthly value. Hover surfaces a dark editorial pill with the
-   month label and serif value."
+   Built on Recharts: responsive AreaChart with a smooth monotone line, a
+   soft blue gradient area, dashed gridlines, a beige reference band for
+   the current month, and a dashed today rule. Hover surfaces a dark
+   editorial pill with the month label and serif value."
   ([data] (chart-fluxo-caixa data nil))
-  ([data {:keys [selected-index on-select]}]
-  (let [pts (trim-fluxo-series data)]
-    (if (empty? pts)
-      [chart-empty "Sem fluxo de caixa para o período"]
-      (let [n   (count pts)
-            vb-w 1000  vb-h 420
-            lft 56   rgt 980   tp 28    btm 350
-            lbl-y 384
-            cw  (- rgt lft)
-            ch  (- btm tp)
-
-            x-step (/ cw (max 1 (dec n)))
-            xf     (fn [i] (+ lft (* i x-step)))
-            half-step (/ x-step 2)
-
-            all-v (->> pts
-                       (mapcat (fn [p] [(:realizado p) (:a_apurar p) (:projetado p)]))
-                       (keep ->num))
-            raw-max (if (seq all-v) (reduce max all-v) 1)
-
-            safe    (max 1 raw-max)
-            mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
-            norm    (/ safe mag)
-            step    (* mag (cond (<= norm 1.5) 0.5
-                                 (<= norm 3)   1
-                                 (<= norm 7)   2
-                                 :else          5))
-            y-ceil  (* step (js/Math.ceil (/ safe step)))
-            ticks   (loop [v 0 acc []]
-                      (if (> v (+ y-ceil 0.01)) acc (recur (+ v step) (conj acc v))))
-            yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))
-
-            label-nth (cond (> n 14) 3 (> n 8) 2 :else 1)
-
-            ;; Today anchor — current month band + dashed today rule.
-            ;; The band represents the current month period: from today's
-            ;; data point forward to the next one (visually a full month
-            ;; chunk). The dashed rule marks today's exact day-of-month
-            ;; position inside that band.
-            today-i  (today-index pts)
-            today-x  (when today-i (xf today-i))
-            today-fraction (when today-i
-                             (let [d (js/Date.)
-                                   day (.getDate d)
-                                   last-day (.getDate (js/Date. (.getFullYear d) (inc (.getMonth d)) 0))]
-                               (max 0 (min 1 (/ (dec day) (max 1 (dec last-day)))))))
-            band-x0  (when today-x (max lft today-x))
-            band-x1  (when today-x (min rgt (+ today-x x-step)))
-            today-rule-x (when (and band-x0 band-x1 today-fraction)
-                           (+ band-x0 (* (- band-x1 band-x0) today-fraction)))
-
-            proj-xy (->> pts
-                         (map-indexed (fn [i p]
-                                        (when-let [v (->num (:projetado p))]
-                                          [i (xf i) (yf v) v p])))
-                         (keep identity)
-                         vec)
-
-            line-d (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
-
-            area-d (when (seq proj-xy)
-                     (let [base (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
-                           [_ last-x _ _ _] (peek proj-xy)
-                           [_ first-x _ _ _] (first proj-xy)]
-                       (str base " L " last-x " " btm
-                            " L " first-x " " btm " Z")))
-            selected-entry (some (fn [[i :as entry]]
-                                   (when (= i selected-index) entry))
-                                 proj-xy)]
-
-        [:svg.chart.chart-fluxo
-         {:viewBox (str "0 0 " vb-w " " vb-h)
-          :preserveAspectRatio "none"
-          :role "img"
-          :aria-label "Fluxo de caixa projetado por competência mensal"}
-         [:desc "Linha e área representam valores projetados. Faixa vertical destaca o mês atual."]
-
-         [:defs
-          [:linearGradient {:id "fluxo-projetado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
-           [:stop {:offset "0%" :stop-color "var(--blue-light)" :stop-opacity 0.32}]
-           [:stop {:offset "60%" :stop-color "var(--blue-light)" :stop-opacity 0.08}]
-           [:stop {:offset "100%" :stop-color "var(--blue-light)" :stop-opacity 0}]]
-          [:filter {:id "fluxo-tooltip-shadow" :x "-20%" :y "-20%" :width "140%" :height "150%"}
-           [:feDropShadow {:dx 0 :dy 6 :stdDeviation 8 :flood-color "#000000" :flood-opacity 0.18}]]
-          [:clipPath {:id "fluxo-plot-clip"}
-           [:rect {:x lft :y tp :width cw :height ch :rx 8}]]]
-
-         ;; Chart frame — flat surface with 1px border, per Editorial Ledger
-         [:rect {:x lft :y tp :width cw :height ch :rx 8
-                 :fill "var(--bg-1)"
-                 :stroke "var(--border-subtle)"
-                 :stroke-width 1
-                 :vector-effect "non-scaling-stroke"}]
-
-         ;; Current month band — quiet beige paper highlight
-         (when (and band-x0 band-x1 (> band-x1 band-x0))
-           [:g.fluxo-month-band
-            [:rect {:x band-x0 :y tp
-                    :width (- band-x1 band-x0)
-                    :height ch
-                    :fill "var(--beige-lightest)"
-                    :clip-path "url(#fluxo-plot-clip)"}]
-            ;; Editorial label inside the band, top-left
-            [:rect {:x (+ band-x0 8) :y (+ tp 8)
-                    :width 70 :height 20 :rx 6
-                    :fill "var(--bg-1)"
-                    :stroke "var(--beige-light)"
-                    :stroke-width 1
-                    :vector-effect "non-scaling-stroke"}]
-            [:text {:x (+ band-x0 16) :y (+ tp 22)
-                    :font-family "IBM Plex Mono, monospace"
-                    :font-size 10 :fill "var(--fg-2)"
-                    :letter-spacing "0.04em"}
-             "mês atual"]])
-
-         ;; Y-axis grid — uniform dashed lines, mono labels
-         [:g
-          (for [tv ticks]
-            ^{:key (str "y" tv)}
-            [:g
-             [:line {:x1 lft :y1 (yf tv) :x2 rgt :y2 (yf tv)
-                     :stroke "var(--border-subtle)"
-                     :stroke-width 1
-                     :vector-effect "non-scaling-stroke"
-                     :stroke-opacity (if (zero? tv) 0.85 0.55)
-                     :stroke-dasharray (when (pos? tv) "2 5")}]
-             [:text {:x (- lft 10) :y (+ (yf tv) 3.5) :text-anchor "end"
-                     :font-family "IBM Plex Mono, monospace" :font-size 10.5
-                     :fill "var(--fg-3)" :letter-spacing "0.02em"}
-              (fmt-axis-val tv)]])]
-
-         ;; Today rule — dashed vertical line at today's exact position
-         (when today-rule-x
-           [:line.fluxo-today-rule
-            {:x1 today-rule-x :y1 (+ tp 4) :x2 today-rule-x :y2 btm
-             :stroke "var(--fg-2)" :stroke-width 1
-             :stroke-dasharray "3 4"
-             :stroke-opacity 0.55
-             :vector-effect "non-scaling-stroke"}])
-
-         (when selected-entry
-           (let [[_ sx sy _ _] selected-entry]
-             [:g.chart-crosshair
-              [:line {:x1 lft :y1 sy :x2 rgt :y2 sy
-                      :stroke "var(--fg-2)" :stroke-width 1
-                      :stroke-dasharray "2 5"
-                      :stroke-opacity 0.34
-                      :vector-effect "non-scaling-stroke"}]
-              [:line {:x1 sx :y1 tp :x2 sx :y2 btm
-                      :stroke "var(--fg-2)" :stroke-width 1
-                      :stroke-dasharray "3 5"
-                      :stroke-opacity 0.44
-                      :vector-effect "non-scaling-stroke"}]]))
-
-         ;; Projected area
-         (when area-d
-           [:path.proj-area
-            {:d area-d
-             :fill "url(#fluxo-projetado-fill)"
-             :clip-path "url(#fluxo-plot-clip)"}])
-
-         ;; Projected line — blue-regular for clean editorial weight
-         (when line-d
-           [:path.proj-line
-            {:d line-d :fill "none" :stroke "var(--blue-regular)"
-             :stroke-width 2 :stroke-linecap "round"
-             :stroke-linejoin "round"
-             :clip-path "url(#fluxo-plot-clip)"
-             :vector-effect "non-scaling-stroke"}])
-
-         ;; Projected dots — small, dark blue with white halo
-         [:g.proj-dots {:clip-path "url(#fluxo-plot-clip)"}
-          (for [[i px py _ _] proj-xy]
-            ^{:key (str "pd" i)}
-            [:circle.proj-dot
-             {:cx px :cy py :r 3
-              :fill "var(--blue-regular)"
-              :stroke "var(--bg-1)" :stroke-width 1.5
-              :style {"--dot-i" (str i)}}])]
-
-         ;; Hover hit zones + dark editorial tooltip
-         [:g
-          (for [[i px py v p] proj-xy
-                :let [label (tooltip-label p "projetado" v)
-                      selected? (= i selected-index)
-                      tip-w 138
-                      tip-h 50
-                      tip-x (cond
-                              (> px (- vb-w 168)) (- px tip-w 18)
-                              (< px (+ lft 56)) (+ px 18)
-                              :else (+ px 14))
-                      tip-y (max (+ tp 4) (- py 14))]]
-            ^{:key (str "d" i)}
-            [:g.chart-point
-             {:class (str "chart-point" (when selected? " selected"))
-              :tabIndex 0
-              :role "button"
-              :aria-label label
-              :aria-pressed selected?
-              :on-mouse-enter #(when on-select (on-select i))
-              :on-focus #(when on-select (on-select i))
-              :on-click #(when on-select (on-select i))
-              :on-key-down (fn [e]
-                              (when (#{"Enter" " "} (.-key e))
-                                (.preventDefault e)
-                                (when on-select (on-select i))))}
-             [:circle.chart-point-hit {:cx px :cy py :r 18}]
-             [:circle.chart-point-active
-              {:cx px :cy py :r 5
-               :fill "var(--bg-1)"
-               :stroke "var(--blue-regular)" :stroke-width 2}]
-             [:g.chart-tooltip
-              [:rect {:x tip-x :y tip-y :width tip-w :height tip-h :rx 8
-                      :fill "var(--fg-1)"
-                      :filter "url(#fluxo-tooltip-shadow)"}]
-              [:text.month {:x (+ tip-x 12) :y (+ tip-y 19)}
-               (:label p)]
-              [:text.value {:x (+ tip-x 12) :y (+ tip-y 38)}
-               (or (fmt/fmt-brl v) "R$ 0,00")]]])]
-
-         ;; X-axis labels — clean lowercase mono, the backend's mai/26 format
-         [:g {:font-family "IBM Plex Mono, monospace" :font-size 10.5
-              :fill "var(--fg-3)" :text-anchor "middle" :letter-spacing "0.02em"}
-          (for [[i p] (map-indexed vector pts)
-                :when (zero? (mod i label-nth))]
-            ^{:key (str "x" i)}
-            [:text {:x (xf i) :y lbl-y} (:label p)])]])))))
+  ([data {:keys [on-select]}]
+   (let [pts (fluxo-chart-data data)
+         n   (count pts)
+         projected-values (keep :projetado pts)]
+     (if (or (zero? n) (empty? projected-values))
+       [chart-empty "Sem fluxo de caixa para o período"]
+       (let [today-i  (some (fn [[i p]] (when (:is_current_month p) i))
+                            (map-indexed vector pts))
+             today-x  (when today-i (+ today-i (today-fraction-of-month)))
+             band-x1  today-i
+             band-x2  (when today-i (min (dec n) (inc today-i)))
+             y-ceil   (nice-y-ceil projected-values)
+             label-nth (cond (> n 14) 3 (> n 8) 2 :else 1)
+             tick-idxs (vec (filter #(zero? (mod % label-nth)) (range n)))
+             tick-labels (into {} (map (juxt :idx :label) pts))
+             on-mouse-move (fn [^js state]
+                             (when (and state on-select)
+                               (let [active? (.-isTooltipActive state)
+                                     idx (.-activeTooltipIndex state)]
+                                 (when (and active? (number? idx))
+                                   (on-select idx)))))]
+         [:div.fluxo-recharts-frame
+          {:role "img"
+           :aria-label "Fluxo de caixa projetado por competência mensal"}
+          [rc-responsive {:width "100%" :height "100%"}
+           [rc-area-chart {:data (clj->js pts)
+                           :margin #js {:top 28 :right 28 :bottom 12 :left 8}
+                           :onMouseMove on-mouse-move}
+            [:defs
+             [:linearGradient {:id "fluxo-projetado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
+              [:stop {:offset "0%" :stopColor "var(--blue-light)" :stopOpacity 0.55}]
+              [:stop {:offset "55%" :stopColor "var(--blue-light)" :stopOpacity 0.14}]
+              [:stop {:offset "100%" :stopColor "var(--blue-light)" :stopOpacity 0}]]]
+            [rc-cartesian-grid {:stroke "var(--border-subtle)"
+                                :strokeDasharray "2 5"
+                                :vertical false}]
+            (when (and (number? band-x1) (number? band-x2) (> band-x2 band-x1))
+              [rc-reference-area {:x1 band-x1 :x2 band-x2
+                                  :fill "var(--beige-lightest)"
+                                  :fillOpacity 1
+                                  :stroke "var(--beige-light)"
+                                  :strokeOpacity 0.5
+                                  :strokeDasharray "0"
+                                  :ifOverflow "visible"
+                                  :label #js {:value "mês atual"
+                                              :position "insideTopLeft"
+                                              :offset 10
+                                              :fill "var(--fg-2)"
+                                              :fontSize 10
+                                              :fontFamily "IBM Plex Mono, monospace"
+                                              :letterSpacing "0.04em"}}])
+            [rc-x-axis {:dataKey "idx"
+                        :type "number"
+                        :domain #js [0 (max 0 (dec n))]
+                        :ticks (clj->js tick-idxs)
+                        :allowDecimals false
+                        :tickFormatter #(or (get tick-labels %) "")
+                        :axisLine false
+                        :tickLine false
+                        :tickMargin 14
+                        :interval 0
+                        :padding #js {:left 12 :right 12}
+                        :tick #js {:fill "var(--fg-3)"
+                                   :fontSize 11
+                                   :fontFamily "IBM Plex Mono, monospace"
+                                   :letterSpacing "0.02em"}}]
+            [rc-y-axis {:domain #js [0 y-ceil]
+                        :tickFormatter fmt-axis-val
+                        :axisLine false
+                        :tickLine false
+                        :width 56
+                        :tickMargin 10
+                        :tick #js {:fill "var(--fg-3)"
+                                   :fontSize 11
+                                   :fontFamily "IBM Plex Mono, monospace"
+                                   :letterSpacing "0.02em"}}]
+            (when today-x
+              [rc-reference-line {:x today-x
+                                  :stroke "var(--fg-2)"
+                                  :strokeWidth 1
+                                  :strokeDasharray "3 4"
+                                  :strokeOpacity 0.55
+                                  :ifOverflow "extendDomain"}])
+            [rc-tooltip {:cursor #js {:stroke "var(--fg-2)"
+                                      :strokeWidth 1
+                                      :strokeDasharray "3 5"
+                                      :strokeOpacity 0.45}
+                         :content fluxo-tooltip-content
+                         :wrapperStyle #js {:outline "none"}}]
+            [rc-area {:type "monotoneX"
+                      :dataKey "projetado"
+                      :name "projetado"
+                      :stroke "var(--blue-regular)"
+                      :strokeWidth 2.5
+                      :strokeLinecap "round"
+                      :strokeLinejoin "round"
+                      :fill "url(#fluxo-projetado-fill)"
+                      :connectNulls true
+                      :isAnimationActive true
+                      :animationDuration 700
+                      :animationEasing "ease-out"
+                      :dot #js {:r 3
+                                :strokeWidth 1.5
+                                :stroke "var(--bg-1)"
+                                :fill "var(--blue-regular)"}
+                      :activeDot #js {:r 5
+                                      :strokeWidth 2
+                                      :stroke "var(--bg-1)"
+                                      :fill "var(--blue-regular)"}}]]]])))))
 
 (defn- horizon-card
   "30/60/90d horizon as a self-contained editorial card.

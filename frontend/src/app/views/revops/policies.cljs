@@ -298,7 +298,8 @@
                       (when-let [id (last ids)]
                         (focus-id! id)))
                   "e"
-                  (when @focused-id
+                  (when (and @focused-id
+                             (= "ADMIN" (:role @(rf/subscribe [:auth/current-user]))))
                     (.preventDefault e)
                     (when-let [row (some #(when (= (:id %) @focused-id) %) policies)]
                       (reset! selected row)
@@ -332,6 +333,7 @@
               loading?        @(rf/subscribe [:revops/policies-loading?])
               users           @(rf/subscribe [:revops/users])
               user            @(rf/subscribe [:auth/current-user])
+              editable?       (= "ADMIN" (:role user))
               route           @(rf/subscribe [:current-route-name])
               total-meta      (or (:total meta) (count policies))
               total-pages     (max 1 (or (:total_pages meta) 1))
@@ -582,16 +584,18 @@
                   [detail-field "Benefício" (fmt-benefit (:benefit_type detail-policy))]
                   [detail-field "Data gongo" (fmt-date (:closed_date detail-policy))]]]
 
-                [:div.policy-detail-actions
-                 [:button.btn.btn-secondary.btn-sm
-                  {:type "button"
-                   :on-click (fn [_]
-                               (reset! selected detail-policy)
-                               (reset! modal-open? true))}
-                  [layout/icon "edit" {:width 12 :height 12}]
-                  "Editar apólice"]]])]
+                (when editable?
+                  [:div.policy-detail-actions
+                   [:button.btn.btn-secondary.btn-sm
+                    {:type "button"
+                     :on-click (fn [_]
+                                 (reset! selected detail-policy)
+                                 (reset! modal-open? true))}
+                    [layout/icon "edit" {:width 12 :height 12}]
+                    "Editar apólice"]])])]
 
-            [edit-modal/policy-edit-modal
-             {:open? @modal-open?
-              :policy @selected
-              :on-close #(reset! modal-open? false)}]]]))})))
+            (when editable?
+              [edit-modal/policy-edit-modal
+               {:open? @modal-open?
+                :policy @selected
+                :on-close #(reset! modal-open? false)}])]]))})))

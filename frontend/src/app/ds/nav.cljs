@@ -54,6 +54,7 @@
    {:key :finance/dashboard :label "Dashboard Financeiro" :icon "money" :route :finance/dashboard}
    {:key :finance/approval  :label "Aprovação"            :icon "check" :route :finance/approval}
    {:section "operação"}
+   {:key :revops/policies   :label "Apólices"             :icon "doc"   :route :revops/policies}
    {:key :revops/audit-log  :label "Audit Log"            :icon "list"  :route :revops/audit-log}])
 
 (defn items-for-role

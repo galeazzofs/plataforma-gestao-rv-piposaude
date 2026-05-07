@@ -24,7 +24,7 @@ WRITABLE_SETTINGS = {
 # ── Users ──────────────────────────────────────────────────────────────────────
 
 @admin_bp.route("/users")
-@require_role(UserRole.ADMIN)
+@require_role(UserRole.FINANCE)
 def list_users():
     from app.models import User
     page = request.args.get("page", 1, type=int)
