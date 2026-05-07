@@ -259,13 +259,55 @@ main:focus{outline:none}
 .proportion-strip .seg.primary{background:var(--black)}
 .proportion-strip .seg.beige{background:var(--beige-light)}
 
-/* Cash-flow horizon strip — 30/60/90 day mini-stats */
-.horizon-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;padding:4px 0 12px;border-bottom:1px solid var(--border-subtle);margin-bottom:8px}
-.horizon-strip .col{display:flex;flex-direction:column;gap:4px;min-width:0}
+/* Cash-flow horizon strip — 30/60/90 day window stats.
+   The filtered view (period-summary) keeps the strip layout. The default
+   forecast view uses .horizon-cards: three flat editorial cards, each with
+   a label, serif amount, closing month, and apólice count. */
+.horizon-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;padding:4px 0 14px;border-bottom:1px solid var(--border-subtle);margin-bottom:8px}
+.horizon-strip .col{display:flex;flex-direction:column;gap:6px;min-width:0;position:relative}
+.horizon-strip .col + .col{padding-left:32px;border-left:1px solid var(--border-subtle)}
 .horizon-strip .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
 .horizon-strip .num{font-family:var(--font-display);font-size:24px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
-.horizon-strip .num .currency{font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--fg-3);margin-right:4px;letter-spacing:0}
-.horizon-strip .meta{font-family:var(--font-mono);font-size:10px;color:var(--fg-3);letter-spacing:0.04em}
+.horizon-strip .num .currency{font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--fg-3);margin-right:5px;letter-spacing:0}
+.horizon-strip .meta{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);letter-spacing:0.04em}
+
+/* Forecast horizon cards — flat editorial cells with bg-2 fill and a 1px
+   border. Each card keeps only label, value, closing month, and apólice
+   count so the real chart remains the single visual forecast. */
+.horizon-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:0 0 4px;margin-bottom:6px}
+.horizon-card{
+  display:flex;flex-direction:column;gap:6px;min-width:0;
+  background:var(--bg-2);border:1px solid var(--border-subtle);
+  border-radius:var(--r-md);
+  padding:14px 16px 12px;
+}
+.horizon-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.horizon-card .lab{
+  font-family:var(--font-mono);font-size:11px;color:var(--fg-3);
+  letter-spacing:0.02em;text-transform:lowercase;
+}
+.horizon-card-close{
+  font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);
+  letter-spacing:0.04em;text-transform:lowercase;white-space:nowrap;
+}
+.horizon-card-num{
+  font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:400;
+  color:var(--fg-1);letter-spacing:-0.01em;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+  margin-top:2px;
+}
+.horizon-card-num .currency{
+  font-family:var(--font-ui);font-size:13px;font-weight:600;
+  color:var(--fg-3);margin-right:5px;letter-spacing:0;
+}
+.horizon-card-foot{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;
+}
+.horizon-card-foot .meta{
+  font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
+  letter-spacing:0.04em;
+}
+.horizon-card:hover{box-shadow:var(--shadow-hover)}
 
 /* As-of timestamp on a card head — quiet ledger metadata */
 .card-asof{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);letter-spacing:0.04em;text-transform:lowercase}
@@ -435,13 +477,15 @@ main:focus{outline:none}
 .series-fallback strong{font-family:var(--font-ui);font-size:13px;color:var(--fg-1)}
 .series-fallback span{font-size:12px;color:var(--fg-3)}
 
-/* Fluxo de caixa card — forecast chart with today-anchor + horizon band.
-   The card body breathes: the horizon strip (30/60/90d) sits flush above
-   a dedicated chart frame, with the legend tucked between them. The chart
-   itself is wider (4:1) and lets the data run from edge to edge. */
+/* Fluxo de caixa card — projected receivables forecast.
+   Header above three horizon cards; chart below sits inside its own frame
+   with the legend on top (matches the reference's reading order: status
+   chips → curve → axes). The chart's plot area carries a quiet beige band
+   for the current month, anchored by a tiny rounded-rect "mês atual"
+   label inside the band. */
 .fluxo-card .horizon-strip{
   border-bottom:0;
-  padding:4px 0 12px;
+  padding:4px 0 16px;
   margin-bottom:0;
 }
 .fluxo-card .horizon-strip.period-summary{
@@ -449,53 +493,181 @@ main:focus{outline:none}
   border-radius:var(--r-sm);padding:14px 16px;margin-bottom:2px;
 }
 .fluxo-card .chart-frame{
-  display:flex;flex-direction:column;gap:10px;
-  margin:8px 0 0;
+  display:flex;flex-direction:column;gap:8px;
+  margin:6px 0 0;
   position:relative;
   overflow:visible;
 }
 .fluxo-card .chart-legend{
-  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
-  font-family:var(--font-ui);font-size:12px;color:var(--fg-3);
-  padding:0 4px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  font-family:var(--font-mono);font-size:11.5px;color:var(--fg-3);
+  letter-spacing:0.02em;text-transform:lowercase;
+  padding:0 4px 4px;
 }
-.fluxo-card .chart-legend .legend-band{
+.fluxo-card .chart-legend .legend-line{
+  display:inline-flex;align-items:center;gap:7px;
+  color:var(--fg-2);
+}
+.fluxo-card .chart-legend .legend-line::before{
+  content:"";width:18px;height:2px;border-radius:1px;
+  background:var(--blue-regular);
+}
+.fluxo-card .chart-legend .legend-month-chip{
   display:inline-flex;align-items:center;gap:6px;
-  font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);
-  letter-spacing:0.02em;
-  margin-left:auto;
+  padding:3px 10px;
+  background:var(--bg-1);
+  border:1px solid var(--beige-light);
+  border-radius:var(--r-pill);
+  color:var(--fg-2);font-weight:500;
 }
-.fluxo-card .chart-legend .legend-band::before{
-  content:"";width:14px;height:8px;border-radius:2px;
+.fluxo-card .chart-legend .legend-month-chip::before{
+  content:"";width:10px;height:10px;border-radius:2px;
   background:var(--beige-lightest);border:1px solid var(--beige-light);
 }
+.fluxo-card .chart-legend .legend-horizon{
+  margin-left:auto;color:var(--fg-3);
+}
+.fluxo-card .chart-legend .legend-horizon strong{
+  color:var(--fg-1);font-weight:600;
+}
+.chart-command-surface{
+  display:grid;grid-template-columns:minmax(0,1fr) 268px;
+  gap:16px;align-items:stretch;
+}
+.chart-pane{min-width:0}
+.cash-flow-inspector{
+  display:flex;flex-direction:column;gap:14px;
+  min-width:0;padding:16px;
+  background:var(--bg-2);
+  border:1px solid var(--border-subtle);
+  border-radius:var(--r-md);
+  align-self:stretch;
+}
+.inspector-eyebrow{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
+  letter-spacing:0.04em;text-transform:lowercase;
+}
+.inspector-month{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.inspector-month strong{
+  font-family:var(--font-display);font-size:26px;line-height:1;font-weight:400;
+  color:var(--fg-1);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.inspector-month span{
+  font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
+  letter-spacing:0.04em;white-space:nowrap;
+}
+.inspector-total{
+  display:flex;flex-direction:column;gap:4px;
+  padding:12px 0;border-top:1px solid var(--border-subtle);
+  border-bottom:1px solid var(--border-subtle);
+}
+.inspector-total span,
+.inspector-metric span{
+  font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
+  letter-spacing:0.04em;text-transform:lowercase;
+}
+.inspector-total strong{
+  font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:400;
+  color:var(--fg-1);letter-spacing:-0.01em;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.inspector-total .currency{
+  font-family:var(--font-ui);font-size:12px;font-weight:600;
+  color:var(--fg-3);margin-right:5px;letter-spacing:0;
+}
+.inspector-metrics{display:grid;gap:8px}
+.inspector-metric{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.inspector-metric strong{
+  font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--fg-1);
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+  text-align:right;white-space:nowrap;
+}
+.inspector-metric strong.muted{color:var(--fg-3);font-weight:500}
+.inspector-note{
+  margin-top:auto;padding-top:12px;border-top:1px solid var(--border-subtle);
+  font-size:12px;color:var(--fg-3);line-height:1.45;
+}
 @keyframes chart-load{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-.chart-fluxo{width:100%;height:auto;aspect-ratio:1000/420;min-height:200px;display:block;animation:chart-load 0.45s ease-out both}
+@keyframes chart-dot-pop{
+  from{opacity:0;transform:scale(.4)}
+  60%{opacity:1;transform:scale(1.15)}
+  to{opacity:1;transform:scale(1)}
+}
+.chart-fluxo{
+  width:100%;height:auto;aspect-ratio:1000/420;min-height:240px;
+  display:block;animation:chart-load 0.5s ease-out both;
+  overflow:visible;
+}
+.chart-fluxo .proj-area{
+  opacity:0;animation:chart-load .9s cubic-bezier(.2,0,0,1) .2s forwards;
+}
+.chart-fluxo .proj-line{
+  opacity:0;animation:chart-load .9s cubic-bezier(.2,0,0,1) .2s forwards;
+}
+.chart-fluxo .proj-dot{
+  transform-box:fill-box;transform-origin:50% 50%;
+  opacity:0;animation:chart-dot-pop .35s cubic-bezier(.2,0,0,1) both;
+  animation-delay:calc(var(--dot-i,0) * 35ms + 500ms);
+}
+.chart-fluxo .chart-crosshair{pointer-events:none}
+.chart-fluxo .fluxo-month-band{pointer-events:none}
+.chart-fluxo .fluxo-today-rule{pointer-events:none}
 .chart-comissao{height:auto;aspect-ratio:700/260;animation:chart-load 0.45s ease-out both}
-@media (prefers-reduced-motion:reduce){.chart-fluxo,.chart-comissao{animation:none}}
-.chart-point{outline:none}
-.chart-point:focus-visible path{filter:drop-shadow(0 0 0.5px var(--fg-1))}
-.chart-point-hit{fill:transparent;cursor:crosshair}
+@media (prefers-reduced-motion:reduce){
+  .chart-fluxo,.chart-comissao{animation:none}
+  .chart-fluxo .proj-area,
+  .chart-fluxo .proj-line,
+  .chart-fluxo .proj-dot{animation:none;opacity:1;transform:none}
+}
+
+/* Hover state on a chart point — inactive dot is hidden, an "active" white
+   dot with thicker stroke replaces it, paired with a dark editorial
+   tooltip pill (black fill + white text, serif value). */
+.chart-point{outline:none;cursor:default}
+.chart-point .chart-point-active{
+  opacity:0;transform-box:fill-box;transform-origin:50% 50%;
+  transform:scale(.6);
+  transition:opacity var(--d) var(--ease),transform var(--d) var(--ease);
+}
+.chart-point:hover .chart-point-active,
+.chart-point:focus-visible .chart-point-active,
+.chart-point.selected .chart-point-active{
+  opacity:1;transform:scale(1);
+}
+.chart-point:hover ~ .proj-dots .proj-dot{opacity:.6}
+.chart-point:focus-visible{outline:none}
+.chart-point-hit{fill:transparent;cursor:crosshair;stroke:transparent;stroke-width:2}
+.chart-point:focus-visible .chart-point-hit{
+  stroke:var(--cyan);stroke-opacity:.7;
+}
+
+/* Dark editorial tooltip — black pill with white text. Month label in
+   lowercase mono, value in DM Serif tabular-nums. */
 .chart-tooltip{opacity:0;pointer-events:none;transition:opacity var(--d) var(--ease)}
 .chart-point:hover .chart-tooltip,
-.chart-point:focus .chart-tooltip{opacity:1}
-.chart-tooltip rect{
-  fill:var(--bg-1);stroke:var(--border-subtle);stroke-width:1;
-}
-.chart-tooltip text{
-  font-family:var(--font-mono);font-size:10.5px;fill:var(--fg-3);
-  letter-spacing:0;text-transform:lowercase;
-}
-.chart-tooltip text.kind{
-  fill:var(--blue-regular);font-weight:600;
+.chart-point:focus-visible .chart-tooltip,
+.chart-point.selected .chart-tooltip{opacity:1}
+.chart-tooltip text.month{
+  font-family:var(--font-mono);font-size:10.5px;
+  fill:rgba(255,255,255,.7);letter-spacing:.02em;text-transform:lowercase;
+  font-weight:500;
 }
 .chart-tooltip text.value{
-  font-family:var(--font-ui);font-size:12px;font-weight:600;
-  fill:var(--fg-1);letter-spacing:0;text-transform:none;
+  font-family:var(--font-display);font-size:16px;
+  fill:var(--bg-1);letter-spacing:-0.01em;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
 }
+
 @media (max-width: 1024px){
   .period-control{flex-wrap:wrap;justify-content:flex-end}
-  .chart-fluxo{min-height:240px}
+  .chart-fluxo{min-height:260px}
+  .horizon-cards{grid-template-columns:1fr;gap:10px}
+  .chart-command-surface{grid-template-columns:1fr}
+  .cash-flow-inspector{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  .inspector-note{margin-top:0}
 }
 @media (max-width: 768px){
   .topbar{align-items:flex-start;gap:10px}
@@ -505,9 +677,13 @@ main:focus{outline:none}
   .period-select{flex:1;min-width:0;padding-right:24px}
   .period-reset{padding-left:10px;padding-right:10px}
   .fluxo-card .chart-frame{margin-left:0;margin-right:0}
-  .fluxo-card .chart-legend{font-size:11px;gap:12px}
-  .fluxo-card .chart-legend .legend-band{margin-left:0;width:100%}
-  .chart-fluxo{min-height:180px}
+  .fluxo-card .chart-legend{font-size:11px;gap:10px}
+  .fluxo-card .chart-legend .legend-horizon{margin-left:0;width:100%}
+  .chart-fluxo{min-height:220px}
+  .horizon-card-num{font-size:24px}
+  .cash-flow-inspector{display:flex}
+  .inspector-month strong{font-size:23px}
+  .inspector-total strong{font-size:26px}
 }
 
 /* Filter row */
@@ -833,7 +1009,8 @@ main:focus{outline:none}
   .form-grid.-four{grid-template-columns:1fr}
   .appraisal-row{grid-template-columns:1fr;row-gap:12px}
   .kpi{padding:18px}
-  .horizon-strip{grid-template-columns:1fr;gap:10px;padding-bottom:10px}
+  .horizon-strip{grid-template-columns:1fr;gap:14px;padding-bottom:12px}
+  .horizon-strip .col + .col{padding-left:0;border-left:0;border-top:1px solid var(--border-subtle);padding-top:14px}
   .horizon-strip .num{font-size:22px}
   .card{padding:18px}
   .card-head{flex-direction:column;align-items:flex-start;gap:8px}

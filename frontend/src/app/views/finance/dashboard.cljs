@@ -59,6 +59,56 @@
               (.replace "." ""))))
       (catch :default _ nil))))
 
+;; ----- pt-BR axis helpers ---------------------------------------------
+
+(def ^:private pt-months
+  ["jan" "fev" "mar" "abr" "mai" "jun"
+   "jul" "ago" "set" "out" "nov" "dez"])
+
+(defn- pt-month
+  "1 → 'jan', 12 → 'dez'. Returns nil on out-of-range."
+  [m]
+  (when (and (number? m) (<= 1 m 12))
+    (nth pt-months (dec m))))
+
+(defn- ym-parts
+  "'2026-05' → {:y 2026 :m 5 :q 2}. Returns nil on malformed input."
+  [ym]
+  (when (and (string? ym) (= 7 (count ym)))
+    (let [y (js/parseInt (subs ym 0 4) 10)
+          m (js/parseInt (subs ym 5 7) 10)]
+      (when (and (not (js/isNaN y)) (not (js/isNaN m))
+                 (<= 1 m 12))
+        {:y y :m m :q (inc (quot (dec m) 3))}))))
+
+(defn- parse-pt-label
+  "Fallback parser for the 'mai/26' shape when :ym is absent.
+   Returns {:y 26 :m 5} as integers (year is 2-digit only)."
+  [s]
+  (when (and (string? s) (re-find #"^[a-z]{3}/\d{2}$" s))
+    (let [[mon yr] (str/split s #"/")
+          midx (.indexOf pt-months mon)]
+      (when (>= midx 0)
+        {:y (+ 2000 (js/parseInt yr 10))
+         :m (inc midx)
+         :q (inc (quot midx 3))}))))
+
+(defn- point-parts
+  "Extracts {:y :m :q} from a series point, preferring :ym (full year)
+   and falling back to the 'mai/26' label."
+  [p]
+  (or (ym-parts (:ym p)) (parse-pt-label (:label p))))
+
+(defn- horizon-closing-month
+  "'fecha jun/26' style label for the month landing N days from today.
+   Used by the horizon strip to anchor each window to a real month."
+  [days]
+  (let [d (js/Date.)]
+    (.setDate d (+ (.getDate d) days))
+    (str (pt-month (inc (.getMonth d)))
+         "/"
+         (.padStart (str (mod (.getFullYear d) 100)) 2 "0"))))
+
 ;; ----- Row 1: KPI cards ------------------------------------------------
 ;; Potencial a pagar = A apurar + Projetado, restricted to policies still
 ;;   inside their 12-month commission lifecycle.
@@ -245,6 +295,24 @@
   (some (fn [[i p]] (when (:is_current_month p) i))
         (map-indexed vector pts)))
 
+(defn- projected-points
+  "Projected points after chart trimming, preserving the index used by the SVG."
+  [series]
+  (->> (trim-fluxo-series series)
+       (map-indexed (fn [i p]
+                      (when-let [v (->num (:projetado p))]
+                        {:index i :point p :value v})))
+       (keep identity)
+       vec))
+
+(defn- default-projected-index [series]
+  (let [pts (trim-fluxo-series series)
+        today-i (today-index pts)
+        projected (projected-points series)]
+    (or (when (and today-i (some #(= today-i (:index %)) projected))
+          today-i)
+        (:index (first projected)))))
+
 (defn- smooth-d
   "Catmull-Rom → cubic-bezier open path through [[x y] …] pts. tension 0..1."
   [pts tension]
@@ -272,21 +340,27 @@
                (str "C " c1x " " c1y " " c2x " " c2y " " p2x " " p2y)))))))
 
 (defn- chart-fluxo-caixa
-  "Forecast chart: realized cash as bars, projected obligation as a line.
-   The chart stays SVG-native so it remains lightweight and responsive."
-  [data]
+  "Forecast chart — projected receivables across the next 12 months.
+   The current month sits inside a quiet beige band labeled 'mês atual';
+   a thin dashed rule marks today's exact position. Only the projected line
+   carries the data, supported by a soft area gradient and small dots that
+   mark each monthly value. Hover surfaces a dark editorial pill with the
+   month label and serif value."
+  ([data] (chart-fluxo-caixa data nil))
+  ([data {:keys [selected-index on-select]}]
   (let [pts (trim-fluxo-series data)]
     (if (empty? pts)
       [chart-empty "Sem fluxo de caixa para o período"]
       (let [n   (count pts)
             vb-w 1000  vb-h 420
-            lft 76   rgt 974   tp 44    btm 340
-            lbl-y 382
+            lft 56   rgt 980   tp 28    btm 350
+            lbl-y 384
             cw  (- rgt lft)
             ch  (- btm tp)
 
             x-step (/ cw (max 1 (dec n)))
             xf     (fn [i] (+ lft (* i x-step)))
+            half-step (/ x-step 2)
 
             all-v (->> pts
                        (mapcat (fn [p] [(:realizado p) (:a_apurar p) (:projetado p)]))
@@ -306,190 +380,214 @@
             yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))
 
             label-nth (cond (> n 14) 3 (> n 8) 2 :else 1)
-            guide-nth (cond (> n 18) 3 (> n 10) 2 :else 1)
 
+            ;; Today anchor — current month band + dashed today rule.
+            ;; The band represents the current month period: from today's
+            ;; data point forward to the next one (visually a full month
+            ;; chunk). The dashed rule marks today's exact day-of-month
+            ;; position inside that band.
             today-i  (today-index pts)
             today-x  (when today-i (xf today-i))
-            horizon-3-x (when today-i
-                          (xf (min (dec n) (+ today-i 3))))
+            today-fraction (when today-i
+                             (let [d (js/Date.)
+                                   day (.getDate d)
+                                   last-day (.getDate (js/Date. (.getFullYear d) (inc (.getMonth d)) 0))]
+                               (max 0 (min 1 (/ (dec day) (max 1 (dec last-day)))))))
+            band-x0  (when today-x (max lft today-x))
+            band-x1  (when today-x (min rgt (+ today-x x-step)))
+            today-rule-x (when (and band-x0 band-x1 today-fraction)
+                           (+ band-x0 (* (- band-x1 band-x0) today-fraction)))
 
             proj-xy (->> pts
                          (map-indexed (fn [i p]
                                         (when-let [v (->num (:projetado p))]
-                                          [(xf i) (yf v)])))
+                                          [i (xf i) (yf v) v p])))
                          (keep identity)
                          vec)
 
-            line-d (smooth-d proj-xy 0.35)
+            line-d (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
 
-            area-d (when-let [p (smooth-d proj-xy 0.35)]
-                     (str p " L " (first (peek proj-xy)) " " btm
-                          " L " (ffirst proj-xy) " " btm " Z"))
-
-            bar-w (max 10 (min 26 (* x-step 0.28)))]
+            area-d (when (seq proj-xy)
+                     (let [base (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
+                           [_ last-x _ _ _] (peek proj-xy)
+                           [_ first-x _ _ _] (first proj-xy)]
+                       (str base " L " last-x " " btm
+                            " L " first-x " " btm " Z")))
+            selected-entry (some (fn [[i :as entry]]
+                                   (when (= i selected-index) entry))
+                                 proj-xy)]
 
         [:svg.chart.chart-fluxo
          {:viewBox (str "0 0 " vb-w " " vb-h)
-        :preserveAspectRatio "none"
+          :preserveAspectRatio "none"
           :role "img"
-          :aria-label "Fluxo de caixa mensal por competência"}
-         [:desc "Barras mostram valores realizados e a apurar. Linha e área mostram valores projetados. O marcador vertical indica o mês atual quando visível."]
+          :aria-label "Fluxo de caixa projetado por competência mensal"}
+         [:desc "Linha e área representam valores projetados. Faixa vertical destaca o mês atual."]
 
          [:defs
-          [:linearGradient {:id "fluxo-realizado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
-           [:stop {:offset "0%" :stop-color "var(--beige-light)"}]
-           [:stop {:offset "100%" :stop-color "var(--beige-regular)"}]]
-          [:linearGradient {:id "fluxo-a-apurar-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
-           [:stop {:offset "0%" :stop-color "var(--warning-light)"}]
-           [:stop {:offset "100%" :stop-color "var(--warning-dark)"}]]
           [:linearGradient {:id "fluxo-projetado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
-           [:stop {:offset "0%" :stop-color "var(--blue-light)" :stop-opacity 0.26}]
-           [:stop {:offset "78%" :stop-color "var(--blue-light)" :stop-opacity 0.04}]
+           [:stop {:offset "0%" :stop-color "var(--blue-light)" :stop-opacity 0.32}]
+           [:stop {:offset "60%" :stop-color "var(--blue-light)" :stop-opacity 0.08}]
            [:stop {:offset "100%" :stop-color "var(--blue-light)" :stop-opacity 0}]]
           [:filter {:id "fluxo-tooltip-shadow" :x "-20%" :y "-20%" :width "140%" :height "150%"}
-           [:feDropShadow {:dx 0 :dy 8 :stdDeviation 8 :flood-color "#000000" :flood-opacity 0.12}]]
+           [:feDropShadow {:dx 0 :dy 6 :stdDeviation 8 :flood-color "#000000" :flood-opacity 0.18}]]
           [:clipPath {:id "fluxo-plot-clip"}
            [:rect {:x lft :y tp :width cw :height ch :rx 8}]]]
 
+         ;; Chart frame — flat surface with 1px border, per Editorial Ledger
          [:rect {:x lft :y tp :width cw :height ch :rx 8
                  :fill "var(--bg-1)"
                  :stroke "var(--border-subtle)"
                  :stroke-width 1
                  :vector-effect "non-scaling-stroke"}]
 
-         (when (and today-x horizon-3-x)
-           [:rect {:x today-x :y tp
-                   :width (- horizon-3-x today-x)
-                   :height ch
-                   :fill "var(--beige-lightest)"
-                   :fill-opacity 0.72
-                   :clip-path "url(#fluxo-plot-clip)"}])
-
-         [:g
-          (for [[i _] (map-indexed vector pts)
-                :when (zero? (mod i guide-nth))]
-            ^{:key (str "vg" i)}
-            [:line {:x1 (xf i) :y1 tp :x2 (xf i) :y2 btm
-                    :stroke "var(--border-subtle)"
+         ;; Current month band — quiet beige paper highlight
+         (when (and band-x0 band-x1 (> band-x1 band-x0))
+           [:g.fluxo-month-band
+            [:rect {:x band-x0 :y tp
+                    :width (- band-x1 band-x0)
+                    :height ch
+                    :fill "var(--beige-lightest)"
+                    :clip-path "url(#fluxo-plot-clip)"}]
+            ;; Editorial label inside the band, top-left
+            [:rect {:x (+ band-x0 8) :y (+ tp 8)
+                    :width 70 :height 20 :rx 6
+                    :fill "var(--bg-1)"
+                    :stroke "var(--beige-light)"
                     :stroke-width 1
-                    :stroke-opacity 0.34
-                    :vector-effect "non-scaling-stroke"}])]
+                    :vector-effect "non-scaling-stroke"}]
+            [:text {:x (+ band-x0 16) :y (+ tp 22)
+                    :font-family "IBM Plex Mono, monospace"
+                    :font-size 10 :fill "var(--fg-2)"
+                    :letter-spacing "0.04em"}
+             "mês atual"]])
 
+         ;; Y-axis grid — uniform dashed lines, mono labels
          [:g
           (for [tv ticks]
             ^{:key (str "y" tv)}
             [:g
              [:line {:x1 lft :y1 (yf tv) :x2 rgt :y2 (yf tv)
-                     :stroke "var(--border-subtle)" :stroke-width 1
+                     :stroke "var(--border-subtle)"
+                     :stroke-width 1
                      :vector-effect "non-scaling-stroke"
-                     :stroke-opacity (if (zero? tv) 0.9 0.68)
-                     :stroke-dasharray (when (pos? tv) "3 6")}]
-             [:text {:x (- lft 12) :y (+ (yf tv) 3.5) :text-anchor "end"
-                     :font-family "IBM Plex Mono, monospace" :font-size 11
-                     :fill "var(--fg-3)" :letter-spacing 0}
+                     :stroke-opacity (if (zero? tv) 0.85 0.55)
+                     :stroke-dasharray (when (pos? tv) "2 5")}]
+             [:text {:x (- lft 10) :y (+ (yf tv) 3.5) :text-anchor "end"
+                     :font-family "IBM Plex Mono, monospace" :font-size 10.5
+                     :fill "var(--fg-3)" :letter-spacing "0.02em"}
               (fmt-axis-val tv)]])]
 
-         [:g {:clip-path "url(#fluxo-plot-clip)"}
-          (for [[i p] (map-indexed vector pts)
-                :let [rv (->num (:realizado p))]
-                :when rv]
-            ^{:key (str "b" i)}
-            [:rect {:x (- (xf i) (/ bar-w 2)) :y (yf rv)
-                    :width bar-w :height (max 2 (- btm (yf rv)))
-                    :fill "url(#fluxo-realizado-fill)" :rx 4}])]
+         ;; Today rule — dashed vertical line at today's exact position
+         (when today-rule-x
+           [:line.fluxo-today-rule
+            {:x1 today-rule-x :y1 (+ tp 4) :x2 today-rule-x :y2 btm
+             :stroke "var(--fg-2)" :stroke-width 1
+             :stroke-dasharray "3 4"
+             :stroke-opacity 0.55
+             :vector-effect "non-scaling-stroke"}])
 
-         [:g {:clip-path "url(#fluxo-plot-clip)"}
-          (for [[i p] (map-indexed vector pts)
-                :let [av (->num (:a_apurar p))]
-                :when av]
-            ^{:key (str "aa" i)}
-            [:rect {:x (- (xf i) (/ bar-w 2)) :y (yf av)
-                    :width bar-w :height (max 2 (- btm (yf av)))
-                    :fill "url(#fluxo-a-apurar-fill)" :rx 4}])]
+         (when selected-entry
+           (let [[_ sx sy _ _] selected-entry]
+             [:g.chart-crosshair
+              [:line {:x1 lft :y1 sy :x2 rgt :y2 sy
+                      :stroke "var(--fg-2)" :stroke-width 1
+                      :stroke-dasharray "2 5"
+                      :stroke-opacity 0.34
+                      :vector-effect "non-scaling-stroke"}]
+              [:line {:x1 sx :y1 tp :x2 sx :y2 btm
+                      :stroke "var(--fg-2)" :stroke-width 1
+                      :stroke-dasharray "3 5"
+                      :stroke-opacity 0.44
+                      :vector-effect "non-scaling-stroke"}]]))
 
+         ;; Projected area
          (when area-d
-           [:path {:d area-d
-                   :fill "url(#fluxo-projetado-fill)"
-                   :clip-path "url(#fluxo-plot-clip)"}])
+           [:path.proj-area
+            {:d area-d
+             :fill "url(#fluxo-projetado-fill)"
+             :clip-path "url(#fluxo-plot-clip)"}])
 
+         ;; Projected line — blue-regular for clean editorial weight
          (when line-d
-           [:path {:d line-d :fill "none" :stroke "var(--blue-regular)"
-                   :stroke-width 2.6 :stroke-linecap "round"
-                   :stroke-linejoin "round"
-                   :clip-path "url(#fluxo-plot-clip)"
-                   :vector-effect "non-scaling-stroke"}])
+           [:path.proj-line
+            {:d line-d :fill "none" :stroke "var(--blue-regular)"
+             :stroke-width 2 :stroke-linecap "round"
+             :stroke-linejoin "round"
+             :clip-path "url(#fluxo-plot-clip)"
+             :vector-effect "non-scaling-stroke"}])
 
+         ;; Projected dots — small, dark blue with white halo
+         [:g.proj-dots {:clip-path "url(#fluxo-plot-clip)"}
+          (for [[i px py _ _] proj-xy]
+            ^{:key (str "pd" i)}
+            [:circle.proj-dot
+             {:cx px :cy py :r 3
+              :fill "var(--blue-regular)"
+              :stroke "var(--bg-1)" :stroke-width 1.5
+              :style {"--dot-i" (str i)}}])]
+
+         ;; Hover hit zones + dark editorial tooltip
          [:g
-          (for [[i p] (map-indexed vector pts)
-                :let [proj-v (->num (:projetado p))
-                      apurar-v (->num (:a_apurar p))
-                      real-v (->num (:realizado p))
-                      v (or proj-v apurar-v real-v)
-                      proj? (some? proj-v)
-                      apurar? (some? apurar-v)
-                      kind (cond proj? "projetado" apurar? "a apurar" :else "realizado")
-                      label (tooltip-label p kind v)
-                      px (xf i)
-                      py (yf v)
-                      tip-w 176
-                      tip-h 58
+          (for [[i px py v p] proj-xy
+                :let [label (tooltip-label p "projetado" v)
+                      selected? (= i selected-index)
+                      tip-w 138
+                      tip-h 50
                       tip-x (cond
-                              (> px (- vb-w 208)) (- px tip-w 14)
-                              (< px (+ lft 80)) (+ px 14)
-                              :else (- px (/ tip-w 2)))
-                      tip-y (if (< py (+ tp 72)) (+ py 18) (- py tip-h 16))]
-                :when v]
+                              (> px (- vb-w 168)) (- px tip-w 18)
+                              (< px (+ lft 56)) (+ px 18)
+                              :else (+ px 14))
+                      tip-y (max (+ tp 4) (- py 14))]]
             ^{:key (str "d" i)}
-            [:g.chart-point {:tabIndex 0 :role "img" :aria-label label}
+            [:g.chart-point
+             {:class (str "chart-point" (when selected? " selected"))
+              :tabIndex 0
+              :role "button"
+              :aria-label label
+              :aria-pressed selected?
+              :on-mouse-enter #(when on-select (on-select i))
+              :on-focus #(when on-select (on-select i))
+              :on-click #(when on-select (on-select i))
+              :on-key-down (fn [e]
+                              (when (#{"Enter" " "} (.-key e))
+                                (.preventDefault e)
+                                (when on-select (on-select i))))}
              [:circle.chart-point-hit {:cx px :cy py :r 18}]
-             [:path {:d (str "M " px " " py " h 0.01")
-                     :fill "none"
-                     :stroke (cond proj? "var(--blue-regular)"
-                                   apurar? "var(--warning-dark)"
-                                   :else "var(--beige-light)")
-                     :stroke-width 6
-                     :stroke-linecap "round"
-                     :vector-effect "non-scaling-stroke"}]
+             [:circle.chart-point-active
+              {:cx px :cy py :r 5
+               :fill "var(--bg-1)"
+               :stroke "var(--blue-regular)" :stroke-width 2}]
              [:g.chart-tooltip
               [:rect {:x tip-x :y tip-y :width tip-w :height tip-h :rx 8
+                      :fill "var(--fg-1)"
                       :filter "url(#fluxo-tooltip-shadow)"}]
-              [:text {:x (+ tip-x 12) :y (+ tip-y 17)}
+              [:text.month {:x (+ tip-x 12) :y (+ tip-y 19)}
                (:label p)]
-              [:text.kind {:x (+ tip-x 12) :y (+ tip-y 33)}
-               kind]
-              [:text.value {:x (+ tip-x 12) :y (+ tip-y 50)}
+              [:text.value {:x (+ tip-x 12) :y (+ tip-y 38)}
                (or (fmt/fmt-brl v) "R$ 0,00")]]])]
 
-         (when today-x
-           [:g
-            [:line {:x1 today-x :y1 tp :x2 today-x :y2 btm
-                    :stroke "var(--fg-1)" :stroke-width 1
-                    :stroke-dasharray "3 4"
-                    :stroke-opacity 0.45
-                    :vector-effect "non-scaling-stroke"}]
-            [:rect {:x (- today-x 32) :y (- tp 30)
-                    :width 64 :height 20 :rx 10
-                    :fill "var(--fg-1)"}]
-            [:text {:x today-x :y (- tp 20)
-                    :text-anchor "middle"
-                    :dominant-baseline "central"
-                    :font-family "IBM Plex Mono, monospace" :font-size 10
-                    :font-weight 600 :fill "var(--bg-1)"
-                    :letter-spacing 0}
-             "mes atual"]])
-
-         [:g {:font-family "IBM Plex Mono, monospace" :font-size 11
-              :fill "var(--fg-3)" :text-anchor "middle" :letter-spacing 0}
+         ;; X-axis labels — clean lowercase mono, the backend's mai/26 format
+         [:g {:font-family "IBM Plex Mono, monospace" :font-size 10.5
+              :fill "var(--fg-3)" :text-anchor "middle" :letter-spacing "0.02em"}
           (for [[i p] (map-indexed vector pts)
                 :when (zero? (mod i label-nth))]
             ^{:key (str "x" i)}
-            [:text {:x (xf i) :y lbl-y} (:label p)])]]))))
+            [:text {:x (xf i) :y lbl-y} (:label p)])]])))))
 
-(defn- horizon-col [{:keys [label value detail]}]
-  [:div.col
-   [:div.lab label]
-   [:div.num (brl-value value "·")]
-   (when detail [:div.meta detail])])
+(defn- horizon-card
+  "30/60/90d horizon as a self-contained editorial card.
+   Top: mono lowercase label.
+   Middle: serif amount.
+   Bottom: mono apólice count."
+  [{:keys [label value detail closing]}]
+  [:div.horizon-card
+   [:div.horizon-card-head
+    [:span.lab label]
+    (when closing [:span.horizon-card-close closing])]
+   [:div.horizon-card-num (brl-value value "·")]
+   [:div.horizon-card-foot
+    (when detail [:span.meta detail])]])
 
 (defn- summary-col [{:keys [label value detail]}]
   [:div.col
@@ -498,6 +596,42 @@
                (:text value)
                (brl-value value "·"))]
    (when detail [:div.meta detail])])
+
+(defn- inspector-metric [{:keys [label value muted?]}]
+  [:div.inspector-metric
+   [:span label]
+   [:strong {:class (when muted? "muted")}
+    (if (some? value) (fmt/fmt-brl-int value) "·")]])
+
+(defn- fluxo-inspector-panel
+  "Side rail for the selected projected month. It keeps the chart inspectable
+   without opening a modal or forcing users into the data table."
+  [{:keys [entry total]}]
+  (let [{:keys [index point value]} entry
+        parts (point-parts point)
+        quarter (:q parts)
+        year (:y parts)
+        realized (->num (:realizado point))
+        a-apurar (->num (:a_apurar point))
+        projected value]
+    [:aside.cash-flow-inspector
+     {:aria-label "Competência selecionada no fluxo de caixa"}
+     [:div.inspector-eyebrow
+      [:span "competência em foco"]
+      (when (and index total)
+        [:span (str (inc index) "/" total)])]
+     [:div.inspector-month
+      [:strong (:label point)]
+      (when (and quarter year)
+        [:span (str "Q" quarter " · " year)])]
+     [:div.inspector-total
+      [:span "projetado"]
+      [:strong (brl-value projected "·")]]
+     [:div.inspector-metrics
+      [inspector-metric {:label "a apurar" :value a-apurar}]
+      [inspector-metric {:label "realizado" :value realized :muted? true}]]
+     [:div.inspector-note
+      "Use Tab no gráfico para inspecionar outra competência."]]))
 
 (defn- chart-fluxo-caixa-table
   "Tabular alternative to the cash-flow SVG chart. Wrapped in <details> so
@@ -531,49 +665,64 @@
              [:td.right.num (or (fmt/fmt-brl-int (:projetado p)) "·")]])]]]])))
 
 (defn- fluxo-caixa-card [{:keys [horizon period-summary filtered? series as-of]}]
-  (let [has-realizado? (some #(->num (:realizado %)) series)
-        has-a-apurar? (some #(->num (:a_apurar %)) series)
-        projected-count (:apolices period-summary)]
-    [:div.card.fluxo-card
-     [:div.card-head
-      [:div [:h3 "Fluxo de caixa mensal"]
-       [:div.card-sub "Realizado, A apurar e Projetado por competência mensal"]]
-      (when as-of [:span.card-asof (str "atualizado " as-of)])]
-     (if filtered?
-       [:div.horizon-strip.period-summary
-        [summary-col {:label "realizado no período"
-                      :value (:realizado period-summary)}]
-        [summary-col {:label "a apurar no período"
-                      :value (:a_apurar period-summary)}]
-        [summary-col {:label "projetado no período"
-                      :value (:projetado period-summary)}]
-        [summary-col {:label "apólices projetadas"
-                      :value {:kind :count :text (str (or projected-count 0))}
-                      :detail "com parcelas no filtro"}]]
-       [:div.horizon-strip
-        [horizon-col {:label "próximos 30d"
-                      :value (:next_30 horizon)
-                      :detail (when-let [n (:next_30_apolices horizon)]
-                                (str n (if (= n 1) " apólice" " apólices")))}]
-        [horizon-col {:label "próximos 60d"
-                      :value (:next_60 horizon)
-                      :detail (when-let [n (:next_60_apolices horizon)]
-                                (str n (if (= n 1) " apólice" " apólices")))}]
-        [horizon-col {:label "próximos 90d"
-                      :value (:next_90 horizon)
-                      :detail (when-let [n (:next_90_apolices horizon)]
-                                (str n (if (= n 1) " apólice" " apólices")))}]])
-     [:div.chart-frame
-      [:div.chart-legend
-       (when has-realizado?
-         [:span.legend-dot {:style {:color "var(--beige-light)"}} "realizado"])
-       (when has-a-apurar?
-         [:span.legend-dot {:style {:color "var(--warning-dark)"}} "a apurar"])
-       [:span.legend-line {:style {:color "var(--blue-regular)"}} "projetado"]
-       (when-not filtered?
-         [:span.legend-band "horizonte 90d"])]
-      [chart-fluxo-caixa series]
-      [chart-fluxo-caixa-table series]]]))
+  (r/with-let [selected-index* (r/atom nil)]
+    (let [projected-count (:apolices period-summary)
+          projected (projected-points series)
+          fallback-index (default-projected-index series)
+          selected-index (or @selected-index* fallback-index)
+          selected-entry (or (some #(when (= selected-index (:index %)) %) projected)
+                             (first projected))
+          active-index (:index selected-entry)
+          horizon-months (count projected)]
+      [:div.card.fluxo-card
+       [:div.card-head
+        [:div [:h3 "Fluxo de caixa projetado"]
+         [:div.card-sub "recebíveis projetados · comissão + agenciamento"]]
+        (when as-of [:span.card-asof (str "atualizado " as-of)])]
+       (if filtered?
+         [:div.horizon-strip.period-summary
+          [summary-col {:label "realizado no período"
+                        :value (:realizado period-summary)}]
+          [summary-col {:label "a apurar no período"
+                        :value (:a_apurar period-summary)}]
+          [summary-col {:label "projetado no período"
+                        :value (:projetado period-summary)}]
+          [summary-col {:label "apólices projetadas"
+                        :value {:kind :count :text (str (or projected-count 0))}
+                        :detail "com parcelas no filtro"}]]
+         [:div.horizon-cards
+          [horizon-card {:label "próximos 30d"
+                         :value (:next_30 horizon)
+                         :closing (str "fecha " (horizon-closing-month 30))
+                         :detail (when-let [n (:next_30_apolices horizon)]
+                                   (str n (if (= n 1) " apólice" " apólices")))}]
+          [horizon-card {:label "próximos 60d"
+                         :value (:next_60 horizon)
+                         :closing (str "fecha " (horizon-closing-month 60))
+                         :detail (when-let [n (:next_60_apolices horizon)]
+                                   (str n (if (= n 1) " apólice" " apólices")))}]
+          [horizon-card {:label "próximos 90d"
+                         :value (:next_90 horizon)
+                         :closing (str "fecha " (horizon-closing-month 90))
+                         :detail (when-let [n (:next_90_apolices horizon)]
+                                   (str n (if (= n 1) " apólice" " apólices")))}]])
+       [:div.chart-frame
+        [:div.chart-legend
+         [:span.legend-line "projetado"]
+         [:span.legend-month-chip "mês atual"]
+         (when (and (not filtered?) (pos? horizon-months))
+           [:span.legend-horizon
+            "horizonte " [:strong (str horizon-months)] " "
+            (if (= 1 horizon-months) "mês" "meses")])]
+        [:div.chart-command-surface
+         [:div.chart-pane
+          [chart-fluxo-caixa series
+           {:selected-index active-index
+            :on-select #(reset! selected-index* %)}]
+          [chart-fluxo-caixa-table series]]
+         (when selected-entry
+           [fluxo-inspector-panel {:entry selected-entry
+                                   :total horizon-months}])]]])))
 
 ;; ----- Topbar period control ------------------------------------------
 
