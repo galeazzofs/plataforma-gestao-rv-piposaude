@@ -37,7 +37,9 @@
                  :loading? false}
 
    :finance {:dashboard nil
-             :loading? false}
+             :loading? false
+             :dashboard-error nil
+             :dashboard-request-id nil}
 
    :admin {:users []
            :teams []
