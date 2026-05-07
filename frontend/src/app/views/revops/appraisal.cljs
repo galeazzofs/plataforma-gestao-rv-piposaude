@@ -74,49 +74,53 @@
           "Criar"]]]])))
 
 (defn- active-card [active]
-  (let [period (when active (str "Q" (:quarter active) "/" (:year active)))
-        status (or (:status active) "REVIEWING")]
+  (if-not active
     [:div.card
-     [:div.card-head
-      [:div
-       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                      :color "var(--fg-3)" :text-transform "lowercase"}}
-        "apuração ativa"]
-       [:h2 {:style {:font-family "var(--font-display)" :font-weight 400 :font-size "24px" :margin-top "2px"}}
-        (str (or period "·") " · em revisão")]]
-      [:div.card-actions
-       [status->badge status]
-       (when active
+     [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
+                    :font-family "var(--font-mono)" :font-size "13px"}}
+      "Nenhuma apuração em andamento"]]
+    (let [period (str "Q" (:quarter active) "/" (:year active))
+          status (:status active)]
+      [:div.card
+       [:div.card-head
+        [:div
+         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                        :color "var(--fg-3)" :text-transform "lowercase"}}
+          "apuração ativa"]
+         [:h2 {:style {:font-family "var(--font-display)" :font-weight 400 :font-size "24px" :margin-top "2px"}}
+          (str period " · em revisão")]]
+        [:div.card-actions
+         [status->badge status]
          [:button.btn.btn-primary.btn-sm
           {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]])}
-          "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]])]]
-     [stepper status]
-     [:div.form-grid.-four
-      {:style {:border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
-      [:div
-       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                      :color "var(--fg-3)" :text-transform "lowercase"}}
-        "EVs apurados"]
-       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-        (str (or (:ev_count active) 14))]]
-      [:div
-       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                      :color "var(--fg-3)" :text-transform "lowercase"}}
-        "comissão total"]
-       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-        (str "R$ " (or (fmt-int (:total_amount active)) "412.300"))]]
-      [:div
-       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                      :color "var(--fg-3)" :text-transform "lowercase"}}
-        "divergências"]
-       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--warning-dark)"}}
-        (str (or (:contestation_count active) 7))]]
-      [:div
-       [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                      :color "var(--fg-3)" :text-transform "lowercase"}}
-        "prazo p/ encerrar"]
-       [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-        "12 dias"]]]]))
+          "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]]]]
+       [stepper status]
+       [:div.form-grid.-four
+        {:style {:border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
+        [:div
+         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                        :color "var(--fg-3)" :text-transform "lowercase"}}
+          "EVs apurados"]
+         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+          (str (or (:ev_count active) "·"))]]
+        [:div
+         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                        :color "var(--fg-3)" :text-transform "lowercase"}}
+          "comissão total"]
+         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+          (if-let [amt (fmt-int (:total_amount active))] (str "R$ " amt) "·")]]
+        [:div
+         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                        :color "var(--fg-3)" :text-transform "lowercase"}}
+          "divergências"]
+         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--warning-dark)"}}
+          (str (or (:contestation_count active) "·"))]]
+        [:div
+         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                        :color "var(--fg-3)" :text-transform "lowercase"}}
+          "prazo p/ encerrar"]
+         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+          (or (:days_remaining active) "·")]]]]))
 
 (defn- delete-btn [id]
   [:button.btn.btn-danger.btn-sm

@@ -650,21 +650,24 @@
 
 ;; ---- Policies (Admin view all) ----
 
+(defn- ->query-string [params]
+  (let [qs (js/URLSearchParams.)]
+    (doseq [[k v] (or params {})
+            :when (and v (not= v ""))]
+      (.append qs (name k) (str v)))
+    (.toString qs)))
+
 (rf/reg-event-fx
  :revops/fetch-policies
  (fn [{:keys [db]} [_ params]]
-   {:db   (-> db
-               (assoc-in [:admin :policies-loading?] true)
-               (assoc-in [:admin :policies-filters] params))
-    :http {:method     :get
-           :url        (str ep/policies
-                            "?" (clojure.string/join "&"
-                                  (keep (fn [[k v]]
-                                          (when (and v (not= v ""))
-                                            (str (name k) "=" v)))
-                                        (or params {}))))
-           :on-success [:revops/policies-loaded]
-           :on-failure [:revops/policies-error]}}))
+   (let [qs (->query-string params)]
+     {:db   (-> db
+                 (assoc-in [:admin :policies-loading?] true)
+                 (assoc-in [:admin :policies-filters] params))
+      :http {:method     :get
+             :url        (str ep/policies (when (seq qs) (str "?" qs)))
+             :on-success [:revops/policies-loaded]
+             :on-failure [:revops/policies-error]}})))
 
 (rf/reg-event-db
  :revops/policies-loaded

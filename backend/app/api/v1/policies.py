@@ -1,10 +1,11 @@
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request, g
+from sqlalchemy import false, or_
 from app.auth.decorators import require_auth, require_role
-from app.models import Policy, UserRole
+from app.models import Policy, User, UserRole
 from app.models.client import Client
-from app.models.policy import Segment
+from app.models.policy import CommissionStatus, Segment
 from app.api.middlewares import paginate_query, log_audit
 from app.modules.policies.filters import active_ev_policies_query, all_ev_policies_query
 from app.modules.commissions.status import update_policy_statuses
@@ -64,7 +65,6 @@ def list_policies():
     elif user.role in (UserRole.EV, UserRole.CN):
         query = active_ev_policies_query().filter(Policy.ev_id == user.id)
     elif user.role == UserRole.GERENTE:
-        from app.models import User
         team_member_ids = [
             u.id for u in User.query.filter_by(team_id=user.team_id, active=True).all()
         ]
@@ -75,6 +75,8 @@ def list_policies():
         }), 403
 
     # Optional filters
+    query = query.outerjoin(Client, Policy.client_id == Client.id)
+
     ev_id = request.args.get("ev_id")
     if ev_id:
         query = query.filter(Policy.ev_id == ev_id)
@@ -118,12 +120,29 @@ def list_policies():
 
     status = request.args.get("status")
     if status:
-        query = query.filter(Policy.commission_status == status)
+        try:
+            query = query.filter(Policy.commission_status == CommissionStatus(status))
+        except ValueError:
+            query = query.filter(false())
+
+    search = (request.args.get("search") or "").strip()
+    if search:
+        term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Policy.hubspot_ticket_id.ilike(term),
+                Policy.hubspot_apolice_id.ilike(term),
+                Policy.numero_apolice.ilike(term),
+                Policy.partner_operator.ilike(term),
+                Client.name.ilike(term),
+                User.name.ilike(term),
+                User.email.ilike(term),
+            )
+        )
 
     # Sorting
     sort_by = request.args.get("sort_by", "closed_date")
     if sort_by == "client_name":
-        query = query.outerjoin(Client, Policy.client_id == Client.id)
         query = query.order_by(Client.name.asc())
     else:
         query = query.order_by(Policy.closed_date.desc())

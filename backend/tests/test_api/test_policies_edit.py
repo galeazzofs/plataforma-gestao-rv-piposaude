@@ -10,7 +10,7 @@ import pytest
 
 from app.extensions import db
 from app.models import (
-    User, UserRole, Policy, Client, Segment, BenefitType, AuditLog,
+    User, UserRole, Policy, Client, Segment, BenefitType, CommissionStatus, AuditLog,
 )
 from app.auth.jwt_manager import create_access_token
 
@@ -190,3 +190,65 @@ def test_get_policies_applies_active_ev_filter(client, fresh_actors):
         Policy.query.filter(Policy.id.in_([p_active.id, p_inactive.id])).delete()
         db.session.delete(inactive_ev)
         db.session.commit()
+
+
+def test_get_policies_filters_by_status(client, fresh_actors):
+    admin, ev, client_obj = fresh_actors
+    suffix = uuid.uuid4().hex[:8]
+    projected_ticket = f"STATUS-PROJECTED-{suffix}"
+    settled_ticket = f"STATUS-SETTLED-{suffix}"
+    p_projected = Policy(
+        hubspot_apolice_id=f"A-{projected_ticket}",
+        hubspot_ticket_id=projected_ticket,
+        ev_id=ev.id, client_id=client_obj.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        commission_status=CommissionStatus.PROJECTED,
+        closed_date=date(2025, 12, 1),
+    )
+    p_settled = Policy(
+        hubspot_apolice_id=f"A-{settled_ticket}",
+        hubspot_ticket_id=settled_ticket,
+        ev_id=ev.id, client_id=client_obj.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        commission_status=CommissionStatus.SETTLED,
+        closed_date=date(2025, 12, 1),
+    )
+    db.session.add_all([p_projected, p_settled])
+    db.session.commit()
+
+    resp = client.get(
+        f"/api/v1/policies?status=SETTLED&search={suffix}",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 200
+    ticket_ids = {p["hubspot_ticket_id"] for p in resp.get_json()["data"]}
+    assert settled_ticket in ticket_ids
+    assert projected_ticket not in ticket_ids
+
+
+def test_get_policies_searches_client_ev_and_policy_fields(client, fresh_actors):
+    admin, ev, client_obj = fresh_actors
+    suffix = uuid.uuid4().hex[:8]
+    ev.name = f"Search EV {suffix}"
+    client_obj.name = f"Search Client {suffix}"
+    p = Policy(
+        hubspot_apolice_id=f"APOLICE-{suffix}",
+        hubspot_ticket_id=f"TICKET-{suffix}",
+        numero_apolice=f"NUM-{suffix}",
+        partner_operator=f"Operadora {suffix}",
+        ev_id=ev.id, client_id=client_obj.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        closed_date=date(2025, 12, 1),
+    )
+    db.session.add(p)
+    db.session.commit()
+
+    for term in [client_obj.name, ev.name, p.hubspot_ticket_id, p.numero_apolice]:
+        resp = client.get(
+            "/api/v1/policies",
+            query_string={"search": term},
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+        ticket_ids = {row["hubspot_ticket_id"] for row in resp.get_json()["data"]}
+        assert p.hubspot_ticket_id in ticket_ids
