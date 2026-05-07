@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.models import (
     User, UserRole, Client, Policy, Segment, BenefitType,
-    CommissionStatus, CommissionPctTable,
+    CommissionStatus, CommissionPctTable, EvQuarterAchievement,
 )
 from app.modules.commissions.projection import (
     compute_ev_balance,
@@ -43,11 +43,18 @@ def _setup(session):
 
 
 class TestComputeEvBalance:
-    """Spec S9 -- Projecao: MRR comissao x faixa media (50-99.9%)."""
+    """Projecao: comissao usa atingimento real do trimestre do gongo;
+    cai para faixa media (50-99.9% = 8%) quando nao ha atingimento cadastrado."""
 
-    def test_balance_for_projected_policy(self, db_session):
+    def test_balance_uses_real_achievement_when_available(self, db_session):
         ev, client = _setup(db_session)
 
+        # 100%+ achievement -> 10% tier
+        db_session.add(EvQuarterAchievement(
+            ev_id=ev.id, quarter=1, year=2026,
+            total_mrr=Decimal("60000"), mrr_target=Decimal("50000"),
+            achievement_pct=Decimal("1.2000"),
+        ))
         db_session.add(Policy(
             hubspot_apolice_id="A-1", hubspot_ticket_id="T-1", ev_id=ev.id, client_id=client.id,
             segment=Segment.P, benefit_type=BenefitType.SAUDE,
@@ -60,7 +67,26 @@ class TestComputeEvBalance:
 
         balance = compute_ev_balance(ev.id)
 
-        # 10000 x 0.08 (middle tier) x 12 remaining = 9600
+        # 10000 x 0.10 (top tier) x 12 remaining = 12000
+        assert balance == Decimal("12000.00")
+
+    def test_balance_fallback_middle_tier_when_no_achievement(self, db_session):
+        ev, client = _setup(db_session)
+
+        db_session.add(Policy(
+            hubspot_apolice_id="A-1b", hubspot_ticket_id="T-1b", ev_id=ev.id, client_id=client.id,
+            segment=Segment.P, benefit_type=BenefitType.SAUDE,
+            mrr_projected=Decimal("10000"),
+            closed_date=date(2026, 1, 15),
+            commission_status=CommissionStatus.PROJECTED,
+            installments_paid=0,
+        ))
+        db_session.flush()
+
+        balance = compute_ev_balance(ev.id)
+
+        # no achievement on file -> fallback 50% floor -> 8% tier
+        # 10000 x 0.08 x 12 = 9600
         assert balance == Decimal("9600.00")
 
     def test_balance_reduces_with_installments_paid(self, db_session):
@@ -139,6 +165,7 @@ class TestComputeEvProjection:
         months = compute_ev_projection(ev.id, ref_date=date(2026, 4, 1))
 
         assert len(months) == 12
+        # no achievement on file -> fallback 50% floor -> 8%
         # 6 remaining installments of R$ 800 (10000 x 0.08)
         non_zero = [m for m in months if m["projected"] > Decimal("0")]
         assert len(non_zero) == 6
