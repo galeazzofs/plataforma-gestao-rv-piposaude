@@ -44,12 +44,23 @@
 
 (defn page []
   (let [filter-state (r/atom {:month "4" :year "2026"})
-        edits        (r/atom {})]
+        edits        (r/atom {})
+        select-period (fn [k v]
+                        (swap! filter-state assoc k v)
+                        (reset! edits {})
+                        (rf/dispatch [:revops/fetch-cn-goals
+                                      (:month @filter-state) (:year @filter-state)]))]
+    (rf/dispatch [:revops/fetch-cn-goals (:month @filter-state) (:year @filter-state)])
     (fn []
       (let [goals    @(rf/subscribe [:revops/cn-goals])
             loading? @(rf/subscribe [:revops/cn-goals-loading?])
             user     @(rf/subscribe [:auth/current-user])
-            route    @(rf/subscribe [:current-route-name])]
+            route    @(rf/subscribe [:current-route-name])
+            field-val (fn [row k]
+                        (let [edited (get-in @edits [(:cn_id row) k] ::none)]
+                          (if (= edited ::none)
+                            (or (get row k) "")
+                            edited)))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "configuração" "metas CN"]
@@ -59,18 +70,22 @@
           [[:div.search
             [layout/icon "calendar" {:width 14 :height 14}]
             [:span (str (:month @filter-state) "/" (:year @filter-state))]]
-           [:button.btn.btn-secondary
-            {:on-click #(rf/dispatch [:revops/fetch-cn-goals
-                                      (:month @filter-state) (:year @filter-state)])}
-            "Buscar"]
            [:button.btn.btn-primary
-            {:on-click (fn []
-                         (let [items (mapv (fn [[cn-id vals]] (merge {:cn_id cn-id} vals))
-                                            @edits)]
+            {:disabled (empty? @edits)
+             :on-click (fn []
+                         (let [items (mapv (fn [[cn-id vals]]
+                                             (let [row (first (filter #(= (:cn_id %) cn-id) goals))]
+                                               {:cn_id        cn-id
+                                                :sao_target   (or (:sao_target vals)
+                                                                  (:sao_target row) "0")
+                                                :vidas_target (or (:vidas_target vals)
+                                                                  (:vidas_target row) "0")}))
+                                           @edits)]
                            (rf/dispatch [:revops/save-cn-goals
                                          {:month (:month @filter-state)
                                           :year  (:year @filter-state)
-                                          :items items}])))}
+                                          :items items}])
+                           (reset! edits {})))}
             [layout/icon "check" {:width 14 :height 14}] "Salvar metas"]]}
 
          [:div.filter-row {:role "group" :aria-label "Filtrar por período"}
@@ -80,7 +95,7 @@
                       :class (str "chip" (when (= (str m) (:month @filter-state)) " active"))
                       :aria-pressed (str (= (str m) (:month @filter-state)))
                       :aria-label (str "Mês " m)
-                      :on-click #(swap! filter-state assoc :month (str m))}
+                      :on-click #(select-period :month (str m))}
              (str m)])
           [:div {:role "separator" :aria-hidden "true"
                  :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
@@ -89,7 +104,7 @@
             [:button {:type "button"
                       :class (str "chip" (when (= y (:year @filter-state)) " active"))
                       :aria-pressed (str (= y (:year @filter-state)))
-                      :on-click #(swap! filter-state assoc :year y)}
+                      :on-click #(select-period :year y)}
              y])]
 
          [:div.card {:style {:padding 0}}
@@ -101,13 +116,13 @@
              [:th.right "Meta Vidas"]]]
            [:tbody
             (cond
-              loading?
+              (and loading? (empty? goals))
               [:tr [:td {:col-span 3 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? goals)
               [:tr [:td {:col-span 3 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
-                    "Nenhuma meta configurada · clique em Buscar"]]
+                    "Nenhum CN ativo encontrado"]]
 
               :else
               (for [row goals]
@@ -116,11 +131,15 @@
                  [:td.name (or (:cn_name row) (str "CN " (:cn_id row)))]
                  [:td.right
                   [:input.field-input
-                   {:style {:width "180px" :text-align "right" :padding "6px 10px"}
-                    :value (get-in @edits [(:cn_id row) :sao_target] (str (:sao_target row)))
+                   {:type "number" :inputMode "decimal"
+                    :style {:width "180px" :text-align "right" :padding "6px 10px"}
+                    :placeholder "0"
+                    :value (field-val row :sao_target)
                     :on-change #(swap! edits assoc-in [(:cn_id row) :sao_target] (.. % -target -value))}]]
                  [:td.right
                   [:input.field-input
-                   {:style {:width "140px" :text-align "right" :padding "6px 10px"}
-                    :value (get-in @edits [(:cn_id row) :vidas_target] (str (:vidas_target row)))
+                   {:type "number" :inputMode "numeric"
+                    :style {:width "140px" :text-align "right" :padding "6px 10px"}
+                    :placeholder "0"
+                    :value (field-val row :vidas_target)
                     :on-change #(swap! edits assoc-in [(:cn_id row) :vidas_target] (.. % -target -value))}]]]))]]]]))))

@@ -26,16 +26,23 @@ def list_cn_goals():
 
     month = request.args.get("month", type=int)
     year = request.args.get("year", type=int)
-    query = CnMonthlyGoal.query
-    if month:
-        query = query.filter_by(month=month)
-    if year:
-        query = query.filter_by(year=year)
-    if user.role == UserRole.CN:
-        query = query.filter_by(cn_id=user.id)
 
-    goals = query.all()
-    return jsonify({"data": [_serialize_goal(g_) for g_ in goals]})
+    # Admin sees one row per active CN (with merged goal data when present)
+    # so the UI can seed targets without a separate "create" affordance.
+    if user.role == UserRole.ADMIN:
+        cns = User.query.filter_by(role=UserRole.CN, active=True).order_by(User.name).all()
+    else:
+        cns = [user]
+
+    goal_map = {}
+    if month and year:
+        goal_q = CnMonthlyGoal.query.filter_by(month=month, year=year)
+        if user.role == UserRole.CN:
+            goal_q = goal_q.filter_by(cn_id=user.id)
+        goal_map = {gl.cn_id: gl for gl in goal_q.all()}
+
+    data = [_serialize_cn_row(cn, goal_map.get(cn.id), month, year) for cn in cns]
+    return jsonify({"data": data})
 
 
 @cn_commissions_bp.route("/goals", methods=["PUT"])
@@ -63,8 +70,8 @@ def upsert_cn_goals():
             if goal is None:
                 goal = CnMonthlyGoal(cn_id=item["cn_id"], month=month, year=year)
                 db.session.add(goal)
-            goal.sao_target = Decimal(str(item["sao_target"]))
-            goal.vidas_target = Decimal(str(item["vidas_target"]))
+            goal.sao_target = _decimal_or_zero(item.get("sao_target"))
+            goal.vidas_target = _decimal_or_zero(item.get("vidas_target"))
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -177,14 +184,21 @@ def simulate_cn_endpoint():
 
 # ── Serialisers ────────────────────────────────────────────────────────────
 
-def _serialize_goal(g_):
+def _decimal_or_zero(v):
+    if v is None or v == "":
+        return Decimal("0")
+    return Decimal(str(v))
+
+
+def _serialize_cn_row(cn, goal, month, year):
     return {
-        "id": str(g_.id),
-        "cn_id": str(g_.cn_id),
-        "month": g_.month,
-        "year": g_.year,
-        "sao_target": str(g_.sao_target),
-        "vidas_target": str(g_.vidas_target),
+        "id": str(goal.id) if goal else None,
+        "cn_id": str(cn.id),
+        "cn_name": cn.name,
+        "month": month,
+        "year": year,
+        "sao_target": str(goal.sao_target) if goal else None,
+        "vidas_target": str(goal.vidas_target) if goal else None,
     }
 
 
