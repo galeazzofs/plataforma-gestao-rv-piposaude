@@ -142,10 +142,22 @@ def list_policies():
 
     # Sorting
     sort_by = request.args.get("sort_by", "closed_date")
-    if sort_by == "client_name":
-        query = query.order_by(Client.name.asc())
-    else:
-        query = query.order_by(Policy.closed_date.desc())
+    sort_order = request.args.get("sort_order")
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc" if sort_by == "closed_date" else "asc"
+    sort_columns = {
+        "hubspot_ticket_id": Policy.hubspot_ticket_id,
+        "numero_apolice": Policy.numero_apolice,
+        "ev_name": User.name,
+        "client_name": Client.name,
+        "partner_operator": Policy.partner_operator,
+        "benefit_type": Policy.benefit_type,
+        "closed_date": Policy.closed_date,
+        "commission_status": Policy.commission_status,
+    }
+    sort_expr = sort_columns.get(sort_by, Policy.closed_date)
+    ordered_expr = sort_expr.desc() if sort_order == "desc" else sort_expr.asc()
+    query = query.order_by(sort_expr.is_(None), ordered_expr, Policy.id.asc())
 
     items, meta = paginate_query(query, page, per_page)
 

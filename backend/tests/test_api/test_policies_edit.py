@@ -252,3 +252,78 @@ def test_get_policies_searches_client_ev_and_policy_fields(client, fresh_actors)
         assert resp.status_code == 200
         ticket_ids = {row["hubspot_ticket_id"] for row in resp.get_json()["data"]}
         assert p.hubspot_ticket_id in ticket_ids
+
+
+def test_get_policies_sorts_visible_columns(client, fresh_actors):
+    admin, ev, client_obj = fresh_actors
+    suffix = uuid.uuid4().hex[:8]
+    other_client = Client.find_or_create(f"AaaClient-{suffix}")
+    p_z = Policy(
+        hubspot_apolice_id=f"A-SORT-Z-{suffix}",
+        hubspot_ticket_id=f"SORT-Z-{suffix}",
+        numero_apolice=f"Z-{suffix}",
+        partner_operator="Zurich",
+        ev_id=ev.id, client_id=client_obj.id,
+        segment=Segment.M, benefit_type=BenefitType.SAUDE,
+        closed_date=date(2025, 12, 1),
+    )
+    p_a = Policy(
+        hubspot_apolice_id=f"A-SORT-A-{suffix}",
+        hubspot_ticket_id=f"SORT-A-{suffix}",
+        numero_apolice=f"A-{suffix}",
+        partner_operator="Amil",
+        ev_id=ev.id, client_id=other_client.id,
+        segment=Segment.M, benefit_type=BenefitType.ODONTO,
+        closed_date=date(2025, 12, 2),
+    )
+    db.session.add_all([p_z, p_a])
+    db.session.commit()
+
+    try:
+        resp = client.get(
+            "/api/v1/policies",
+            query_string={
+                "search": suffix,
+                "sort_by": "numero_apolice",
+                "sort_order": "asc",
+            },
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+        rows = resp.get_json()["data"]
+        assert [row["numero_apolice"] for row in rows[:2]] == [
+            p_a.numero_apolice,
+            p_z.numero_apolice,
+        ]
+
+        resp = client.get(
+            "/api/v1/policies",
+            query_string={
+                "search": suffix,
+                "sort_by": "numero_apolice",
+                "sort_order": "desc",
+            },
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+        rows = resp.get_json()["data"]
+        assert [row["numero_apolice"] for row in rows[:2]] == [
+            p_z.numero_apolice,
+            p_a.numero_apolice,
+        ]
+
+        resp = client.get(
+            "/api/v1/policies",
+            query_string={"search": suffix, "sort_by": "client_name"},
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+        rows = resp.get_json()["data"]
+        assert [row["client_name"] for row in rows[:2]] == [
+            other_client.name,
+            client_obj.name,
+        ]
+    finally:
+        Policy.query.filter(Policy.id.in_([p_z.id, p_a.id])).delete()
+        db.session.delete(other_client)
+        db.session.commit()

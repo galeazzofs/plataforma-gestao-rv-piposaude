@@ -16,7 +16,7 @@
  :ev/dashboard-loaded
  (fn [db [_ response]]
    (-> db
-       (assoc-in [:commissions :summary]  (get-in response [:data :summary]))
+       (assoc-in [:commissions :summary]  (:data response))
        (assoc-in [:commissions :loading?] false))))
 
 (rf/reg-event-db

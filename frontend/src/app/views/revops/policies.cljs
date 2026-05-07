@@ -17,7 +17,7 @@
 
 (def ^:const row-h 52)
 (def ^:const overscan 8)
-(def ^:const per-page 500)
+(def ^:const per-page 100)
 (def ^:const flip-ms 520)
 (def ^:const flash-ms 750)
 (def ^:const saved-ms 950)
@@ -38,16 +38,45 @@
       (str d "/" m "/" y))
     "·"))
 
-(defn- normalized-filters
-  "Strip empty strings and request a single, large page from the API. The page
-   itself paginates client-side via virtual scrolling."
-  [f]
+(defn- request-params
+  "Strip empty strings and request the current server page."
+  [f page]
   (-> f
       (update :status #(when-not (= "" %) %))
       (update :search #(when-not (= "" %) %))
       (update :ev_id  #(when-not (= "" %) %))
       (assoc :per_page per-page)
-      (assoc :page 1)))
+      (assoc :page page)))
+
+(defn- sort-glyph [active? order]
+  (cond
+    (and active? (= order "asc")) "↑"
+    active?                       "↓"
+    :else                         "↕"))
+
+(defn- next-sort-order [filters field]
+  (if (= field (:sort_by filters))
+    (if (= "asc" (:sort_order filters)) "desc" "asc")
+    "asc"))
+
+(defn- sortable-head [{:keys [label field filters on-sort]}]
+  (let [active? (= field (:sort_by @filters))
+        order   (:sort_order @filters)]
+    [:div.col.sortable
+     {:role "columnheader"
+      :tab-index 0
+      :aria-sort (if active?
+                   (if (= "asc" order) "ascending" "descending")
+                   "none")
+      :data-active (str active?)
+      :title (str "Ordenar por " label)
+      :on-click #(on-sort field)
+      :on-key-down (fn [e]
+                     (when (#{"Enter" " "} (.-key e))
+                       (.preventDefault e)
+                       (on-sort field)))}
+     label
+     [:span.sort-glyph {:aria-hidden true} (sort-glyph active? order)]]))
 
 (defn- reduced-motion? []
   (boolean (some-> js/window
@@ -135,7 +164,9 @@
 ;; -----------------------------------------------------------------------------
 
 (defn policies-page []
-  (let [filters         (r/atom {:status "" :search "" :ev_id "" :sort_by "closed_date"})
+  (let [filters         (r/atom {:status "" :search "" :ev_id ""
+                                 :sort_by "closed_date" :sort_order "desc"})
+        page            (r/atom 1)
         modal-open?     (r/atom false)
         selected        (r/atom nil)
         focused-id      (r/atom nil)
@@ -149,16 +180,31 @@
         prev-status     (atom nil)          ; non-reactive; for status-flash diffing
         viewport-ref    (atom nil)
 
-        fetch-fn (fn []
-                   (reset! scroll-y 0)
-                   (when-let [vp @viewport-ref]
-                     (set! (.-scrollTop vp) 0))
-                   (rf/dispatch [:revops/fetch-policies (normalized-filters @filters)]))
+        fetch-page! (fn [next-page]
+                      (let [safe-page (max 1 next-page)]
+                        (reset! page safe-page)
+                        (reset! scroll-y 0)
+                        (when-let [vp @viewport-ref]
+                          (set! (.-scrollTop vp) 0))
+                        (rf/dispatch [:revops/fetch-policies
+                                      (request-params @filters safe-page)])))
 
         trigger-flip!
         (fn []
           (reset! flip? true)
           (js/setTimeout #(reset! flip? false) flip-ms))
+
+        reset-fetch! (fn []
+                       (fetch-page! 1))
+
+        sort-by! (fn [field]
+                   (trigger-flip!)
+                   (swap! filters
+                          (fn [f]
+                            (assoc f
+                                   :sort_by field
+                                   :sort_order (next-sort-order f field))))
+                   (reset-fetch!))
 
         scroll-into-view!
         (fn [id]
@@ -262,7 +308,7 @@
                       (reset! focused-id nil))
                   nil)))))]
 
-    (rf/dispatch [:revops/fetch-policies (normalized-filters @filters)])
+    (rf/dispatch [:revops/fetch-policies (request-params @filters @page)])
     (rf/dispatch [:revops/fetch-users])
 
     (r/create-class
@@ -288,6 +334,8 @@
               user            @(rf/subscribe [:auth/current-user])
               route           @(rf/subscribe [:current-route-name])
               total-meta      (or (:total meta) (count policies))
+              total-pages     (max 1 (or (:total_pages meta) 1))
+              current-page    (min total-pages (max 1 (or (:page meta) @page)))
               in-validation   (count (filter #(= (:commission_status %) "IN_PAYMENT") policies))
               settled         (count (filter #(= (:commission_status %) "SETTLED") policies))
               suspended       (count (filter #(= (:commission_status %) "CANCELLED") policies))
@@ -351,7 +399,7 @@
                        :value (:search @filters)
                        :on-change (fn [e]
                                     (swap! filters assoc :search (.. e -target -value))
-                                    (fetch-fn))}]]
+                                    (reset-fetch!))}]]
              [:div.policies-filterbar
               [:div.filter-row {:role "group" :aria-label "Filtrar por status"}
                [count-chip {:active? (= "" (:status @filters))
@@ -360,28 +408,28 @@
                             :on-click (fn []
                                         (trigger-flip!)
                                         (swap! filters assoc :status "")
-                                        (fetch-fn))}]
+                                        (reset-fetch!))}]
                [count-chip {:active? (= "IN_PAYMENT" (:status @filters))
                             :tally   in-validation
                             :label   "Em pagamento"
                             :on-click (fn []
                                         (trigger-flip!)
                                         (swap! filters assoc :status "IN_PAYMENT")
-                                        (fetch-fn))}]
+                                        (reset-fetch!))}]
                [count-chip {:active? (= "SETTLED" (:status @filters))
                             :tally   settled
                             :label   "Totalmente pagas"
                             :on-click (fn []
                                         (trigger-flip!)
                                         (swap! filters assoc :status "SETTLED")
-                                        (fetch-fn))}]
+                                        (reset-fetch!))}]
                [count-chip {:active? (= "CANCELLED" (:status @filters))
                             :tally   suspended
                             :label   "Canceladas"
                             :on-click (fn []
                                         (trigger-flip!)
                                         (swap! filters assoc :status "CANCELLED")
-                                        (fetch-fn))}]]
+                                        (reset-fetch!))}]]
               [:div.policies-filter-meta
                [:select.period-select.ev-select
                 {:value (:ev_id @filters)
@@ -389,7 +437,7 @@
                  :on-change (fn [e]
                               (trigger-flip!)
                               (swap! filters assoc :ev_id (.. e -target -value))
-                              (fetch-fn))}
+                              (reset-fetch!))}
                 [:option {:value ""} "Todos os EVs"]
                 (for [u ev-options]
                   ^{:key (:id u)}
@@ -401,28 +449,38 @@
             [:div.policies-workspace {:data-detail-open (str (boolean detail-policy))}
              [:div.ledger
               [:div.ledger-head {:role "row"}
-               [:div.col "Ticket ID"]
-               [:div.col "Apólice"]
-               [:div.col "EV"]
-               [:div.col {:class "sortable"
-                          :data-active (str (= "client_name" (:sort_by @filters)))
-                          :on-click (fn []
-                                      (trigger-flip!)
-                                      (swap! filters assoc :sort_by "client_name")
-                                      (fetch-fn))}
-                "Cliente"
-                [:span.sort-glyph (if (= "client_name" (:sort_by @filters)) "↓" "·")]]
-               [:div.col "Operadora"]
-               [:div.col "Benefício"]
-               [:div.col {:class "sortable"
-                          :data-active (str (= "closed_date" (:sort_by @filters)))
-                          :on-click (fn []
-                                      (trigger-flip!)
-                                      (swap! filters assoc :sort_by "closed_date")
-                                      (fetch-fn))}
-                "Data Gongo"
-                [:span.sort-glyph (if (= "closed_date" (:sort_by @filters)) "↓" "·")]]
-               [:div.col "Estado"]]
+               [sortable-head {:label "Ticket ID"
+                               :field "hubspot_ticket_id"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "Apólice"
+                               :field "numero_apolice"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "EV"
+                               :field "ev_name"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "Cliente"
+                               :field "client_name"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "Operadora"
+                               :field "partner_operator"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "Benefício"
+                               :field "benefit_type"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "Data Gongo"
+                               :field "closed_date"
+                               :filters filters
+                               :on-sort sort-by!}]
+               [sortable-head {:label "Estado"
+                               :field "commission_status"
+                               :filters filters
+                               :on-sort sort-by!}]]
 
               [:div.ledger-body
                {:ref #(do (reset! viewport-ref %) (when % (measure-viewport!)))
@@ -467,7 +525,29 @@
                         [:div.col.muted (fmt-benefit (:benefit_type p))]
                         [:div.col.num.muted (fmt-date (:closed_date p))]
                         [:div.col.estado
-                         [badge/status-badge {:status (:commission_status p)}]]]))]])]]
+                         [badge/status-badge {:status (:commission_status p)}]]]))]])]
+
+              (when (> total-pages 1)
+                [:nav.ledger-pager {:aria-label "Paginação de apólices"}
+                 [:div.ledger-page-meta {:aria-live "polite"}
+                  (str "Página " current-page " de " total-pages
+                       " · " total-meta " apólice"
+                       (when (not= 1 total-meta) "s"))]
+                 [:div.ledger-page-actions
+                  [:button.ledger-page-btn
+                   {:type "button"
+                    :aria-label "Página anterior"
+                    :disabled (<= current-page 1)
+                    :on-click #(fetch-page! (dec current-page))}
+                   [:span {:aria-hidden true} "‹"]
+                   "Anterior"]
+                  [:button.ledger-page-btn
+                   {:type "button"
+                    :aria-label "Próxima página"
+                    :disabled (>= current-page total-pages)
+                    :on-click #(fetch-page! (inc current-page))}
+                   "Próxima"
+                   [:span {:aria-hidden true} "›"]]]])]
 
              (when detail-policy
                [:aside.policy-detail {:aria-label "Detalhes da apólice"}
