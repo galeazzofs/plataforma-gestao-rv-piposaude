@@ -12,11 +12,6 @@
    (get-in db [:finance :loading?])))
 
 (rf/reg-sub
- :finance/dashboard-error
- (fn [db _]
-   (get-in db [:finance :dashboard-error])))
-
-(rf/reg-sub
  :finance/approval-items
  (fn [db _]
    (get-in db [:finance :approval-items])))

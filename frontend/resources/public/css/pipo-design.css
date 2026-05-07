@@ -225,67 +225,20 @@ main:focus{outline:none}
 /* ============ Content ============ */
 .page{padding:28px 32px 80px;display:flex;flex-direction:column;gap:24px;max-width:1480px}
 
-/* Finance dashboard — a ledger workspace with one dominant projection panel.
-   KPIs and reconciliation read as the summary band; the lower grid separates
-   realized revenue from projected cash flow without making both rows equal. */
-.finance-dashboard{
-  display:grid;
-  grid-template-columns:minmax(300px,.74fr) minmax(0,1.58fr);
-  grid-template-areas:
-    "error error"
-    "kpis kpis"
-    "reconciliation reconciliation"
-    "revenue fluxo";
-  gap:16px 18px;
-  align-items:start;
-}
-.finance-dashboard>.finance-error{grid-area:error}
-.finance-dashboard>.kpi-grid{grid-area:kpis}
-.finance-dashboard>.finance-reconciliation{grid-area:reconciliation}
-.finance-dashboard>.finance-revenue-card{grid-area:revenue}
-.finance-dashboard>.fluxo-card{grid-area:fluxo}
-
 /* KPI cards */
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .kpi-grid.-three{grid-template-columns:repeat(3,1fr)}
 .kpi{
   background:var(--bg-1);border:1px solid var(--border-subtle);
-  border-radius:var(--r-md);padding:18px 20px 20px;
-  display:flex;flex-direction:column;gap:10px;position:relative;overflow:hidden;
-  min-width:0;
+  border-radius:var(--r-md);padding:20px;
+  display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden;
 }
-.kpi-label{font-family:var(--font-mono);font-size:11px;text-transform:lowercase;letter-spacing:0.02em;color:var(--fg-3);display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}
+.kpi-label{font-family:var(--font-mono);font-size:11px;text-transform:lowercase;letter-spacing:0.02em;color:var(--fg-3);display:flex;align-items:center;gap:6px}
 .kpi-label svg{width:14px;height:14px;color:var(--fg-3)}
-.kpi-value{font-family:var(--font-display);font-size:38px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";max-width:100%;overflow-wrap:anywhere}
+.kpi-value{font-family:var(--font-display);font-size:38px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .kpi-value .currency{font-family:var(--font-ui);font-size:14px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
 .kpi-value .frac{font-family:var(--font-display);font-size:24px;color:var(--fg-3)}
-.kpi-foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3);margin-top:auto;min-width:0;overflow-wrap:anywhere}
-.finance-reconciliation{
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  margin-top:-4px;padding:10px 14px;
-  background:var(--bg-1);border:1px solid var(--border-subtle);
-  border-radius:var(--r-sm);
-  font-family:var(--font-mono);font-size:11px;color:var(--fg-3);
-  letter-spacing:0.02em;text-transform:lowercase;
-  min-width:0;overflow-wrap:anywhere;
-}
-.finance-reconciliation strong{
-  font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:var(--fg-1);
-  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
-  max-width:100%;overflow-wrap:anywhere;
-}
-.finance-error{
-  border-color:var(--danger-light);background:var(--danger-lightest);
-}
-.finance-error svg{color:var(--danger-text)}
-.finance-error p{margin:0 0 10px;color:var(--fg-2);font-size:13px;overflow-wrap:anywhere}
-.finance-error .btn{
-  background:var(--bg-1);
-}
-.finance-error .btn:focus-visible{
-  outline:none;
-  box-shadow:0 0 0 2px var(--danger-text) inset;
-}
+.kpi-foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3);margin-top:auto}
 .delta{display:inline-flex;align-items:center;gap:3px;font-family:var(--font-ui);font-weight:600;font-size:12px;padding:2px 8px;border-radius:var(--r-pill)}
 .delta-up{background:var(--success-lightest);color:var(--success-text)}
 .delta-down{background:var(--danger-lightest);color:var(--danger-text)}
@@ -293,10 +246,10 @@ main:focus{outline:none}
 .kpi-grafismo{position:absolute;right:-30px;bottom:-30px;width:140px;height:140px;opacity:.5;pointer-events:none;color:var(--neutral-regular)}
 
 /* Editorial split — two display numerics separated by a 1px hairline rule */
-.split-numerics{display:grid;grid-template-columns:1fr 1px 1fr;gap:18px;align-items:start;padding:2px 0}
+.split-numerics{display:grid;grid-template-columns:1fr 1px 1fr;gap:24px;align-items:start;padding:4px 0}
 .split-numerics .col{display:flex;flex-direction:column;gap:4px;min-width:0}
 .split-numerics .rule{background:var(--border-subtle);width:1px;justify-self:center;align-self:stretch}
-.split-numerics .num{font-family:var(--font-display);font-size:34px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";max-width:100%;overflow-wrap:anywhere}
+.split-numerics .num{font-family:var(--font-display);font-size:34px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .split-numerics .num .currency{font-family:var(--font-ui);font-size:13px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
 .split-numerics .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
 
@@ -321,17 +274,17 @@ main:focus{outline:none}
 /* Forecast horizon cards — flat editorial cells with bg-2 fill and a 1px
    border. Each card keeps only label, value, closing month, and apólice
    count so the real chart remains the single visual forecast. */
-.horizon-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:0 0 4px;margin-bottom:6px}
+.horizon-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:0 0 4px;margin-bottom:6px}
 .horizon-card{
   display:flex;flex-direction:column;gap:6px;min-width:0;
   background:var(--bg-2);border:1px solid var(--border-subtle);
   border-radius:var(--r-md);
   padding:14px 16px 12px;
 }
-.horizon-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.horizon-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .horizon-card .lab{
   font-family:var(--font-mono);font-size:11px;color:var(--fg-3);
-  letter-spacing:0.02em;text-transform:lowercase;min-width:0;overflow-wrap:anywhere;
+  letter-spacing:0.02em;text-transform:lowercase;
 }
 .horizon-card-close{
   font-family:var(--font-mono);font-size:10px;color:var(--fg-muted);
@@ -341,7 +294,7 @@ main:focus{outline:none}
   font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:400;
   color:var(--fg-1);letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
-  margin-top:2px;max-width:100%;overflow-wrap:anywhere;
+  margin-top:2px;
 }
 .horizon-card-num .currency{
   font-family:var(--font-ui);font-size:13px;font-weight:600;
@@ -352,7 +305,7 @@ main:focus{outline:none}
 }
 .horizon-card-foot .meta{
   font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
-  letter-spacing:0.04em;overflow-wrap:anywhere;
+  letter-spacing:0.04em;
 }
 .horizon-card:hover{box-shadow:var(--shadow-hover)}
 
@@ -381,17 +334,15 @@ main:focus{outline:none}
 }
 .period-reset:hover{background:var(--bg-1);box-shadow:var(--shadow-hover)}
 .period-reset:focus{outline:none;box-shadow:0 0 0 2px var(--black) inset}
-.period-reset:active{background:var(--neutral-light)}
 
 /* Card */
 .card{
   background:var(--bg-1);border:1px solid var(--border-subtle);
   border-radius:var(--r-md);padding:24px;display:flex;flex-direction:column;gap:16px;
 }
-.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;min-width:0}
-.card-head>div{min-width:0}
+.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .card-head h3{font-family:var(--font-heading);font-size:16px;font-weight:600}
-.card-sub{font-size:12px;color:var(--fg-3);margin-top:2px;overflow-wrap:anywhere}
+.card-sub{font-size:12px;color:var(--fg-3);margin-top:2px}
 .card-actions{display:flex;align-items:center;gap:8px}
 
 /* Two col */
@@ -436,7 +387,6 @@ main:focus{outline:none}
   color:var(--fg-3);user-select:none;
 }
 .chart-data-table>summary:hover{color:var(--fg-1)}
-.chart-data-table>summary:active{color:var(--fg-1)}
 .chart-data-table>summary:focus-visible{
   outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px;
 }
@@ -487,7 +437,6 @@ main:focus{outline:none}
 }
 .table thead th .sort{color:var(--fg-muted);margin-left:4px}
 .table tbody td{padding:13px 16px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;font-family:var(--font-ui)}
-.table tbody th{overflow-wrap:anywhere}
 .table tbody tr:last-child td{border-bottom:0}
 .table tbody tr:hover{background:var(--bg-2)}
 .table .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
@@ -520,28 +469,13 @@ main:focus{outline:none}
   display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:14px;row-gap:2px;
   min-height:72px;margin-top:2px;padding:14px 16px;
   border:1px solid var(--border-subtle);border-radius:var(--r-sm);background:var(--bg-2);
-  min-width:0;
 }
 .series-fallback .lab{
   grid-row:1 / span 2;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
-  letter-spacing:0.04em;text-transform:lowercase;overflow-wrap:anywhere;
+  letter-spacing:0.04em;text-transform:lowercase;
 }
-.series-fallback strong{font-family:var(--font-ui);font-size:13px;color:var(--fg-1);min-width:0;overflow-wrap:anywhere}
-.series-fallback span{font-size:12px;color:var(--fg-3);min-width:0;overflow-wrap:anywhere}
-
-.finance-revenue-card{
-  gap:14px;
-  min-height:100%;
-}
-.finance-revenue-card .card-head{
-  min-height:42px;
-}
-.finance-revenue-card .chart-comissao{
-  min-height:190px;
-}
-.finance-revenue-card .legend{
-  margin-top:-2px;
-}
+.series-fallback strong{font-family:var(--font-ui);font-size:13px;color:var(--fg-1)}
+.series-fallback span{font-size:12px;color:var(--fg-3)}
 
 /* Fluxo de caixa card — projected receivables forecast.
    Header above three horizon cards; chart below sits inside its own frame
@@ -551,7 +485,7 @@ main:focus{outline:none}
    label inside the band. */
 .fluxo-card .horizon-strip{
   border-bottom:0;
-  padding:2px 0 14px;
+  padding:4px 0 16px;
   margin-bottom:0;
 }
 .fluxo-card .horizon-strip.period-summary{
@@ -559,8 +493,8 @@ main:focus{outline:none}
   border-radius:var(--r-sm);padding:14px 16px;margin-bottom:2px;
 }
 .fluxo-card .chart-frame{
-  display:flex;flex-direction:column;gap:10px;
-  margin:4px 0 0;
+  display:flex;flex-direction:column;gap:8px;
+  margin:6px 0 0;
   position:relative;
   overflow:visible;
 }
@@ -568,7 +502,7 @@ main:focus{outline:none}
   display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   font-family:var(--font-mono);font-size:11.5px;color:var(--fg-3);
   letter-spacing:0.02em;text-transform:lowercase;
-  padding:0 4px 4px;min-width:0;
+  padding:0 4px 4px;
 }
 .fluxo-card .chart-legend .legend-line{
   display:inline-flex;align-items:center;gap:7px;
@@ -597,8 +531,8 @@ main:focus{outline:none}
   color:var(--fg-1);font-weight:600;
 }
 .chart-command-surface{
-  display:grid;grid-template-columns:minmax(0,1fr) minmax(232px,268px);
-  gap:18px;align-items:stretch;
+  display:grid;grid-template-columns:minmax(0,1fr) 268px;
+  gap:16px;align-items:stretch;
 }
 .chart-pane{min-width:0}
 .cash-flow-inspector{
@@ -618,7 +552,6 @@ main:focus{outline:none}
 .inspector-month strong{
   font-family:var(--font-display);font-size:26px;line-height:1;font-weight:400;
   color:var(--fg-1);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
-  min-width:0;overflow-wrap:anywhere;
 }
 .inspector-month span{
   font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
@@ -638,7 +571,6 @@ main:focus{outline:none}
   font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:400;
   color:var(--fg-1);letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
-  max-width:100%;overflow-wrap:anywhere;
 }
 .inspector-total .currency{
   font-family:var(--font-ui);font-size:12px;font-weight:600;
@@ -656,7 +588,7 @@ main:focus{outline:none}
 .inspector-metric strong.muted{color:var(--fg-3);font-weight:500}
 .inspector-note{
   margin-top:auto;padding-top:12px;border-top:1px solid var(--border-subtle);
-  font-size:12px;color:var(--fg-3);line-height:1.45;overflow-wrap:anywhere;
+  font-size:12px;color:var(--fg-3);line-height:1.45;
 }
 @keyframes chart-load{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes chart-dot-pop{
@@ -709,9 +641,8 @@ main:focus{outline:none}
 .chart-point:focus-visible{outline:none}
 .chart-point-hit{fill:transparent;cursor:crosshair;stroke:transparent;stroke-width:2}
 .chart-point:focus-visible .chart-point-hit{
-  stroke:var(--cyan);stroke-opacity:.75;
+  stroke:var(--cyan);stroke-opacity:.7;
 }
-.chart-point:active .chart-point-active{transform:scale(.92)}
 
 /* Dark editorial tooltip — black pill with white text. Month label in
    lowercase mono, value in DM Serif tabular-nums. */
@@ -731,15 +662,6 @@ main:focus{outline:none}
 }
 
 @media (max-width: 1024px){
-  .finance-dashboard{
-    grid-template-columns:1fr;
-    grid-template-areas:
-      "error"
-      "kpis"
-      "reconciliation"
-      "revenue"
-      "fluxo";
-  }
   .period-control{flex-wrap:wrap;justify-content:flex-end}
   .chart-fluxo{min-height:260px}
   .horizon-cards{grid-template-columns:1fr;gap:10px}
@@ -750,7 +672,6 @@ main:focus{outline:none}
 @media (max-width: 768px){
   .topbar{align-items:flex-start;gap:10px}
   .topbar-r{width:100%;justify-content:flex-start;flex-wrap:wrap}
-  .finance-dashboard{gap:12px}
   .period-control{display:flex;width:100%;gap:6px}
   .period-label{display:none}
   .period-select{flex:1;min-width:0;padding-right:24px}
@@ -763,8 +684,6 @@ main:focus{outline:none}
   .cash-flow-inspector{display:flex}
   .inspector-month strong{font-size:23px}
   .inspector-total strong{font-size:26px}
-  .series-fallback{grid-template-columns:1fr;row-gap:4px}
-  .series-fallback .lab{grid-row:auto}
 }
 
 /* Filter row */

@@ -8,7 +8,7 @@
             [app.utils.format :as fmt]))
 
 ;; Finance dashboard — three editorial rows.
-;; Row 1: Potencial a pagar · Comissão Paga · A apurar
+;; Row 1: Potencial a pagar · Comissão Paga · Obrigação aberta
 ;; Row 2: Comissão x Agenciamento (split numerics + 6-month trend)
 ;; Row 3: Fluxo de Caixa Projetado (30/60/90 horizons + chart)
 ;; Renders only data returned by the API; empty states stand in until the
@@ -18,24 +18,14 @@
   "Coerce strings/numbers to a JS number; nil/empty/NaN → nil."
   [v]
   (when (some? v)
-    (let [n (cond
-              (number? v) v
-              (string? v) (let [s (str/trim v)]
-                            (when-not (str/blank? s) (js/Number s)))
-              :else nil)]
-      (when (and (some? n) (js/isFinite n)) n))))
-
-(defn- series-vector [v]
-  (if (sequential? v) (vec v) []))
-
-(defn- safe-map [v]
-  (if (map? v) v {}))
+    (let [n (if (string? v) (js/parseFloat v) v)]
+      (when-not (or (nil? n) (js/isNaN n)) n))))
 
 (defn- brl-value
   "DM Serif Display number with the R$ prefix in UI font (or fallback when nil)."
   [v fallback]
-  (if-let [n (->num v)]
-    [:<> [:span.currency "R$"] (or (fmt/int-brl n) fallback)]
+  (if (some? v)
+    [:<> [:span.currency "R$"] (or (fmt/int-brl v) fallback)]
     fallback))
 
 (defn- chart-empty [label]
@@ -123,7 +113,7 @@
 ;; Potencial a pagar = A apurar + Projetado, restricted to policies still
 ;;   inside their 12-month commission lifecycle.
 ;; Comissão Paga     = Σ policies.total_paid_comissao + total_paid_agenciamento.
-;; A apurar           = imported, matched, non-locked monthly competencies.
+;; Obrigação aberta  = non-realized monthly competencies in current filter.
 
 (defn- kpi-potencial [{:keys [value caption]}]
   [:div.kpi
@@ -132,7 +122,7 @@
     "potencial a pagar"]
    [:div.kpi-value (brl-value value "·")]
    [:div.kpi-foot
-    [:span (or caption "a apurar + projetado, sem valores realizados")]]
+    [:span (or caption "a apurar + projetado · exclui realizado")]]
    [:svg.kpi-grafismo {:style {:color "var(--beige-light)"}}
     [:use {:href "#i-grafismo"}]]])
 
@@ -143,29 +133,18 @@
     "comissão paga"]
    [:div.kpi-value (brl-value value "·")]
    [:div.kpi-foot
-    [:span (or caption "comissão + agenciamento já realizados")]]])
+    [:span (or caption "comissão + agenciamento · histórico")]]])
 
-(defn- kpi-a-apurar [{:keys [value caption]}]
+(defn- kpi-saldo [{:keys [value caption]}]
   [:div.kpi
    [:div.kpi-label
     [layout/icon "money" {:width 14 :height 14}]
-    "a apurar"]
+    "obrigação aberta"]
    [:div.kpi-value (brl-value value "·")]
    [:div.kpi-foot
-    [:span (or caption "NF importada e ainda não realizada")]]
+    [:span (or caption "competências não realizadas · até 12 meses")]]
    [:svg.kpi-grafismo {:style {:color "var(--neutral-light)"}}
     [:use {:href "#i-grafismo-listras"}]]])
-
-(defn- dashboard-error-callout [message]
-  [:div.callout.finance-error {:role "alert"}
-   [layout/icon "alert" {:width 20 :height 20}]
-   [:div
-    [:strong "Atualização interrompida"]
-    [:p message]
-    [:button.btn.btn-secondary.btn-sm
-     {:type "button"
-      :on-click #(rf/dispatch [:finance/fetch-dashboard])}
-     "Tentar atualizar de novo"]]])
 
 ;; ----- Shared chart helpers --------------------------------------------
 
@@ -185,7 +164,7 @@
     :else (str (js/Math.round v))))
 
 (defn- tooltip-label [p kind v]
-  (str (or (:label p) "sem mês") " · " kind " · " (or (fmt/fmt-brl (->num v)) "R$ 0,00")))
+  (str (:label p) " · " kind " · " (or (fmt/fmt-brl v) "R$ 0,00")))
 
 ;; ----- Row 2: Comissão x Agenciamento ---------------------------------
 
@@ -200,12 +179,12 @@
      [:div.seg.beige   {:style {:width (str ag-pct "%")}}]]))
 
 (defn- chart-comissao-agenciamento [data]
-  (if (empty? (series-vector data))
+  (if (empty? data)
     [:div.series-fallback
      [:div.lab "histórico mensal"]
-     [:strong "nenhum mês com comissão ou agenciamento"]
-     [:span "os totais acima seguem válidos; o filtro não trouxe uma série mensal para comparar"]]
-    (let [pts (series-vector data)
+     [:strong "sem série mensal para este filtro"]
+     [:span "os totais acima continuam válidos para o período selecionado"]]
+    (let [pts (vec data)
           n   (count pts)
 
           ;; Chart region inside viewBox 700×260
@@ -233,12 +212,7 @@
                     (if (> v (+ y-ceil 0.01)) acc (recur (+ v step) (conj acc v))))
           yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))]
 
-      [:svg.chart.chart-comissao
-       {:viewBox "0 0 700 260"
-        :preserveAspectRatio "none"
-        :role "img"
-        :aria-label "Comissão e agenciamento realizados por mês"}
-       [:desc "Barras pretas mostram comissão realizada. Barras bege mostram agenciamento realizado."]
+      [:svg.chart.chart-comissao {:viewBox "0 0 700 260" :preserveAspectRatio "none"}
        ;; Y-axis grid lines + labels
        [:g
         (for [tv ticks]
@@ -271,7 +245,7 @@
             :fill t/text-tertiary :text-anchor "middle" :letter-spacing "0.02em"}
         (for [[i p] (map-indexed vector pts)]
           ^{:key (str "x" i)}
-          [:text {:x (+ lft 32 (* i slot)) :y lbl-y} (or (:label p) "sem mês")])]])))
+          [:text {:x (+ lft 32 (* i slot)) :y lbl-y} (:label p)])]])))
 
 (defn- comissao-agenciamento-card [{:keys [comissao agenciamento series period]}]
   (let [c (or (->num comissao) 0)
@@ -279,10 +253,10 @@
         total (+ c a)
         com-pct (when (pos? total) (* 100 (/ c total)))
         ag-pct  (when (pos? total) (* 100 (/ a total)))]
-    [:div.card.finance-revenue-card
+    [:div.card
      [:div.card-head
       [:div [:h3 "Comissão x Agenciamento"]
-       [:div.card-sub (or period "valores realizados em todo o histórico")]]]
+       [:div.card-sub (or period "Liberado · últimos 6 meses")]]]
      [:div.split-numerics
       [:div.col
        [:div.lab "comissão"]
@@ -308,7 +282,7 @@
   (let [has-data? (fn [p] (or (some? (->num (:realizado p)))
                               (some? (->num (:a_apurar p)))
                               (some? (->num (:projetado p)))))]
-    (->> (series-vector series)
+    (->> series
          (drop-while (complement has-data?))
          reverse
          (drop-while (complement has-data?))
@@ -386,6 +360,7 @@
 
             x-step (/ cw (max 1 (dec n)))
             xf     (fn [i] (+ lft (* i x-step)))
+            half-step (/ x-step 2)
 
             all-v (->> pts
                        (mapcat (fn [p] [(:realizado p) (:a_apurar p) (:projetado p)]))
@@ -428,11 +403,9 @@
                                         (when-let [v (->num (:projetado p))]
                                           [i (xf i) (yf v) v p])))
                          (keep identity)
-                         vec)]
+                         vec)
 
-        (if (empty? proj-xy)
-          [chart-empty "Sem valores projetados para desenhar no período"]
-          (let [line-d (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
+            line-d (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
 
             area-d (when (seq proj-xy)
                      (let [base (smooth-d (mapv (fn [[_ x y _ _]] [x y]) proj-xy) 0.35)
@@ -449,7 +422,7 @@
           :preserveAspectRatio "none"
           :role "img"
           :aria-label "Fluxo de caixa projetado por competência mensal"}
-         [:desc "Linha e área mostram valores projetados. A faixa vertical marca o mês atual."]
+         [:desc "Linha e área representam valores projetados. Faixa vertical destaca o mês atual."]
 
          [:defs
           [:linearGradient {:id "fluxo-projetado-fill" :x1 "0" :y1 "0" :x2 "0" :y2 "1"}
@@ -457,7 +430,7 @@
            [:stop {:offset "60%" :stop-color "var(--blue-light)" :stop-opacity 0.08}]
            [:stop {:offset "100%" :stop-color "var(--blue-light)" :stop-opacity 0}]]
           [:filter {:id "fluxo-tooltip-shadow" :x "-20%" :y "-20%" :width "140%" :height "150%"}
-           [:feDropShadow {:dx 0 :dy 6 :stdDeviation 8 :flood-color "var(--fg-1)" :flood-opacity 0.18}]]
+           [:feDropShadow {:dx 0 :dy 6 :stdDeviation 8 :flood-color "#000000" :flood-opacity 0.18}]]
           [:clipPath {:id "fluxo-plot-clip"}
            [:rect {:x lft :y tp :width cw :height ch :rx 8}]]]
 
@@ -600,7 +573,7 @@
           (for [[i p] (map-indexed vector pts)
                 :when (zero? (mod i label-nth))]
             ^{:key (str "x" i)}
-            [:text {:x (xf i) :y lbl-y} (or (:label p) "sem mês")])]])))))))
+            [:text {:x (xf i) :y lbl-y} (:label p)])]])))))
 
 (defn- horizon-card
   "30/60/90d horizon as a self-contained editorial card.
@@ -658,7 +631,7 @@
       [inspector-metric {:label "a apurar" :value a-apurar}]
       [inspector-metric {:label "realizado" :value realized :muted? true}]]
      [:div.inspector-note
-      "Use Tab no gráfico para escolher outro mês."]]))
+      "Use Tab no gráfico para inspecionar outra competência."]]))
 
 (defn- chart-fluxo-caixa-table
   "Tabular alternative to the cash-flow SVG chart. Wrapped in <details> so
@@ -668,7 +641,7 @@
   (let [rows (filter (fn [p] (or (->num (:realizado p))
                                  (->num (:a_apurar p))
                                  (->num (:projetado p))))
-                     (series-vector series))]
+                     series)]
     (when (seq rows)
       [:details.chart-data-table
        [:summary "Ver dados em tabela"]
@@ -683,10 +656,10 @@
            [:th.right {:scope "col"} "A apurar"]
            [:th.right {:scope "col"} "Projetado"]]]
          [:tbody
-          (for [[i p] (map-indexed vector rows)]
-            ^{:key (or (:ym p) (:label p) (str "fluxo-row-" i))}
+          (for [p rows]
+            ^{:key (:label p)}
             [:tr
-             [:th {:scope "row"} (or (:label p) "sem mês")]
+             [:th {:scope "row"} (:label p)]
              [:td.right.num (or (fmt/fmt-brl-int (:realizado p)) "·")]
              [:td.right.num (or (fmt/fmt-brl-int (:a_apurar p)) "·")]
              [:td.right.num (or (fmt/fmt-brl-int (:projetado p)) "·")]])]]]])))
@@ -704,7 +677,7 @@
       [:div.card.fluxo-card
        [:div.card-head
         [:div [:h3 "Fluxo de caixa projetado"]
-         [:div.card-sub "competência mensal; projetado entra no potencial a pagar"]]
+         [:div.card-sub "recebíveis projetados · comissão + agenciamento"]]
         (when as-of [:span.card-asof (str "atualizado " as-of)])]
        (if filtered?
          [:div.horizon-strip.period-summary
@@ -716,7 +689,7 @@
                         :value (:projetado period-summary)}]
           [summary-col {:label "apólices projetadas"
                         :value {:kind :count :text (str (or projected-count 0))}
-                        :detail "com parcelas no período"}]]
+                        :detail "com parcelas no filtro"}]]
          [:div.horizon-cards
           [horizon-card {:label "próximos 30d"
                          :value (:next_30 horizon)
@@ -795,17 +768,17 @@
   (r/with-let [_ (rf/dispatch [:finance/fetch-dashboard])]
     (let [dashboard @(rf/subscribe [:finance/dashboard])
           loading?  @(rf/subscribe [:finance/loading?])
-          error     @(rf/subscribe [:finance/dashboard-error])
           period    @(rf/subscribe [:finance/period])
           user      @(rf/subscribe [:auth/current-user])
           route     @(rf/subscribe [:current-route-name])
 
           potencial    (or (:potencial_a_pagar dashboard) (:comissao_potencial dashboard))
           paga         (:comissao_paga dashboard)
+          saldo-total  (:saldo_devedor_total dashboard)
           as-of        (format-asof (:as_of dashboard))
           period-tag   (period-suffix period)
 
-          comm-ag        (safe-map (:comissao_agenciamento dashboard))
+          comm-ag        (:comissao_agenciamento dashboard)
           comissao-tot   (:comissao comm-ag)
           agenciam-tot   (:agenciamento comm-ag)
           comm-ag-series (or (:series comm-ag) [])
@@ -813,15 +786,11 @@
 
           fluxo-raw    (:fluxo_caixa dashboard)
           fluxo        (cond
-                         (map? fluxo-raw) (safe-map fluxo-raw)
+                         (map? fluxo-raw) fluxo-raw
                          (sequential? fluxo-raw) {:series fluxo-raw}
                          :else {})
           fluxo-series (or (:series fluxo) [])
           period-summary (:period_summary fluxo)
-          realized-period (:realizado period-summary)
-          a-apurar-period (:a_apurar period-summary)
-          projected-period (:projetado period-summary)
-          open-total (or (:potencial_a_pagar period-summary) potencial)
           filtered? (or (not= :all (:year period))
                         (not= :all (:quarter period)))
           available-years (or (:available_years dashboard) [2024 2025 2026])
@@ -831,49 +800,33 @@
         :user user
         :crumbs ["plataforma rv" "finance" "dashboard"]
         :title "Visão financeira"
-        :subtitle (when loading? "atualizando valores")
+        :subtitle (when loading? "carregando…")
         :header-actions
         [[period-select {:year (:year period)
                          :quarter (:quarter period)
                          :years available-years
                          :future-year-floor future-year-floor}]]}
 
-       [:section.finance-dashboard
-        (when error
-          [dashboard-error-callout error])
+       ;; Row 1 — three KPIs
+       [:div.kpi-grid.-three
+        [kpi-potencial {:value potencial
+                        :caption (str "a apurar + projetado · " period-tag)}]
+        [kpi-paga      {:value paga
+                        :caption (str "comissão + agenciamento · " period-tag)}]
+        [kpi-saldo     {:value saldo-total
+                        :caption "competências não realizadas · até 12 meses"}]]
 
-        ;; Row 1 — three KPIs
-        [:div.kpi-grid.-three
-         [kpi-potencial {:value potencial
-                         :caption (str "a apurar + projetado, " period-tag)}]
-         [kpi-paga      {:value paga
-                         :caption (str "comissão + agenciamento realizados, " period-tag)}]
-         [kpi-a-apurar  {:value a-apurar-period
-                         :caption (str "NF importada sem LOCKED, " period-tag)}]]
+       ;; Row 2 — Comissão x Agenciamento
+       [comissao-agenciamento-card
+        {:comissao comissao-tot
+         :agenciamento agenciam-tot
+         :series comm-ag-series
+         :period comm-ag-period}]
 
-        [:div.finance-reconciliation
-         [:span "potencial a pagar"]
-         [:strong (brl-value open-total "·")]
-         [:span "="]
-         [:span "a apurar"]
-         [:strong (brl-value a-apurar-period "·")]
-         [:span "+"]
-         [:span "projetado"]
-         [:strong (brl-value projected-period "·")]
-         [:span "realizado fica fora deste total"]
-         (when realized-period
-           [:strong (brl-value realized-period "·")])]
-
-        ;; Row 2 — realized split beside the larger projected cash-flow view.
-        [comissao-agenciamento-card
-         {:comissao comissao-tot
-          :agenciamento agenciam-tot
-          :series comm-ag-series
-          :period comm-ag-period}]
-
-        [fluxo-caixa-card
-         {:horizon (:horizon fluxo)
-          :period-summary period-summary
-          :filtered? filtered?
-          :series fluxo-series
-          :as-of as-of}]]])))
+       ;; Row 3 — Fluxo de Caixa Projetado
+       [fluxo-caixa-card
+        {:horizon (:horizon fluxo)
+         :period-summary period-summary
+         :filtered? filtered?
+         :series fluxo-series
+         :as-of as-of}]])))

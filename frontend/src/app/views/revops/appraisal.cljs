@@ -115,12 +115,12 @@
           "divergências"]
          [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--warning-dark)"}}
           (str (or (:contestation_count active) "·"))]]
-         [:div
-          [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                         :color "var(--fg-3)" :text-transform "lowercase"}}
-           "prazo p/ encerrar"]
-          [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-           (or (:days_remaining active) "·")]]]])))
+        [:div
+         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
+                        :color "var(--fg-3)" :text-transform "lowercase"}}
+          "prazo p/ encerrar"]
+         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
+          (or (:days_remaining active) "·")]]]]))
 
 (defn- delete-btn [id]
   [:button.btn.btn-danger.btn-sm
