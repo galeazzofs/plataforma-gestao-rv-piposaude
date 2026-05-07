@@ -119,7 +119,7 @@
   [:div.kpi
    [:div.kpi-label
     [layout/icon "target" {:width 14 :height 14}]
-    "potencial a pagar"]
+    "comissão a pagar projetada"]
    [:div.kpi-value (brl-value value "·")]
    [:div.kpi-foot
     [:span (or caption "a apurar + projetado · exclui realizado")]]
@@ -774,7 +774,7 @@
 
           potencial    (or (:potencial_a_pagar dashboard) (:comissao_potencial dashboard))
           paga         (:comissao_paga dashboard)
-          saldo-total  (:saldo_devedor_total dashboard)
+          saldo-total  (or (:obrigacao_aberta dashboard) (:saldo_devedor_total dashboard))
           as-of        (format-asof (:as_of dashboard))
           period-tag   (period-suffix period)
 
@@ -814,7 +814,7 @@
         [kpi-paga      {:value paga
                         :caption (str "comissão + agenciamento · " period-tag)}]
         [kpi-saldo     {:value saldo-total
-                        :caption "competências não realizadas · até 12 meses"}]]
+                        :caption (str "NFs recebidas · pendente de pagamento · " period-tag)}]]
 
        ;; Row 2 — Comissão x Agenciamento
        [comissao-agenciamento-card

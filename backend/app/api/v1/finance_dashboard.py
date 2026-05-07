@@ -494,6 +494,14 @@ def dashboard():
     # Compatibility alias for Potencial a pagar.
     saldo_devedor = potencial_a_pagar
 
+    # Obrigação aberta: only confirmed-but-unpaid competencies (a_apurar),
+    # no projections. With a period filter, sliced to that window; otherwise
+    # the engine's pending_total covers all active policies.
+    if has_period:
+        obrigacao_aberta = visible_a_apurar_calendar
+    else:
+        obrigacao_aberta = finance_engine.pending_total
+
     # ---- Row 2: Comissão x Agenciamento ---------------------------------
 
     # Totals: prefer Policy.total_paid_* (all-time, no filter); else slice
@@ -743,6 +751,7 @@ def dashboard():
                 "comissao_potencial": str(comissao_potencial),
                 "comissao_paga": str(comissao_paga),
                 "saldo_devedor_total": str(saldo_devedor),
+                "obrigacao_aberta": str(obrigacao_aberta),
                 "comissao_agenciamento": {
                     "comissao": str(com_total),
                     "agenciamento": str(ag_total),
