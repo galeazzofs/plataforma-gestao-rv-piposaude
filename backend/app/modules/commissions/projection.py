@@ -53,23 +53,28 @@ def _estimated_monthly(policy):
     return (mrr * pct).quantize(Decimal("0.01"))
 
 
-def _active_policies(ev_id):
+def _active_policies(ev_id, closed_start=None, closed_end=None):
     """Non-settled, non-cancelled policies for an EV."""
-    return Policy.query.filter(
+    query = Policy.query.filter(
         Policy.ev_id == ev_id,
         Policy.commission_status.notin_([
             CommissionStatus.SETTLED,
             CommissionStatus.CANCELLED,
         ]),
-    ).all()
+    )
+    if closed_start is not None:
+        query = query.filter(Policy.closed_date >= closed_start)
+    if closed_end is not None:
+        query = query.filter(Policy.closed_date < closed_end)
+    return query.all()
 
 
-def compute_ev_balance(ev_id):
+def compute_ev_balance(ev_id, closed_start=None, closed_end=None):
     """Total estimated saldo a receber for an EV (spec S3.7 saldo_devedor_estimado).
 
     balance = SUM( monthly_est x remaining_months ) across active policies.
     """
-    policies = _active_policies(ev_id)
+    policies = _active_policies(ev_id, closed_start, closed_end)
     balance = Decimal("0")
     for p in policies:
         monthly = _estimated_monthly(p)
@@ -78,19 +83,21 @@ def compute_ev_balance(ev_id):
     return balance.quantize(Decimal("0.01"))
 
 
-def compute_ev_projection(ev_id, ref_date=None):
+def compute_ev_projection(ev_id, ref_date=None, period_start=None, period_months=12):
     """12-month projection of estimated receivables (spec S7).
 
     Returns list of 12 dicts: [{"month": "YYYY-MM", "projected": Decimal}, ...]
     """
     ref_date = ref_date or date.today()
+    period_start = period_start or ref_date
+    period_months = max(1, int(period_months or 12))
     policies = _active_policies(ev_id)
 
-    # Build 12-month bucket list
+    # Build the requested monthly bucket list.
     buckets = []
-    for i in range(12):
-        m = ref_date.month + i
-        y = ref_date.year + (m - 1) // 12
+    for i in range(period_months):
+        m = period_start.month + i
+        y = period_start.year + (m - 1) // 12
         m = ((m - 1) % 12) + 1
         buckets.append({"month": f"{y}-{m:02d}", "projected": Decimal("0")})
 

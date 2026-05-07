@@ -1,16 +1,44 @@
 (ns app.views.ev.events
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [app.api.endpoints :as ep]))
+
+(defn- current-period []
+  (let [d (js/Date.)
+        month (inc (.getMonth d))]
+    {:year (.getFullYear d)
+     :quarter (inc (js/Math.floor (/ (dec month) 3)))}))
+
+(defn- period-query
+  [{:keys [year quarter]}]
+  (let [parts (cond-> []
+                year    (conj (str "year=" year))
+                quarter (conj (str "quarter=" quarter)))]
+    (when (seq parts) (str "?" (str/join "&" parts)))))
+
+(defn- dashboard-period [db]
+  (or (get-in db [:ev :period]) (current-period)))
 
 (rf/reg-event-fx
  :ev/fetch-dashboard
  (fn [{:keys [db]} _]
-   {:db   (-> db
-              (assoc-in [:commissions :loading?] true))
-    :http {:method     :get
-           :url        ep/commissions-summary
-           :on-success [:ev/dashboard-loaded]
-           :on-failure [:ev/dashboard-error]}}))
+   (let [period (dashboard-period db)]
+     {:db   (-> db
+                (assoc-in [:ev :period] period)
+                (assoc-in [:commissions :loading?] true))
+      :http {:method     :get
+             :url        (str ep/commissions-summary (period-query period))
+             :on-success [:ev/dashboard-loaded]
+             :on-failure [:ev/dashboard-error]}})))
+
+(rf/reg-event-fx
+ :ev/set-period
+ (fn [{:keys [db]} [_ kind value]]
+   (let [period (assoc (dashboard-period db) kind value)]
+     {:db         (assoc-in db [:ev :period] period)
+      :dispatch-n [[:ev/fetch-dashboard]
+                   [:ev/fetch-policies period]
+                   [:ev/fetch-projection]]})))
 
 (rf/reg-event-db
  :ev/dashboard-loaded
@@ -27,15 +55,18 @@
 (rf/reg-event-fx
  :ev/fetch-policies
  (fn [{:keys [db]} [_ filters]]
-   {:db   (assoc-in db [:policies :loading?] true)
-    :http {:method     :get
-           :url        (str ep/policies
-                            (when filters
-                              (str "?" (clojure.string/join "&"
-                                        (for [[k v] filters :when v]
-                                          (str (name k) "=" v))))))
-           :on-success [:ev/policies-loaded]
-           :on-failure [:ev/policies-error]}}))
+   (let [filters (or filters (dashboard-period db))]
+     {:db   (-> db
+                (assoc-in [:ev :period] filters)
+                (assoc-in [:policies :loading?] true))
+      :http {:method     :get
+             :url        (str ep/policies
+                              (when filters
+                                (str "?" (str/join "&"
+                                          (for [[k v] filters :when v]
+                                            (str (name k) "=" v))))))
+             :on-success [:ev/policies-loaded]
+             :on-failure [:ev/policies-error]}})))
 
 (rf/reg-event-db
  :ev/policies-loaded
@@ -53,11 +84,14 @@
 (rf/reg-event-fx
  :ev/fetch-projection
  (fn [{:keys [db]} _]
-   {:db   (assoc-in db [:commissions :loading?] true)
-    :http {:method     :get
-           :url        ep/commissions-projection
-           :on-success [:ev/projection-loaded]
-           :on-failure [:ev/projection-error]}}))
+   (let [period (dashboard-period db)]
+     {:db   (-> db
+                (assoc-in [:ev :period] period)
+                (assoc-in [:commissions :loading?] true))
+      :http {:method     :get
+             :url        (str ep/commissions-projection (period-query period))
+             :on-success [:ev/projection-loaded]
+             :on-failure [:ev/projection-error]}})))
 
 (rf/reg-event-db
  :ev/projection-loaded

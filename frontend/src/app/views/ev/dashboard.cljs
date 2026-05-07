@@ -66,6 +66,23 @@
      [:div {:class (str "bar-fill " fill-class)
             :style {:width (str (min n 150) "%")}}]]))
 
+(defn- period-select [{:keys [year quarter years]}]
+  (let [year-options (->> (conj (vec (or years [])) year)
+                          (filter some?)
+                          distinct
+                          sort)]
+    [:div.period-filter {:aria-label "Filtrar período"}
+     [:select.period-select
+      {:value (str year)
+       :on-change #(rf/dispatch [:ev/set-period :year (js/parseInt (.. % -target -value) 10)])}
+      (for [y year-options]
+        ^{:key y} [:option {:value y} y])]
+     [:select.period-select
+      {:value (str quarter)
+       :on-change #(rf/dispatch [:ev/set-period :quarter (js/parseInt (.. % -target -value) 10)])}
+      (for [q [1 2 3 4]]
+        ^{:key q} [:option {:value q} (str "Q" q)])]]))
+
 ;; -----------------------------------------------------------------------------
 ;; Projection chart
 ;; -----------------------------------------------------------------------------
@@ -454,6 +471,7 @@
     (let [summary    @(rf/subscribe [:ev/summary])
           projection @(rf/subscribe [:ev/projection])
           policies   @(rf/subscribe [:ev/policies])
+          selected-period @(rf/subscribe [:ev/period])
           pol-loading? @(rf/subscribe [:ev/policies-loading?])
           user       @(rf/subscribe [:auth/current-user])
           route      @(rf/subscribe [:current-route-name])
@@ -461,16 +479,19 @@
           pct        (->num (:achievement_pct summary))
           target     (->num (:mrr_target summary))
           mrr-sold   (->num (:mrr_sold summary))
-          quarter    (:current_quarter summary)
-          year       (:current_year summary)
+          quarter    (or (:current_quarter summary) (:quarter selected-period))
+          year       (or (:current_year summary) (:year selected-period))
           period     (when (and quarter year) (str "Q" quarter "/" year))
+          available-years (:available_years summary)
           proj-s     (projection-summary projection)]
       [layout/page-shell
        {:current-route route :user user
         :crumbs ["plataforma rv" "ev" "dashboard"]
         :title (str "Bem-vindo, " (or (some-> (:name user) (str/split #" ") first) "EV"))
         :subtitle (when period (str period " em validação"))
-        :header-actions nil}
+        :header-actions [[period-select {:year year
+                                          :quarter quarter
+                                          :years available-years}]]}
 
        [:div.ev-dashboard
         [:section.ev-dashboard-overview

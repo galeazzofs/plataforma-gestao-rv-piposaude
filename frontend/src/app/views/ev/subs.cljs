@@ -1,6 +1,12 @@
 (ns app.views.ev.subs
   (:require [re-frame.core :as rf]))
 
+(defn- current-period []
+  (let [d (js/Date.)
+        month (inc (.getMonth d))]
+    {:year (.getFullYear d)
+     :quarter (inc (js/Math.floor (/ (dec month) 3)))}))
+
 (rf/reg-sub
  :ev/summary
  (fn [db _]
@@ -25,6 +31,11 @@
  :ev/projection
  (fn [db _]
    (get-in db [:commissions :projection])))
+
+(rf/reg-sub
+ :ev/period
+ (fn [db _]
+   (or (get-in db [:ev :period]) (current-period))))
 
 (rf/reg-sub
  :ev/validations

@@ -10,6 +10,52 @@ from app.extensions import db
 commissions_bp = Blueprint("commissions", __name__, url_prefix="/api/v1/commissions")
 
 
+def _parse_quarter():
+    quarter = request.args.get("quarter", type=int)
+    if quarter is not None and quarter not in (1, 2, 3, 4):
+        return None, (
+            jsonify({
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "quarter must be between 1 and 4",
+                }
+            }),
+            400,
+        )
+    return quarter, None
+
+
+def _period_bounds(year, quarter):
+    if year is None:
+        return None, None
+    q_start = quarter or 1
+    q_end = quarter or 4
+    start_month = (q_start - 1) * 3 + 1
+    end_month = q_end * 3
+    start = date(year, start_month, 1)
+    end = date(year + 1, 1, 1) if end_month == 12 else date(year, end_month + 1, 1)
+    return start, end
+
+
+def _projection_window(year, quarter):
+    if year is None:
+        return date.today(), 12
+    start, _ = _period_bounds(year, quarter)
+    return start, 3 if quarter else 12
+
+
+def _available_years(ev_id):
+    rows = (
+        db.session.query(func.extract("year", Policy.closed_date))
+        .filter(Policy.ev_id == ev_id, Policy.closed_date.isnot(None))
+        .distinct()
+        .all()
+    )
+    years = {int(y) for (y,) in rows if y}
+    years.add(date.today().year)
+    return sorted(years)
+
+
 @commissions_bp.route("")
 @require_auth
 def list_commissions():
@@ -53,29 +99,24 @@ def commission_summary():
 
     user = g.current_user
     ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
+    quarter, error = _parse_quarter()
+    if error:
+        return error
+    year = request.args.get("year", type=int)
 
     if not ev_id:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "ev_id required"}}), 400
 
     # Live estimated balance from Policy data (spec S9 projection layer)
-    balance = compute_ev_balance(ev_id)
-
-    # Current quarter achievement
     today = date.today()
-    current_quarter = (today.month - 1) // 3 + 1
-    current_year = today.year
+    selected_quarter = quarter or (today.month - 1) // 3 + 1
+    selected_year = year or today.year
+    start_date, end_date = _period_bounds(selected_year, selected_quarter)
+    balance = compute_ev_balance(ev_id, start_date, end_date)
 
     goal = Goal.query.filter_by(
-        ev_id=ev_id, quarter=current_quarter, year=current_year
+        ev_id=ev_id, quarter=selected_quarter, year=selected_year
     ).first()
-
-    quarter_start_month = (current_quarter - 1) * 3 + 1
-    quarter_end_month = current_quarter * 3
-    start_date = date(current_year, quarter_start_month, 1)
-    if quarter_end_month == 12:
-        end_date = date(current_year + 1, 1, 1)
-    else:
-        end_date = date(current_year, quarter_end_month + 1, 1)
 
     quarter_mrr = db.session.query(
         func.coalesce(func.sum(Policy.mrr_projected), 0)
@@ -91,11 +132,12 @@ def commission_summary():
     return jsonify({
         "data": {
             "balance_estimated": str(balance),
-            "current_quarter": current_quarter,
-            "current_year": current_year,
+            "current_quarter": selected_quarter,
+            "current_year": selected_year,
             "mrr_sold": str(quarter_mrr),
             "mrr_target": str(target),
             "achievement_pct": str(achievement.quantize(Decimal("0.01"))),
+            "available_years": _available_years(ev_id),
         }
     })
 
@@ -108,11 +150,20 @@ def commission_projection():
 
     user = g.current_user
     ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
+    quarter, error = _parse_quarter()
+    if error:
+        return error
+    year = request.args.get("year", type=int)
 
     if not ev_id:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "ev_id required"}}), 400
 
-    months = compute_ev_projection(ev_id)
+    period_start, period_months = _projection_window(year, quarter)
+    months = compute_ev_projection(
+        ev_id,
+        period_start=period_start,
+        period_months=period_months,
+    )
 
     return jsonify({
         "data": [
