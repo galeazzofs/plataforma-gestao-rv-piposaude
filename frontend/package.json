@@ -10,14 +10,16 @@
     "lint": "npx clj-kondo --lint src/"
   },
   "devDependencies": {
-    "shadow-cljs": "2.28.18",
+    "clj-kondo": "2025.10.23",
     "karma": "6.4.4",
     "karma-chrome-launcher": "3.2.0",
     "karma-cljs-test": "0.1.0",
-    "clj-kondo": "2025.10.23"
+    "shadow-cljs": "2.28.18"
   },
   "dependencies": {
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "react-is": "^18.3.1",
+    "recharts": "^3.8.1"
   }
 }
