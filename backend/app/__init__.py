@@ -51,4 +51,9 @@ def create_app(config_name=None):
         from app.modules.hubspot_sync.scheduler import init_scheduler
         init_scheduler(app)
 
+    # Start the daily reminder/escalation cron (skip in testing)
+    if not app.config.get("TESTING"):
+        from app.modules.workflow.reminders_scheduler import init_reminders_scheduler
+        init_reminders_scheduler(app)
+
     return app

@@ -89,6 +89,12 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             deadline = (datetime.now(timezone.utc) + timedelta(days=5)).date()
         appraisal.validation_deadline = deadline
 
+    # Reset reminder state on every transition: a fresh action zeroes
+    # the timer and clears any "reminder sent today" flag so the next
+    # idle period starts cleanly.
+    appraisal.last_action_at = datetime.now(timezone.utc)
+    appraisal.reminder_sent_at = None
+
     db.session.flush()
     return appraisal
 
@@ -133,6 +139,8 @@ def transition_lider_vendas_appraisal(
         )
 
     appraisal.status = new_status
+    appraisal.last_action_at = datetime.now(timezone.utc)
+    appraisal.reminder_sent_at = None
     db.session.flush()
     return appraisal
 
@@ -153,5 +161,7 @@ def transition_cn_monthly_appraisal(appraisal: CnMonthlyAppraisal, new_status):
         )
 
     appraisal.status = new_status
+    appraisal.last_action_at = datetime.now(timezone.utc)
+    appraisal.reminder_sent_at = None
     db.session.flush()
     return appraisal

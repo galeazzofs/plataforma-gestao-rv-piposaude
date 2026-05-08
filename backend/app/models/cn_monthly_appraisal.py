@@ -32,6 +32,8 @@ class CnMonthlyAppraisal(db.Model):
     has_contestation = db.Column(db.Boolean, default=False, nullable=False)
     contestation_note = db.Column(db.Text, nullable=True)
     resolution_note = db.Column(db.Text, nullable=True)
+    last_action_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    reminder_sent_at = db.Column(db.Date, nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
