@@ -192,6 +192,102 @@
               ^{:key (:ev_id ev)}
               [ev-row ev @tipo-filter @op-filter])])]))))
 
+;; ── Contestation panel (issue #36) ────────────────────────
+
+(defn- contestation-panel [appraisal user]
+  (let [contest-open? (r/atom false)
+        contest-text  (r/atom "")
+        resolve-text  (r/atom "")]
+    (fn [appraisal user]
+      (let [id        (:id appraisal)
+            status    (:status appraisal)
+            has?      (:has_contestation appraisal)
+            note      (:contestation_note appraisal)
+            res-note  (:resolution_note appraisal)
+            role      (:role user)
+            admin?    (= role "ADMIN")
+            can-contest? (and (not has?) (= status "VALIDATING"))]
+        (cond
+          ;; Open contestation — show note + resolution form for admins
+          has?
+          [:div.callout {:style {:border-left "3px solid var(--danger-default)"}}
+           [layout/icon "alert" {:width 20 :height 20}]
+           [:div {:style {:flex 1}}
+            [:strong "Contestação aberta"]
+            [:div {:style {:font-size "13px" :color "var(--fg-2)"
+                           :margin-top "4px" :white-space "pre-wrap"}}
+             (or note "·")]
+            (when admin?
+              [:div {:style {:margin-top "12px"}}
+               [:textarea
+                {:value @resolve-text
+                 :placeholder "Devolutiva (obrigatório) — descreva como o problema foi resolvido."
+                 :on-change #(reset! resolve-text (-> % .-target .-value))
+                 :rows 3
+                 :style {:width "100%" :font-family "var(--font-sans)"
+                         :font-size "13px" :padding "8px"
+                         :border "1px solid var(--border-subtle)"
+                         :border-radius "var(--r-sm)"}}]
+               [:div {:style {:margin-top "8px" :display "flex" :gap "8px"}}
+                [:button.btn.btn-primary.btn-sm
+                 {:disabled (clojure.string/blank? @resolve-text)
+                  :on-click (fn []
+                              (rf/dispatch [:revops/resolve-contestation
+                                            id @resolve-text])
+                              (reset! resolve-text ""))}
+                 "Resolver e devolver para validação"]]])]]
+
+          ;; Resolution closed — small acknowledgement
+          (and (not has?) res-note)
+          [:div.callout {:style {:border-left "3px solid var(--success-default)"}}
+           [layout/icon "check" {:width 20 :height 20}]
+           [:div {:style {:flex 1}}
+            [:strong "Contestação resolvida"]
+            [:div {:style {:font-size "13px" :color "var(--fg-2)"
+                           :margin-top "4px" :white-space "pre-wrap"}}
+             res-note]]]
+
+          ;; Can contest — show button + textarea (toggled)
+          can-contest?
+          [:div.callout
+           [layout/icon "info" {:width 20 :height 20}]
+           [:div {:style {:flex 1}}
+            [:strong "Contestar valor"]
+            [:div {:style {:font-size "13px" :color "var(--fg-3)"
+                           :margin-top "2px"}}
+             "Discordou do valor calculado? Abra uma contestação — a "
+             "apuração vai direto para revisão do RevOps."]
+            (when @contest-open?
+              [:div {:style {:margin-top "10px"}}
+               [:textarea
+                {:value @contest-text
+                 :placeholder "Motivo da contestação (obrigatório)"
+                 :on-change #(reset! contest-text (-> % .-target .-value))
+                 :rows 3
+                 :style {:width "100%" :font-family "var(--font-sans)"
+                         :font-size "13px" :padding "8px"
+                         :border "1px solid var(--border-subtle)"
+                         :border-radius "var(--r-sm)"}}]
+               [:div {:style {:margin-top "8px" :display "flex" :gap "8px"}}
+                [:button.btn.btn-primary.btn-sm
+                 {:disabled (clojure.string/blank? @contest-text)
+                  :on-click (fn []
+                              (rf/dispatch [:revops/contest-appraisal
+                                            id @contest-text])
+                              (reset! contest-open? false)
+                              (reset! contest-text ""))}
+                 "Confirmar contestação"]
+                [:button.btn.btn-secondary.btn-sm
+                 {:on-click #(do (reset! contest-open? false)
+                                 (reset! contest-text ""))}
+                 "Cancelar"]]])]
+           (when-not @contest-open?
+             [:button.btn.btn-secondary.btn-sm
+              {:on-click #(reset! contest-open? true)}
+              "Contestar"])]
+
+          :else nil)))))
+
 ;; ── Page ──────────────────────────────────────────────────
 
 (defn appraisal-review-page []
@@ -228,6 +324,9 @@
            [:button.btn.btn-primary
             {:on-click #(rf/dispatch [:revops/release-to-validation appraisal-id])}
             [layout/icon "check" {:width 14 :height 14}] "Liberar para EVs"]]}
+
+         ;; Contestation panel (issue #36)
+         [contestation-panel appraisal user]
 
          ;; KPIs row
          [:div.kpi-grid

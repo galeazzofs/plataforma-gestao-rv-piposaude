@@ -29,6 +29,9 @@ class CnMonthlyAppraisal(db.Model):
         default=AppraisalStatus.DRAFT,
         nullable=False,
     )
+    has_contestation = db.Column(db.Boolean, default=False, nullable=False)
+    contestation_note = db.Column(db.Text, nullable=True)
+    resolution_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

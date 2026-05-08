@@ -723,3 +723,38 @@
  (fn [_ [_ resp]]
    (let [msg (or (get-in resp [:error :message]) "Erro ao abrir ciclo")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
+
+;; ---- Appraisal contestation (issue #36) ----
+
+(rf/reg-event-fx
+ :revops/contest-appraisal
+ (fn [_ [_ id note]]
+   {:http {:method     :post
+           :url        (str "/appraisals/" id "/contest")
+           :body       {:note note}
+           :on-success [:revops/contestation-action-ok id]
+           :on-failure [:revops/contestation-action-err]}}))
+
+(rf/reg-event-fx
+ :revops/resolve-contestation
+ (fn [_ [_ id resolution-note]]
+   {:http {:method     :post
+           :url        (str "/appraisals/" id "/resolve-contestation")
+           :body       {:resolution_note resolution-note}
+           :on-success [:revops/contestation-action-ok id]
+           :on-failure [:revops/contestation-action-err]}}))
+
+(rf/reg-event-fx
+ :revops/contestation-action-ok
+ (fn [_ [_ id _resp]]
+   {:dispatch-n [[:revops/fetch-appraisals]
+                 [:revops/fetch-appraisal-detail id]
+                 [:ui/show-toast
+                  {:type :success :message "Contestação atualizada."}]]}))
+
+(rf/reg-event-fx
+ :revops/contestation-action-err
+ (fn [_ [_ resp]]
+   (let [msg (or (get-in resp [:error :message])
+                 "Erro ao processar contestação")]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))

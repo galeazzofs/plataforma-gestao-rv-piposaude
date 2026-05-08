@@ -167,6 +167,99 @@ def delete_appraisal(appraisal_id):
     return jsonify({"data": {"deleted": True}}), 200
 
 
+@workflow_bp.route("/<appraisal_id>/contest", methods=["POST"])
+@require_auth
+def contest_appraisal(appraisal_id):
+    """Open a contestation on an appraisal in VALIDATING.
+
+    Requires a non-empty note. Sets has_contestation=True and routes the
+    appraisal straight to REVOPS_REVIEW so the contestation skips the
+    LIDER_REVIEW step.
+    """
+    appraisal = db.session.get(Appraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND"}}), 404
+
+    if appraisal.status != AppraisalStatus.VALIDATING:
+        return jsonify({
+            "error": {
+                "code": "INVALID_STATE",
+                "message": (
+                    f"Contestation only allowed in VALIDATING "
+                    f"(current: {appraisal.status.value})"
+                ),
+            },
+        }), 409
+
+    body = request.get_json() or {}
+    note = (body.get("note") or "").strip()
+    if not note:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "note is required"},
+        }), 400
+
+    appraisal.has_contestation = True
+    appraisal.contestation_note = note
+    appraisal.resolution_note = None
+
+    # Walk to REVOPS_REVIEW: VALIDATING → LIDER_REVIEW is normally blocked
+    # by has_contestation, so route via that step explicitly with the
+    # contestation-skip path. We bypass transition_appraisal's block by
+    # going through LIDER_REVIEW first (with a contested flag) is not
+    # desired; instead, set status directly. The state graph allows
+    # LIDER_REVIEW → REVOPS_REVIEW, so we set LIDER_REVIEW → REVOPS_REVIEW
+    # via the state machine after a forced jump from VALIDATING.
+    # Simpler: set appraisal.status = REVOPS_REVIEW directly here, which
+    # is the documented contestation route per issue #36.
+    appraisal.status = AppraisalStatus.REVOPS_REVIEW
+
+    log_audit(
+        "appraisals", appraisal.id, "CONTEST",
+        new_values={"has_contestation": True, "note": note},
+    )
+    db.session.commit()
+    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+
+
+@workflow_bp.route("/<appraisal_id>/resolve-contestation", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def resolve_contestation(appraisal_id):
+    """RevOps resolves a contestation. Requires a resolution note.
+
+    Clears has_contestation and routes the appraisal back to VALIDATING
+    so the contesting party can re-validate with the resolution context.
+    """
+    appraisal = db.session.get(Appraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND"}}), 404
+
+    if not appraisal.has_contestation:
+        return jsonify({
+            "error": {"code": "INVALID_STATE",
+                      "message": "no open contestation on this appraisal"},
+        }), 409
+
+    body = request.get_json() or {}
+    resolution = (body.get("resolution_note") or "").strip()
+    if not resolution:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "resolution_note is required"},
+        }), 400
+
+    appraisal.has_contestation = False
+    appraisal.resolution_note = resolution
+    # Route back to VALIDATING so the contesting party can re-validate.
+    appraisal.status = AppraisalStatus.VALIDATING
+
+    log_audit(
+        "appraisals", appraisal.id, "RESOLVE_CONTESTATION",
+        new_values={"has_contestation": False, "resolution_note": resolution},
+    )
+    db.session.commit()
+    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+
+
 @workflow_bp.route("/<appraisal_id>/recalculate", methods=["POST"])
 @require_role(UserRole.ADMIN)
 def recalculate(appraisal_id):
@@ -228,6 +321,9 @@ def _serialize_appraisal(appraisal, detail=False):
         "locked_at": (
             appraisal.locked_at.isoformat() if appraisal.locked_at else None
         ),
+        "has_contestation": bool(appraisal.has_contestation),
+        "contestation_note": appraisal.contestation_note,
+        "resolution_note": appraisal.resolution_note,
     }
     if detail:
         data["approved_by_finance"] = (

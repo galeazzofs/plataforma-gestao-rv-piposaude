@@ -42,6 +42,18 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             f"Allowed: {[s.value for s in allowed]}"
         )
 
+    # Issue #36: VALIDATING → LIDER_REVIEW is blocked while a contestation
+    # is open. Use the contest endpoint to route to REVOPS_REVIEW instead.
+    if (
+        appraisal.status == AppraisalStatus.VALIDATING
+        and new_status == AppraisalStatus.LIDER_REVIEW
+        and getattr(appraisal, "has_contestation", False)
+    ):
+        raise InvalidTransitionError(
+            "Cannot advance to LIDER_REVIEW while a contestation is open. "
+            "Resolve the contestation first."
+        )
+
     appraisal.status = new_status
 
     # Side effects

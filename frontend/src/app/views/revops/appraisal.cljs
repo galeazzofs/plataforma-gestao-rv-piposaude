@@ -264,7 +264,12 @@
                 ^{:key (:id a)}
                 [:tr
                  [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
-                 [:td [status->badge (:status a)]]
+                 [:td
+                  [status->badge (:status a)]
+                  (when (:has_contestation a)
+                    [:span.badge.badge-review
+                     {:style {:margin-left "6px"}}
+                     "⚠ contestação"])]
                  [:td.center.num (str (or (:ev_count a) "·"))]
                  [:td.right.strong-num (str "R$ " (or (fmt-int (:total_amount a)) "·"))]
                  [:td.num.muted (or (:created_at_short a) "·")]
