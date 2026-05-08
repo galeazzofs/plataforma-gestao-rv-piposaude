@@ -45,6 +45,7 @@
      ["/cn-goals"           {:name :revops/cn-goals        :role #{:ADMIN}}]
      ["/cn-appraisal"       {:name :revops/cn-appraisal    :role #{:ADMIN}}]
      ["/ev-bonus"           {:name :revops/ev-bonus        :role #{:ADMIN}}]
+     ["/cn-quarterly-bonus" {:name :revops/cn-quarterly-bonus :role #{:ADMIN}}]
      ["/leadership"         {:name :revops/leadership      :role #{:ADMIN}}]
      ["/contestations"      {:name :revops/contestations    :role #{:ADMIN}}]
      ["/sync"               {:name :revops/sync-status      :role #{:ADMIN}}]

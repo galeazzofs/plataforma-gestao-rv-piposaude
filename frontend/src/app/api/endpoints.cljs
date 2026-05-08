@@ -52,6 +52,8 @@
 (def cn-appraisal       "/commissions/cn/appraisal")
 (defn cn-appraisal-finalize [id] (str "/commissions/cn/appraisal/" id "/finalize"))
 (def cn-simulate        "/commissions/cn/simulate")
+(def cn-quarterly-bonus           "/commissions/cn/quarterly-bonus")
+(def cn-quarterly-bonus-finalize  "/commissions/cn/quarterly-bonus/finalize")
 
 ;; EV bonus
 (def ev-bonus           "/commissions/ev/bonus")

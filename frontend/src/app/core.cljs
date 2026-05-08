@@ -57,6 +57,7 @@
             [app.views.revops.cn-goals :as revops-cn-goals]
             [app.views.revops.cn-appraisal :as revops-cn-appraisal]
             [app.views.revops.ev-bonus :as revops-ev-bonus]
+            [app.views.revops.cn-quarterly-bonus :as revops-cn-quarterly-bonus]
             [app.views.revops.leadership-appraisal :as revops-leadership]))
 
 ;; ---------------------------------------------------------------------------
@@ -114,8 +115,9 @@
         ;; RevOps commission views
         :revops/cn-goals      [revops-cn-goals/page]
         :revops/cn-appraisal  [revops-cn-appraisal/page]
-        :revops/ev-bonus      [revops-ev-bonus/page]
-        :revops/leadership    [revops-leadership/page]
+        :revops/ev-bonus              [revops-ev-bonus/page]
+        :revops/cn-quarterly-bonus    [revops-cn-quarterly-bonus/page]
+        :revops/leadership            [revops-leadership/page]
 
         ;; Fallback — 404
         [not-found-view/page]))))

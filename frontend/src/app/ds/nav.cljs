@@ -17,8 +17,9 @@
    {:key :revops/appraisal       :label "Apurações"            :icon "cog"     :route :revops/appraisal}
    {:key :revops/cn-appraisal    :label "Apuração CN"          :icon "percent" :route :revops/cn-appraisal}
    {:key :revops/cn-goals        :label "Metas CN"             :icon "target"  :route :revops/cn-goals}
-   {:key :revops/ev-bonus        :label "Bônus EV"             :icon "money"   :route :revops/ev-bonus}
-   {:key :revops/leadership      :label "Liderança"            :icon "users"   :route :revops/leadership}
+   {:key :revops/ev-bonus            :label "Bônus EV"          :icon "money"   :route :revops/ev-bonus}
+   {:key :revops/cn-quarterly-bonus  :label "Bônus CN trimestral" :icon "money" :route :revops/cn-quarterly-bonus}
+   {:key :revops/leadership          :label "Liderança"         :icon "users"   :route :revops/leadership}
    {:key :revops/contestations   :label "Contestações"         :icon "alert"   :route :revops/contestations}
 
    {:section "vendas"}

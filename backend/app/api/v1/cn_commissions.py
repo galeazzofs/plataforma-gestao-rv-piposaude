@@ -1,7 +1,9 @@
 from decimal import Decimal
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
-from app.models import UserRole, CnMonthlyGoal, CnMonthlyAppraisal, User
+from app.models import (
+    UserRole, CnMonthlyGoal, CnMonthlyAppraisal, CnQuarterBonus, User,
+)
 from app.extensions import db
 from app.modules.commissions.simulator import simulate_cn
 from app.modules.commissions.cn_calculator import (
@@ -9,6 +11,7 @@ from app.modules.commissions.cn_calculator import (
     validate_cn_goals,
     MissingGoalsError,
 )
+from app.modules.commissions.cn_bonus_calculator import run_cn_quarterly_bonus
 
 cn_commissions_bp = Blueprint(
     "cn_commissions", __name__, url_prefix="/api/v1/commissions/cn"
@@ -200,6 +203,112 @@ def _serialize_cn_row(cn, goal, month, year):
         "sao_target": str(goal.sao_target) if goal else None,
         "vidas_target": str(goal.vidas_target) if goal else None,
     }
+
+
+# ── Quarterly Bonus (issue #33) ────────────────────────────────────────────
+
+
+def _serialize_quarter_bonus(b):
+    return {
+        "id": str(b.id),
+        "cn_id": str(b.cn_id),
+        "cn_name": b.cn.name if b.cn else None,
+        "quarter": b.quarter,
+        "year": b.year,
+        "sao_trim_realizado": str(b.sao_trim_realizado),
+        "sao_trim_meta": str(b.sao_trim_meta),
+        "pct_sao_trim": str(b.pct_sao_trim),
+        "multiplicador": str(b.multiplicador),
+        "bonus_amount": str(b.bonus_amount),
+        "salario_base_snapshot": (
+            str(b.salario_base_snapshot)
+            if b.salario_base_snapshot is not None else None
+        ),
+        "is_final": b.is_final,
+    }
+
+
+@cn_commissions_bp.route("/quarterly-bonus", methods=["POST"])
+@require_auth
+def run_cn_quarterly_bonus_endpoint():
+    """Run the trimestral CN bonus calculator for (quarter, year). ADMIN only."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    body = request.get_json() or {}
+    try:
+        quarter = int(body.get("quarter"))
+        year = int(body.get("year"))
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "quarter and year required (integers)"},
+        }), 400
+
+    try:
+        result = run_cn_quarterly_bonus(quarter, year)
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
+
+    return jsonify({"data": result})
+
+
+@cn_commissions_bp.route("/quarterly-bonus")
+@require_auth
+def list_cn_quarterly_bonus():
+    """List CN trimestral bonuses, optionally filtered by quarter/year."""
+    user = g.current_user
+    if user.role not in (UserRole.ADMIN, UserRole.CN):
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    quarter = request.args.get("quarter", type=int)
+    year = request.args.get("year", type=int)
+
+    query = CnQuarterBonus.query
+    if quarter:
+        query = query.filter_by(quarter=quarter)
+    if year:
+        query = query.filter_by(year=year)
+    if user.role == UserRole.CN:
+        query = query.filter_by(cn_id=user.id)
+
+    items = query.order_by(
+        CnQuarterBonus.year.desc(), CnQuarterBonus.quarter.desc(),
+    ).all()
+    return jsonify({"data": [_serialize_quarter_bonus(b) for b in items]})
+
+
+@cn_commissions_bp.route("/quarterly-bonus/finalize", methods=["POST"])
+@require_auth
+def finalize_cn_quarterly_bonus():
+    """Lock all non-final CN bonuses for (quarter, year). ADMIN only."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    body = request.get_json() or {}
+    try:
+        quarter = int(body.get("quarter"))
+        year = int(body.get("year"))
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "quarter and year required (integers)"},
+        }), 400
+
+    rows = CnQuarterBonus.query.filter_by(
+        quarter=quarter, year=year, is_final=False,
+    ).all()
+    for row in rows:
+        row.is_final = True
+    db.session.commit()
+    return jsonify({"data": {"finalized": len(rows)}})
 
 
 def _serialize_appraisal(a):
