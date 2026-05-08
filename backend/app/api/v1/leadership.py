@@ -1,6 +1,8 @@
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
-from app.models import AppraisalStatus, UserRole, LiderVendasQuarterAppraisal
+from app.models import (
+    Appraisal, AppraisalStatus, UserRole, LiderVendasQuarterAppraisal,
+)
 from app.extensions import db
 from app.modules.commissions.leadership_calculator import (
     run_leadership_appraisal,
@@ -8,6 +10,7 @@ from app.modules.commissions.leadership_calculator import (
 )
 from app.modules.workflow.state_machine import (
     transition_lider_vendas_appraisal,
+    maybe_auto_advance_appraisal_after_validation,
     InvalidTransitionError,
 )
 
@@ -158,6 +161,18 @@ def transition_endpoint(appraisal_id):
         db.session.rollback()
         return jsonify({"error": {"code": "INVALID_TRANSITION", "message": str(e)}}), 422
 
+    # Issue #37a: a Líder validating own row may have been the last gate
+    # holding the global Appraisal in VALIDATING. Re-evaluate.
+    global_appraisal = Appraisal.query.filter_by(
+        quarter=appraisal.quarter, year=appraisal.year,
+    ).first()
+    if global_appraisal is not None:
+        try:
+            if maybe_auto_advance_appraisal_after_validation(global_appraisal):
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+
     return jsonify({"data": _serialize(appraisal)})
 
 
@@ -178,4 +193,7 @@ def _serialize(a):
         "bonus_amount": str(a.bonus_amount) if a.bonus_amount is not None else None,
         "status": a.status.value if a.status else None,
         "is_final": a.is_final,
+        "has_contestation": bool(a.has_contestation),
+        "contestation_note": a.contestation_note,
+        "resolution_note": a.resolution_note,
     }

@@ -464,6 +464,16 @@ def finalize_cn_quarterly_bonus():
     for row in rows:
         row.is_final = True
     db.session.commit()
+
+    # Issue #37b: locking the last bonus row for a quarter may complete
+    # the cycle. Re-evaluate.
+    from app.modules.workflow.state_machine import _maybe_lock_attached_cycle
+    try:
+        _maybe_lock_attached_cycle(quarter, year)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     return jsonify({"data": {"finalized": len(rows)}})
 
 

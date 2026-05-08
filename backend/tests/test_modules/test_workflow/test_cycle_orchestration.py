@@ -172,3 +172,87 @@ def test_cycle_locks_when_all_teams_complete(db_session, two_teams_setup):
     db.session.refresh(s["cycle"])
     assert s["cycle"].status == QuarterlyCycleStatus.LOCKED
     assert s["cycle"].locked_at is not None
+
+
+def test_cycle_locks_from_cn_monthly_when_appraisal_already_locked(
+    db_session, two_teams_setup,
+):
+    """Issue #37b: a cycle should also auto-LOCK when the *last* component
+    to be locked is a CnMonthlyAppraisal (not the Appraisal). Drives the
+    sequence: lock the global Appraisal first via state machine, but
+    leave the CN monthly row in LIDER_REVIEW. Locking the CN row last
+    should be the trigger."""
+    from decimal import Decimal as D
+    from unittest.mock import patch
+    from app.modules.workflow.state_machine import (
+        transition_cn_monthly_appraisal,
+    )
+
+    s = two_teams_setup
+
+    # Pre-lock 4-of-5 components for both teams. CN monthly stays in
+    # LIDER_REVIEW so the cycle is not yet complete.
+    for team, ev_user, cn_user, lider in [
+        (s["team_a"], s["ev_a"], s["cn_a"], s["lider_a"]),
+        (s["team_b"], s["ev_b"], s["cn_b"], s["lider_b"]),
+    ]:
+        db.session.add(EvQuarterAchievement(
+            ev_id=ev_user.id, quarter=s["quarter"], year=s["year"],
+            total_mrr=D("100000"), mrr_target=D("100000"),
+            achievement_pct=D("1.0"), is_final=True,
+        ))
+        db.session.add(CnQuarterBonus(
+            cn_id=cn_user.id, quarter=s["quarter"], year=s["year"],
+            sao_trim_realizado=D("100"), sao_trim_meta=D("100"),
+            pct_sao_trim=D("1.0"), multiplicador=D("1.0"),
+            bonus_amount=D("8000"), is_final=True,
+        ))
+        db.session.add(LiderVendasQuarterAppraisal(
+            lider_vendas_id=lider.id, quarter=s["quarter"], year=s["year"],
+            meta_mrr=D("100000"), meta_sql=10,
+            realizado_mrr=D("100000"), realizado_sql=10,
+            pct_mrr=D("1.0"), pct_sql=D("1.0"),
+            multiplicador=D("2.0"), bonus_amount=D("16000"),
+            status=AppraisalStatus.LOCKED,
+        ))
+
+    last_month = {1: 3, 2: 6, 3: 9, 4: 12}[s["quarter"]]
+    cn_a_row = CnMonthlyAppraisal(
+        cn_id=s["cn_a"].id, month=last_month, year=s["year"],
+        sao_realizado=D("100"), vidas_realizado=D("10"),
+        pct_sao=D("1.0"), pct_vidas=D("1.0"),
+        score_final=D("1.0"), multiplicador=D("1.0"),
+        commission_amount=D("0"), status=AppraisalStatus.LOCKED,
+    )
+    cn_b_row = CnMonthlyAppraisal(
+        cn_id=s["cn_b"].id, month=last_month, year=s["year"],
+        sao_realizado=D("100"), vidas_realizado=D("10"),
+        pct_sao=D("1.0"), pct_vidas=D("1.0"),
+        score_final=D("1.0"), multiplicador=D("1.0"),
+        commission_amount=D("0"), status=AppraisalStatus.REVOPS_REVIEW,
+    )
+    db.session.add_all([cn_a_row, cn_b_row])
+    db.session.flush()
+
+    appraisal = Appraisal(
+        quarter=s["quarter"], year=s["year"],
+        status=AppraisalStatus.REVOPS_REVIEW,
+        created_by=s["admin"].id,
+    )
+    db.session.add(appraisal)
+    db.session.flush()
+    transition_appraisal(
+        appraisal, AppraisalStatus.LOCKED, approved_by=s["admin"].id,
+    )
+
+    # Cycle should still be OPEN — cn_b_row is the last gate.
+    db.session.refresh(s["cycle"])
+    assert s["cycle"].status == QuarterlyCycleStatus.OPEN
+
+    # Lock the final CN monthly row. This must trigger cycle re-eval.
+    transition_cn_monthly_appraisal(cn_b_row, AppraisalStatus.LOCKED)
+    db.session.flush()
+
+    db.session.refresh(s["cycle"])
+    assert s["cycle"].status == QuarterlyCycleStatus.LOCKED
+    assert s["cycle"].locked_at is not None
