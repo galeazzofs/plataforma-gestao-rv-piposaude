@@ -22,7 +22,7 @@
     "LOCKED"     [:span.badge.badge-locked "Locked"]
     [:span.badge.badge-locked (or status "·")]))
 
-(def ^:private steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"])
+(def ^:private steps ["DRAFT" "CALCULATING" "VALIDATING" "REVIEWING" "APPROVED" "LOCKED"])
 (def ^:private step-labels
   {"DRAFT" "Draft" "CALCULATING" "Calculating" "REVIEWING" "Reviewing"
    "VALIDATING" "Validating" "APPROVED" "Approved" "LOCKED" "Locked"})
