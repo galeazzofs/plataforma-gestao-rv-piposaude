@@ -179,6 +179,79 @@ def finalize_cn_appraisal(appraisal_id):
     return jsonify({"data": _serialize_appraisal(appraisal)})
 
 
+@cn_commissions_bp.route("/appraisal/<appraisal_id>/contest", methods=["POST"])
+@require_auth
+def contest_cn_appraisal(appraisal_id):
+    """CN opens a contestation on their own monthly appraisal in
+    VALIDATING — routes to REVOPS_REVIEW with a flag, just like the
+    quarterly Appraisal in #36.
+    """
+    user = g.current_user
+    appraisal = db.session.get(CnMonthlyAppraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND"}}), 404
+
+    if user.role == UserRole.CN and str(appraisal.cn_id) != str(user.id):
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+    if user.role not in (UserRole.CN, UserRole.ADMIN):
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    if appraisal.status != AppraisalStatus.VALIDATING:
+        return jsonify({
+            "error": {"code": "INVALID_STATE",
+                      "message": (f"Contestation only allowed in VALIDATING "
+                                   f"(current: {appraisal.status.value})")},
+        }), 409
+
+    body = request.get_json() or {}
+    note = (body.get("note") or "").strip()
+    if not note:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "note is required"},
+        }), 400
+
+    appraisal.has_contestation = True
+    appraisal.contestation_note = note
+    appraisal.resolution_note = None
+    appraisal.status = AppraisalStatus.REVOPS_REVIEW
+    db.session.commit()
+    return jsonify({"data": _serialize_appraisal(appraisal)})
+
+
+@cn_commissions_bp.route(
+    "/appraisal/<appraisal_id>/resolve-contestation", methods=["POST"],
+)
+@require_auth
+def resolve_cn_contestation(appraisal_id):
+    """RevOps resolves a CN contestation. Requires resolution_note."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    appraisal = db.session.get(CnMonthlyAppraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND"}}), 404
+    if not appraisal.has_contestation:
+        return jsonify({
+            "error": {"code": "INVALID_STATE",
+                      "message": "no open contestation on this appraisal"},
+        }), 409
+
+    body = request.get_json() or {}
+    resolution = (body.get("resolution_note") or "").strip()
+    if not resolution:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "resolution_note is required"},
+        }), 400
+
+    appraisal.has_contestation = False
+    appraisal.resolution_note = resolution
+    appraisal.status = AppraisalStatus.VALIDATING
+    db.session.commit()
+    return jsonify({"data": _serialize_appraisal(appraisal)})
+
+
 @cn_commissions_bp.route("/appraisal/<appraisal_id>/transition", methods=["POST"])
 @require_auth
 def transition_cn_appraisal_endpoint(appraisal_id):
@@ -410,4 +483,7 @@ def _serialize_appraisal(a):
         "commission_amount": str(a.commission_amount),
         "status": a.status.value if a.status else None,
         "is_final": a.is_final,
+        "has_contestation": bool(a.has_contestation),
+        "contestation_note": a.contestation_note,
+        "resolution_note": a.resolution_note,
     }

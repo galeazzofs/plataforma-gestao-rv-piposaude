@@ -58,6 +58,24 @@
            :on-success [:revops/fetch-cn-appraisals month year]
            :on-failure [:revops/cn-appraisals-error]}}))
 
+(rf/reg-event-fx
+ :revops/contest-cn-appraisal
+ (fn [_ [_ id note month year]]
+   {:http {:method     :post
+           :url        (str ep/cn-appraisal "/" id "/contest")
+           :body       {:note note}
+           :on-success [:revops/fetch-cn-appraisals month year]
+           :on-failure [:revops/cn-appraisals-error]}}))
+
+(rf/reg-event-fx
+ :revops/resolve-cn-contestation
+ (fn [_ [_ id resolution-note month year]]
+   {:http {:method     :post
+           :url        (str ep/cn-appraisal "/" id "/resolve-contestation")
+           :body       {:resolution_note resolution-note}
+           :on-success [:revops/fetch-cn-appraisals month year]
+           :on-failure [:revops/cn-appraisals-error]}}))
+
 (rf/reg-sub :revops/cn-appraisals (fn [db _] (get-in db [:admin :cn-appraisals] [])))
 (rf/reg-sub :revops/cn-appraisals-loading? (fn [db _] (get-in db [:admin :cn-appraisals-loading?])))
 
@@ -219,9 +237,17 @@
               :else
               (for [row items]
                 ^{:key (:id row)}
-                (let [next-action (next-status-action (:status row))]
+                (let [next-action (next-status-action (:status row))
+                      validating? (= (:status row) "VALIDATING")
+                      contested?  (:has_contestation row)]
                   [:tr
-                   [:td.name (:cn_name row)]
+                   [:td.name
+                    (:cn_name row)
+                    (when contested?
+                      [:div
+                       [:span.badge.badge-review
+                        {:style {:font-size "10px" :margin-top "4px"}}
+                        "⚠ contestação aberta"]])]
                    [:td.center.num (str (or (pct (:score_final row)) "·") "%")]
                    [:td.right.num (str (or (mult (:multiplicador row)) "·") "x")]
                    [:td.right.strong-num
@@ -233,6 +259,40 @@
                       [:span.muted {:style {:font-family "var(--font-mono)"
                                             :font-size "11px"}}
                        "fechado"]
+
+                      contested?
+                      [:button.btn.btn-secondary.btn-sm
+                       {:on-click
+                        (fn []
+                          (let [note (js/prompt "Devolutiva (obrigatório):")]
+                            (when (and note (-> note .trim seq))
+                              (rf/dispatch
+                               [:revops/resolve-cn-contestation
+                                (:id row) note
+                                (:month @filter-s) (:year @filter-s)]))))}
+                       "Resolver contestação"]
+
+                      validating?
+                      [:div {:style {:display "flex" :gap "6px"
+                                     :justify-content "flex-end"}}
+                       [:button.btn.btn-secondary.btn-sm
+                        {:on-click
+                         (fn []
+                           (let [note (js/prompt
+                                       "Motivo da contestação (obrigatório):")]
+                             (when (and note (-> note .trim seq))
+                               (rf/dispatch
+                                [:revops/contest-cn-appraisal
+                                 (:id row) note
+                                 (:month @filter-s) (:year @filter-s)]))))}
+                        "Contestar"]
+                       (when next-action
+                         [:button.btn.btn-primary.btn-sm
+                          {:on-click #(rf/dispatch
+                                       [:revops/transition-cn-appraisal
+                                        (:id row) (second next-action)
+                                        (:month @filter-s) (:year @filter-s)])}
+                          (first next-action)])]
 
                       next-action
                       [:button.btn.btn-primary.btn-sm

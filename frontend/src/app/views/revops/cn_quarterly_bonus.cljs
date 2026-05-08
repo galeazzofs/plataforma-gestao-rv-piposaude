@@ -131,6 +131,39 @@
               (str (or (some-> avg (* 100) (.toFixed 0)) "·")
                    [:span.frac "%"]))]]]
 
+         ;; Régua de atingimento — visível antes da tabela.
+         [:div.card {:style {:padding "16px 20px"}}
+          [:div {:style {:display "flex" :justify-content "space-between"
+                          :align-items "baseline" :margin-bottom "10px"}}
+           [:h4 "Régua de atingimento"]
+           [:div.muted {:style {:font-family "var(--font-mono)"
+                                 :font-size "11px"}}
+            "% SAO trim → multiplicador"]]
+          [:div {:style {:display "grid"
+                         :grid-template-columns "repeat(4, 1fr)"
+                         :gap "12px" :font-family "var(--font-mono)"
+                         :font-size "12px"}}
+           [:div {:style {:padding "10px"
+                          :background "var(--bg-2)"
+                          :border-left "3px solid var(--danger-default)"}}
+            [:div {:style {:font-weight 600}} "< 80%"]
+            [:div.muted "Não elegível · 0×"]]
+           [:div {:style {:padding "10px"
+                          :background "var(--bg-2)"
+                          :border-left "3px solid var(--warning-default)"}}
+            [:div {:style {:font-weight 600}} "80–94.9%"]
+            [:div.muted "0,5× salário base"]]
+           [:div {:style {:padding "10px"
+                          :background "var(--bg-2)"
+                          :border-left "3px solid var(--success-default)"}}
+            [:div {:style {:font-weight 600}} "95–124.9%"]
+            [:div.muted "1,0× salário base"]]
+           [:div {:style {:padding "10px"
+                          :background "var(--bg-2)"
+                          :border-left "3px solid var(--success-dark)"}}
+            [:div {:style {:font-weight 600}} "≥ 125%"]
+            [:div.muted "1,5× salário base"]]]]
+
          [:div.card {:style {:padding 0}}
           [:table.table
            [:thead
