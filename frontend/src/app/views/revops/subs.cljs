@@ -156,3 +156,13 @@
  :revops/quarterly-cycles
  (fn [db _]
    (get-in db [:appraisal :quarterly-cycles])))
+
+(rf/reg-sub
+ :revops/quarterly-cycle
+ (fn [db _]
+   (get-in db [:appraisal :quarterly-cycle])))
+
+(rf/reg-sub
+ :revops/quarterly-cycle-loading?
+ (fn [db _]
+   (get-in db [:appraisal :quarterly-cycle-loading?])))

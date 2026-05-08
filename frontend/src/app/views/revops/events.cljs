@@ -681,7 +681,7 @@
  :revops/policies-error
  (fn [db _] (assoc-in db [:admin :policies-loading?] false)))
 
-;; ---- Quarterly Cycles (issue #32) ----
+;; ---- Quarterly Cycles (issues #32, #40) ----
 
 (rf/reg-event-fx
  :revops/fetch-quarterly-cycles
@@ -690,6 +690,27 @@
            :url        "/quarterly-cycles"
            :on-success [:revops/quarterly-cycles-loaded]
            :on-failure [:revops/quarterly-cycles-error]}}))
+
+(rf/reg-event-fx
+ :revops/fetch-quarterly-cycle-detail
+ (fn [{:keys [db]} [_ id]]
+   {:db   (assoc-in db [:appraisal :quarterly-cycle-loading?] true)
+    :http {:method     :get
+           :url        (str "/quarterly-cycles/" id)
+           :on-success [:revops/quarterly-cycle-detail-loaded]
+           :on-failure [:revops/quarterly-cycle-detail-error]}}))
+
+(rf/reg-event-db
+ :revops/quarterly-cycle-detail-loaded
+ (fn [db [_ resp]]
+   (-> db
+       (assoc-in [:appraisal :quarterly-cycle] (:data resp))
+       (assoc-in [:appraisal :quarterly-cycle-loading?] false))))
+
+(rf/reg-event-db
+ :revops/quarterly-cycle-detail-error
+ (fn [db _]
+   (assoc-in db [:appraisal :quarterly-cycle-loading?] false)))
 
 (rf/reg-event-db
  :revops/quarterly-cycles-loaded

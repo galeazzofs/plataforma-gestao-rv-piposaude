@@ -14,6 +14,7 @@
    {:key :lider-vendas/dashboard :label "Painel do Líder"      :icon "team"      :route :lider-vendas/dashboard}
 
    {:section "apuração"}
+   {:key :revops/quarterly-cycle :label "Ciclo Trimestral"     :icon "calendar" :route :revops/quarterly-cycle}
    {:key :revops/appraisal       :label "Apurações"            :icon "cog"     :route :revops/appraisal}
    {:key :revops/cn-appraisal    :label "Apuração CN"          :icon "percent" :route :revops/cn-appraisal}
    {:key :revops/cn-goals        :label "Metas CN"             :icon "target"  :route :revops/cn-goals}

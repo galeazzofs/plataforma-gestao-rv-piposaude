@@ -58,7 +58,8 @@
             [app.views.revops.cn-appraisal :as revops-cn-appraisal]
             [app.views.revops.ev-bonus :as revops-ev-bonus]
             [app.views.revops.cn-quarterly-bonus :as revops-cn-quarterly-bonus]
-            [app.views.revops.leadership-appraisal :as revops-leadership]))
+            [app.views.revops.leadership-appraisal :as revops-leadership]
+            [app.views.revops.quarterly-cycle :as revops-quarterly-cycle]))
 
 ;; ---------------------------------------------------------------------------
 ;; Route-based view switching
@@ -118,6 +119,7 @@
         :revops/ev-bonus              [revops-ev-bonus/page]
         :revops/cn-quarterly-bonus    [revops-cn-quarterly-bonus/page]
         :revops/leadership            [revops-leadership/page]
+        :revops/quarterly-cycle       [revops-quarterly-cycle/page]
 
         ;; Fallback — 404
         [not-found-view/page]))))
