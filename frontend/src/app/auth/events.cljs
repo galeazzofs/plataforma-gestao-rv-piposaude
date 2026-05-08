@@ -35,7 +35,7 @@
       :navigate! (case (get-in data [:user :role])
                    "ADMIN"   :revops/dashboard
                    "FINANCE" :finance/dashboard
-                   "GERENTE" :gerente/dashboard
+                   "LIDER_VENDAS" :lider-vendas/dashboard
                    "EV"      :ev/dashboard
                    "CN"      :ev/dashboard
                    :no-role)})))

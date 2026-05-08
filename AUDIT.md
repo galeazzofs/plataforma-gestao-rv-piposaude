@@ -31,7 +31,7 @@ Working tree tem mudanças não-commitadas. Próximos passos opcionais: revisar 
 - `git fetch` revelou 5 commits novos no origin (incluindo `35ea268 feat(ds): rebuild every screen on the pipo design system` e `ds/nav.cljs` canônico)
 - Pull + stash pop deu conflito em `revops/dashboard.cljs` (B2 já tinha mudado de lugar — sidebar agora vive em `ds/nav.cljs`)
 - B2 reaplicado em `ds/nav.cljs` (lugar canônico, não mais inline no dashboard)
-- **R2 cancelado** — já resolvido upstream pelo `ds/nav.cljs` (admin/ev/gerente/finance items unificados)
+- **R2 cancelado** — já resolvido upstream pelo `ds/nav.cljs` (admin/ev/lider_vendas/finance items unificados)
 - **F1 invertido** — Cycle 1 propunha padronizar em `:navigate!`, mas o upstream usa `:navigate` (sem !) em 22+ lugares e zero `:navigate!`. Padronizei conforme o time: removido o event-fx `:navigate!` redundante, mantido o fx primitivo
 - **R1 parcial** — extraí só `fmt-brl` (3 sites idênticos modulo parseFloat). `fmt-brl-int`/`fmt-int-brl` (3 sites) deixei intocados — têm contratos visuais divergentes (uns incluem prefixo "R$ ", outros não, e os call-sites compensam de jeitos diferentes). Refatorar arrisca regressão visual
 
@@ -56,11 +56,11 @@ Working tree tem mudanças não-commitadas. Próximos passos opcionais: revisar 
 | App factory + blueprints | `backend/app/__init__.py`, `backend/app/api/__init__.py` |
 
 ### Convenções
-- Views ficam em `views/{revops,finance,gerente,ev,cn,shared}/`
+- Views ficam em `views/{revops,finance,lider_vendas,ev,cn,shared}/`
 - Cada role tem seu próprio `events.cljs` e `subs.cljs`
 - Estado vive todo no `app-db` re-frame, dividido por área (`:auth`, `:ui`, `:policies`, `:commissions`, `:goals`, `:appraisal`, `:validations`, `:finance`, `:admin`, `:notifications`)
 - API client adiciona automaticamente `/api/v1` (`config.cljs:3`), então URLs em `endpoints.cljs` começam com `/auth/...`, `/admin/...`, etc.
-- Roles: `ADMIN`, `FINANCE`, `GERENTE`, `EV`, `CN`
+- Roles: `ADMIN`, `FINANCE`, `LIDER_VENDAS`, `EV`, `CN`
 
 ---
 
@@ -102,7 +102,7 @@ Helper `role->landing` extraído em `routes.cljs:63-70` — pode ser reusado em 
 ### 🧪 Testes pendentes (Cycle 2)
 Não rodei o frontend porque shadow-cljs não está instalado localmente. Quando quiser validar:
 1. `cd frontend && npm install && npx shadow-cljs watch app`
-2. Login via dev-picker como ADMIN, FINANCE, GERENTE, EV, CN — verificar que cada role abre seu dashboard
+2. Login via dev-picker como ADMIN, FINANCE, LIDER_VENDAS, EV, CN — verificar que cada role abre seu dashboard
 3. Navegar manualmente para `/` e `/login` autenticado — deve redirecionar
 4. Sidebar RevOps deve listar 17 itens (era 13)
 5. Botão Google SSO deve aparecer disabled com texto "Google SSO — em integração"
@@ -167,8 +167,8 @@ Mesma função (`js/parseFloat` → `toLocaleString("pt-BR")`):
 - `views/finance/approval.cljs:16`
 - `views/finance/dashboard.cljs:19`
 - `views/finance/saldo_devedor.cljs:5`
-- `views/gerente/dashboard.cljs:14`
-- `views/gerente/ev_detail.cljs:13`
+- `views/lider_vendas/dashboard.cljs:14`
+- `views/lider_vendas/ev_detail.cljs:13`
 - `views/revops/achievements.cljs:13`
 - `views/revops/appraisal_review.cljs:15`
 - `views/revops/goals.cljs:14`
@@ -180,10 +180,10 @@ Mesma função (`js/parseFloat` → `toLocaleString("pt-BR")`):
 - `revops-shell/sidebar-items` em `revops/dashboard.cljs:10` — bem (compartilhado por 13 telas via alias)
 - `cn-shell/sidebar-items` em `cn/dashboard.cljs:10` — bem
 - **`ev/...`**: 3 cópias separadas (`dashboard.cljs:10`, `history.cljs:12`, `validation.cljs:14`)
-- **`gerente/...`**: 2 cópias (`dashboard.cljs:11`, `ev_detail.cljs:10`)
+- **`lider_vendas/...`**: 2 cópias (`dashboard.cljs:11`, `ev_detail.cljs:10`)
 - **`finance/...`**: 2 cópias (`dashboard.cljs:15`, `approval.cljs:12`)
 
-**Fix proposto**: criar `views/{ev,gerente,finance}/shell.cljs` com a lista única, importar nas views por alias (mesmo padrão do `revops-shell`).
+**Fix proposto**: criar `views/{ev,lider_vendas,finance}/shell.cljs` com a lista única, importar nas views por alias (mesmo padrão do `revops-shell`).
 
 ---
 
@@ -192,7 +192,7 @@ Mesma função (`js/parseFloat` → `toLocaleString("pt-BR")`):
 #### R3 — 3 modelos de Appraisal sobrepostos
 - `backend/app/models/appraisal.py` — `Appraisal` (genérica trimestral)
 - `backend/app/models/cn_monthly_appraisal.py` — `CnMonthlyAppraisal`
-- `backend/app/models/gerente_quarter_appraisal.py` — `GerenteQuarterAppraisal`
+- `backend/app/models/lider_vendas_quarter_appraisal.py` — `LiderVendasQuarterAppraisal`
 
 Schemas similares (`user_id`, período, score, valor, `is_final`, timestamps). Candidato a `BaseAppraisal` abstrato com discriminator. **Só vale a pena se forem adicionar mais variantes.**
 
@@ -229,7 +229,7 @@ A organização atual está OK. Adições:
 frontend/src/app/
   utils/
     format.cljs       ← NOVO (R1): fmt-brl, fmt-date, helpers genéricos
-  views/{ev,gerente,finance}/
+  views/{ev,lider_vendas,finance}/
     shell.cljs        ← NOVO (R2): sidebar-items único por role
 ```
 

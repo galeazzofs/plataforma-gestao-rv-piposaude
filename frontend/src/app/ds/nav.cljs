@@ -11,7 +11,7 @@
   [{:section "visão geral"}
    {:key :finance/dashboard      :label "Dashboard Financeiro" :icon "money"     :route :finance/dashboard}
    {:key :revops/dashboard       :label "Dashboard Admin"      :icon "dashboard" :route :revops/dashboard}
-   {:key :gerente/dashboard      :label "Painel do Gerente"    :icon "team"      :route :gerente/dashboard}
+   {:key :lider-vendas/dashboard :label "Painel do Líder"      :icon "team"      :route :lider-vendas/dashboard}
 
    {:section "apuração"}
    {:key :revops/appraisal       :label "Apurações"            :icon "cog"     :route :revops/appraisal}
@@ -42,9 +42,9 @@
    {:key :ev/validation :label "Validação"  :icon "check"    :route :ev/validation}
    {:key :cn/simulator  :label "Simulador"  :icon "target"   :route :cn/simulator}])
 
-(def gerente-items
+(def lider-vendas-items
   [{:section "gestão de time"}
-   {:key :gerente/dashboard :label "Painel do Gerente" :icon "team"  :route :gerente/dashboard}
+   {:key :lider-vendas/dashboard :label "Painel do Líder" :icon "team"  :route :lider-vendas/dashboard}
    {:section "operação"}
    {:key :revops/appraisal     :label "Apurações"     :icon "cog"   :route :revops/appraisal}
    {:key :revops/contestations :label "Contestações"  :icon "alert" :route :revops/contestations}])
@@ -64,7 +64,7 @@
     "ADMIN"   admin-items
     "REVOPS"  admin-items
     "FINANCE" finance-items
-    "GERENTE" gerente-items
+    "LIDER_VENDAS" lider-vendas-items
     "EV"      ev-items
     "CN"      ev-items
     admin-items))

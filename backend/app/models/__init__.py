@@ -15,7 +15,7 @@ from app.models.audit_log import AuditLog
 from app.models.ev_quarter_achievement import EvQuarterAchievement
 from app.models.cn_monthly_goal import CnMonthlyGoal
 from app.models.cn_monthly_appraisal import CnMonthlyAppraisal
-from app.models.gerente_quarter_appraisal import GerenteQuarterAppraisal
+from app.models.lider_vendas_quarter_appraisal import LiderVendasQuarterAppraisal
 
 __all__ = [
     "User", "UserRole", "CnNivel", "CnPorte",
@@ -35,5 +35,5 @@ __all__ = [
     "EvQuarterAchievement",
     "CnMonthlyGoal",
     "CnMonthlyAppraisal",
-    "GerenteQuarterAppraisal",
+    "LiderVendasQuarterAppraisal",
 ]

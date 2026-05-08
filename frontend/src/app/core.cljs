@@ -23,11 +23,11 @@
             [app.views.ev.dashboard :as ev-dashboard]
             [app.views.ev.history :as ev-history]
             [app.views.ev.validation :as ev-validation]
-            ;; Gerente views — Chunk 3
-            [app.views.gerente.events]
-            [app.views.gerente.subs]
-            [app.views.gerente.dashboard :as gerente-dashboard]
-            [app.views.gerente.ev-detail :as gerente-ev-detail]
+            ;; Líder de Vendas views — Chunk 3
+            [app.views.lider-vendas.events]
+            [app.views.lider-vendas.subs]
+            [app.views.lider-vendas.dashboard :as lider-vendas-dashboard]
+            [app.views.lider-vendas.ev-detail :as lider-vendas-ev-detail]
             ;; Finance views — Chunk 4
             [app.views.finance.events]
             [app.views.finance.subs]
@@ -83,9 +83,9 @@
         :ev/history     [ev-history/history-page]
         :ev/validation  [ev-validation/validation-page]
 
-        ;; Gerente views
-        :gerente/dashboard  [gerente-dashboard/gerente-dashboard-page]
-        :gerente/ev-detail  [gerente-ev-detail/ev-detail-page]
+        ;; Líder de Vendas views
+        :lider-vendas/dashboard  [lider-vendas-dashboard/lider-vendas-dashboard-page]
+        :lider-vendas/ev-detail  [lider-vendas-ev-detail/ev-detail-page]
 
         ;; Finance views
         :finance/dashboard  [finance-dashboard/finance-dashboard-page]

@@ -103,7 +103,7 @@ def contest_validation(validation_id):
 
 
 @validations_bp.route("/<validation_id>/resolve", methods=["POST"])
-@require_role(UserRole.ADMIN, UserRole.GERENTE)
+@require_role(UserRole.ADMIN, UserRole.LIDER_VENDAS)
 def resolve_validation(validation_id):
     """RevOps/Manager resolves a contested validation."""
     validation = db.session.get(EvValidation, validation_id)

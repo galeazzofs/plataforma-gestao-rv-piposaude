@@ -11,7 +11,7 @@
 (def role-options
   [{:value "EV"      :label "EV (Executivo de Vendas)"}
    {:value "CN"      :label "CN (Consultor de Negócios)"}
-   {:value "GERENTE" :label "Gerente"}
+   {:value "LIDER_VENDAS" :label "Líder de Vendas"}
    {:value "FINANCE" :label "Financeiro"}
    {:value "ADMIN"   :label "Admin (RevOps)"}])
 
@@ -110,7 +110,7 @@
                     :aria-pressed (str (nil? @active-role))
                     :on-click #(reset! active-role nil)}
            (str "Todos (" (count users) ")")]
-          (for [role ["EV" "CN" "GERENTE" "FINANCE" "ADMIN"]]
+          (for [role ["EV" "CN" "LIDER_VENDAS" "FINANCE" "ADMIN"]]
             ^{:key role}
             [:button {:type "button"
                       :class (str "chip" (when (= @active-role role) " active"))

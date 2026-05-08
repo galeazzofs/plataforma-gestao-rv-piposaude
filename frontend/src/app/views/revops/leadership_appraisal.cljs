@@ -80,8 +80,8 @@
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "gestão de time" "apuração liderança"]
-          :title "Apuração Liderança · Gerentes"
-          :subtitle (str (count (or preview [])) " gerentes")
+          :title "Apuração Liderança · Líderes de Vendas"
+          :subtitle (str (count (or preview [])) " líderes")
           :header-actions
           [[:button.btn.btn-secondary
             {:on-click #(rf/dispatch [:revops/fetch-leadership-preview
@@ -94,7 +94,7 @@
                            [:revops/run-leadership-appraisal
                             {:quarter (:quarter @filter-s)
                              :year (:year @filter-s)
-                             :inputs (mapv (fn [[gid vals]] (merge {:gerente_id gid} vals))
+                             :inputs (mapv (fn [[gid vals]] (merge {:lider_vendas_id gid} vals))
                                             @form-inputs)}]))}
             [layout/icon "target" {:width 14 :height 14}] "Calcular bônus"]]}
 
@@ -119,30 +119,30 @@
          (when (seq preview)
            [:div.card
             [:div.card-head
-             [:div [:h3 "Inputs por gerente"]
+             [:div [:h3 "Inputs por líder"]
               [:div.card-sub "Preencha os valores realizados antes de calcular"]]]
             [:div {:style {:display "flex" :flex-direction "column" :gap "12px"}}
-             (for [{:keys [gerente_id gerente_name meta_mrr]} preview]
-               ^{:key gerente_id}
+             (for [{:keys [lider_vendas_id lider_vendas_name meta_mrr]} preview]
+               ^{:key lider_vendas_id}
                [:div.appraisal-row
                 [:div
-                 [:div.name gerente_name]
+                 [:div.name lider_vendas_name]
                  [:div.muted {:style {:font-family "var(--font-mono)" :font-size "11px"}}
-                  (str "id " gerente_id)]]
+                  (str "id " lider_vendas_id)]]
                 [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
                  (str "Meta MRR (auto): R$ " (or (fmt-int meta_mrr) "·"))]
                 [inputs/input
                  {:label "MRR Realizado"
-                  :value (get-in @form-inputs [gerente_id :realizado_mrr] "")
-                  :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_mrr] %)}]
+                  :value (get-in @form-inputs [lider_vendas_id :realizado_mrr] "")
+                  :on-change #(swap! form-inputs assoc-in [lider_vendas_id :realizado_mrr] %)}]
                 [inputs/input
                  {:label "Meta SQL" :type "number"
-                  :value (get-in @form-inputs [gerente_id :meta_sql] "")
-                  :on-change #(swap! form-inputs assoc-in [gerente_id :meta_sql] %)}]
+                  :value (get-in @form-inputs [lider_vendas_id :meta_sql] "")
+                  :on-change #(swap! form-inputs assoc-in [lider_vendas_id :meta_sql] %)}]
                 [inputs/input
                  {:label "SQL Realizado" :type "number"
-                  :value (get-in @form-inputs [gerente_id :realizado_sql] "")
-                  :on-change #(swap! form-inputs assoc-in [gerente_id :realizado_sql] %)}]])]])
+                  :value (get-in @form-inputs [lider_vendas_id :realizado_sql] "")
+                  :on-change #(swap! form-inputs assoc-in [lider_vendas_id :realizado_sql] %)}]])]])
 
          (cond
            (and loading? (empty? results))
@@ -152,11 +152,11 @@
            [:div.card {:style {:padding 0}}
             [:div {:style {:padding "18px 20px 0"}}
              [:h3 "Resultados"]
-             [:div.card-sub (str (count results) " gerentes apurados")]]
+             [:div.card-sub (str (count results) " líderes apurados")]]
             [:table.table
              [:thead
               [:tr
-               [:th "Gerente"]
+               [:th "Líder de Vendas"]
                [:th.right "Meta MRR"]
                [:th.right "% MRR"]
                [:th.right "% SQL"]
@@ -167,7 +167,7 @@
               (for [row results]
                 ^{:key (:id row)}
                 [:tr
-                 [:td.name (:gerente_name row)]
+                 [:td.name (:lider_vendas_name row)]
                  [:td.right.strong-num (str "R$ " (or (fmt-int (:meta_mrr row)) "·"))]
                  [:td.right.num (str (or (pct (:pct_mrr row)) "·") "%")]
                  [:td.right.num (str (or (pct (:pct_sql row)) "·") "%")]

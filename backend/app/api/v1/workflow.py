@@ -54,7 +54,7 @@ def get_appraisal(appraisal_id):
 
 
 @workflow_bp.route("", methods=["POST"])
-@require_role(UserRole.ADMIN, UserRole.GERENTE)
+@require_role(UserRole.ADMIN, UserRole.LIDER_VENDAS)
 def create_appraisal():
     """Create a new appraisal in DRAFT status."""
     data = request.get_json()
@@ -87,7 +87,7 @@ def create_appraisal():
 
 
 @workflow_bp.route("/<appraisal_id>/transition", methods=["POST"])
-@require_role(UserRole.ADMIN, UserRole.GERENTE, UserRole.FINANCE)
+@require_role(UserRole.ADMIN, UserRole.LIDER_VENDAS, UserRole.FINANCE)
 def transition(appraisal_id):
     """Transition an appraisal to a new status.
 

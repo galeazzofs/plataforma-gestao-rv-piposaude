@@ -1,6 +1,6 @@
 from decimal import Decimal
 import pytest
-from app.models import User, UserRole, Team, Goal, GerenteQuarterAppraisal
+from app.models import User, UserRole, Team, Goal, LiderVendasQuarterAppraisal
 from app.modules.commissions.leadership_calculator import (
     run_leadership_appraisal,
     get_leadership_preview,
@@ -9,9 +9,9 @@ from app.modules.commissions.leadership_calculator import (
 from app.extensions import db
 
 
-def _make_gerente(session, name="Gerente", salario=Decimal("10000")):
+def _make_lider(session, name="Lider", salario=Decimal("10000")):
     u = User(email=f"{name.lower()}@test.com", name=name,
-             role=UserRole.GERENTE, salario_base=salario)
+             role=UserRole.LIDER_VENDAS, salario_base=salario)
     session.add(u)
     session.flush()
     return u
@@ -28,18 +28,18 @@ def _make_ev_with_goal(session, team_id, name, mrr_target, quarter, year):
     return ev
 
 
-def _make_team(session, gerente):
-    t = Team(name="Time Teste", leader_id=gerente.id)
+def _make_team(session, lider):
+    t = Team(name="Time Teste", leader_id=lider.id)
     session.add(t)
     session.flush()
-    gerente.team_id = t.id
+    lider.team_id = t.id
     session.flush()
     return t
 
 
-def _make_gerente_with_team(session, name="Gerente", salario=Decimal("10000")):
-    gerente = _make_gerente(session, name=name, salario=salario)
-    team = _make_team(session, gerente)
+def _make_lider_with_team(session, name="Lider", salario=Decimal("10000")):
+    lider = _make_lider(session, name=name, salario=salario)
+    team = _make_team(session, lider)
     ev = User(
         email=f"{name.lower().replace(' ', '_')}_ev@test.com",
         name=f"{name} EV",
@@ -48,7 +48,7 @@ def _make_gerente_with_team(session, name="Gerente", salario=Decimal("10000")):
     )
     session.add(ev)
     session.flush()
-    return gerente, team
+    return lider, team
 
 
 def _make_goal(session, ev, quarter, year, mrr_target):
@@ -73,9 +73,9 @@ class TestLiderancaMultiplier:
 
 
 class TestRunLeadershipAppraisal:
-    def test_computes_gerente_bonus(self, db_session):
-        gerente = _make_gerente(db_session)
-        team = _make_team(db_session, gerente)
+    def test_computes_lider_vendas_bonus(self, db_session):
+        lider = _make_lider(db_session)
+        team = _make_team(db_session, lider)
         _make_ev_with_goal(db_session, team.id, "EV1",
                            Decimal("100000"), quarter=1, year=2026)
         _make_ev_with_goal(db_session, team.id, "EV2",
@@ -86,15 +86,15 @@ class TestRunLeadershipAppraisal:
         # meta_sql = 10, realizado_sql = 11 → pct_sql = 1.10 (≥ 110%)
         # multiplier = 4.0, bonus = 10000 * 4.0 = 40000
         inputs = [{
-            "gerente_id": str(gerente.id),
+            "lider_vendas_id": str(lider.id),
             "meta_sql": 10,
             "realizado_mrr": "200000",
             "realizado_sql": 11,
         }]
         result = run_leadership_appraisal(quarter=1, year=2026, inputs=inputs)
 
-        appraisal = GerenteQuarterAppraisal.query.filter_by(
-            gerente_id=gerente.id, quarter=1, year=2026
+        appraisal = LiderVendasQuarterAppraisal.query.filter_by(
+            lider_vendas_id=lider.id, quarter=1, year=2026
         ).first()
         assert appraisal is not None
         assert appraisal.meta_mrr == Decimal("180000.00")
@@ -102,14 +102,14 @@ class TestRunLeadershipAppraisal:
         assert result["appraisals_created"] == 1
 
     def test_skips_final_appraisal(self, db_session):
-        gerente, team = _make_gerente_with_team(db_session, name="Final Gerente")
+        lider, team = _make_lider_with_team(db_session, name="Final Lider")
         ev = team.members[0]
         _make_goal(db_session, ev, quarter=3, year=2026, mrr_target=Decimal("100000"))
 
         # Create a final appraisal manually
         import uuid
-        final = GerenteQuarterAppraisal(
-            gerente_id=gerente.id,
+        final = LiderVendasQuarterAppraisal(
+            lider_vendas_id=lider.id,
             quarter=3, year=2026,
             meta_mrr=Decimal("90000"),
             meta_sql=10,
@@ -127,7 +127,7 @@ class TestRunLeadershipAppraisal:
         result = run_leadership_appraisal(
             quarter=3, year=2026,
             inputs=[{
-                "gerente_id": str(gerente.id),
+                "lider_vendas_id": str(lider.id),
                 "meta_sql": 10,
                 "realizado_mrr": "95000",
                 "realizado_sql": 10,
@@ -136,42 +136,42 @@ class TestRunLeadershipAppraisal:
         assert result["appraisals_created"] == 0
 
     def test_zero_meta_sql_does_not_raise(self, db_session):
-        gerente, team = _make_gerente_with_team(db_session, name="ZeroSQL Gerente")
+        lider, team = _make_lider_with_team(db_session, name="ZeroSQL Lider")
         ev = team.members[0]
         _make_goal(db_session, ev, quarter=4, year=2026, mrr_target=Decimal("100000"))
 
         result = run_leadership_appraisal(
             quarter=4, year=2026,
             inputs=[{
-                "gerente_id": str(gerente.id),
+                "lider_vendas_id": str(lider.id),
                 "meta_sql": 0,
                 "realizado_mrr": "50000",
                 "realizado_sql": 0,
             }],
         )
         assert result["appraisals_created"] == 1
-        appraisal = GerenteQuarterAppraisal.query.filter_by(
-            gerente_id=gerente.id, quarter=4, year=2026
+        appraisal = LiderVendasQuarterAppraisal.query.filter_by(
+            lider_vendas_id=lider.id, quarter=4, year=2026
         ).first()
         assert appraisal.pct_sql == Decimal("0")
 
-    def test_skips_gerente_with_no_salary(self, db_session):
-        gerente = User(
+    def test_skips_lider_vendas_with_no_salary(self, db_session):
+        lider = User(
             email="nosalary@test.com",
-            name="No Salary Gerente",
-            role=UserRole.GERENTE,
+            name="No Salary Lider",
+            role=UserRole.LIDER_VENDAS,
             salario_base=None,
         )
-        db_session.add(gerente)
+        db_session.add(lider)
         db_session.flush()
-        team = Team(name="Team NS", leader_id=gerente.id)
+        team = Team(name="Team NS", leader_id=lider.id)
         db_session.add(team)
         db_session.flush()
 
         result = run_leadership_appraisal(
             quarter=2, year=2026,
             inputs=[{
-                "gerente_id": str(gerente.id),
+                "lider_vendas_id": str(lider.id),
                 "meta_sql": 10,
                 "realizado_mrr": "50000",
                 "realizado_sql": 8,
@@ -179,30 +179,30 @@ class TestRunLeadershipAppraisal:
         )
         assert result["appraisals_created"] == 0
 
-    def test_gerente_with_no_team_gets_zero_meta_mrr(self, db_session):
-        # GERENTE with no team: meta_mrr=0, so pct_mrr=0 → 0x multiplier → 0 bonus
-        gerente = User(
+    def test_lider_vendas_with_no_team_gets_zero_meta_mrr(self, db_session):
+        # LIDER_VENDAS with no team: meta_mrr=0, so pct_mrr=0 → 0x multiplier → 0 bonus
+        lider = User(
             email="noteam@test.com",
-            name="No Team Gerente",
-            role=UserRole.GERENTE,
+            name="No Team Lider",
+            role=UserRole.LIDER_VENDAS,
             salario_base=Decimal("10000"),
         )
-        db_session.add(gerente)
+        db_session.add(lider)
         db_session.flush()
         # No team created
 
         result = run_leadership_appraisal(
             quarter=1, year=2027,
             inputs=[{
-                "gerente_id": str(gerente.id),
+                "lider_vendas_id": str(lider.id),
                 "meta_sql": 10,
                 "realizado_mrr": "50000",
                 "realizado_sql": 8,
             }],
         )
         assert result["appraisals_created"] == 1
-        appraisal = GerenteQuarterAppraisal.query.filter_by(
-            gerente_id=gerente.id, quarter=1, year=2027
+        appraisal = LiderVendasQuarterAppraisal.query.filter_by(
+            lider_vendas_id=lider.id, quarter=1, year=2027
         ).first()
         assert appraisal is not None
         assert appraisal.meta_mrr == Decimal("0")

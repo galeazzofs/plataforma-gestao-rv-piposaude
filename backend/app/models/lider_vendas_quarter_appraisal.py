@@ -4,17 +4,17 @@ from app.extensions import db
 from app.models.compat import GUID
 
 
-class GerenteQuarterAppraisal(db.Model):
-    __tablename__ = "gerente_quarter_appraisals"
+class LiderVendasQuarterAppraisal(db.Model):
+    __tablename__ = "lider_vendas_quarter_appraisals"
     __table_args__ = (
         db.UniqueConstraint(
-            "gerente_id", "quarter", "year",
-            name="uq_gerente_quarter_appraisal"
+            "lider_vendas_id", "quarter", "year",
+            name="uq_lider_vendas_quarter_appraisal"
         ),
     )
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
-    gerente_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=False)
+    lider_vendas_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=False)
     quarter = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     meta_mrr = db.Column(db.Numeric(12, 2), nullable=False)
@@ -35,7 +35,7 @@ class GerenteQuarterAppraisal(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    gerente = db.relationship("User", foreign_keys=[gerente_id])
+    lider_vendas = db.relationship("User", foreign_keys=[lider_vendas_id])
 
     def __repr__(self):
-        return f"<GerenteQuarterAppraisal gerente={self.gerente_id} Q{self.quarter}/{self.year}>"
+        return f"<LiderVendasQuarterAppraisal lider_vendas={self.lider_vendas_id} Q{self.quarter}/{self.year}>"

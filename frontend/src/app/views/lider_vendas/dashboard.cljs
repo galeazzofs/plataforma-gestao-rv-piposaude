@@ -1,4 +1,4 @@
-(ns app.views.gerente.dashboard
+(ns app.views.lider-vendas.dashboard
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.auth.subs]))
@@ -33,16 +33,16 @@
      [:td.right
       (if (= appraisal_status "REVIEWING")
         [:button.btn.btn-primary.btn-sm
-         {:on-click #(rf/dispatch [:navigate [:gerente/ev-detail {:ev-id id}]])}
+         {:on-click #(rf/dispatch [:navigate [:lider-vendas/ev-detail {:ev-id id}]])}
          "Aprovar"]
         [:button.btn.btn-ghost.btn-sm
-         {:on-click #(rf/dispatch [:navigate [:gerente/ev-detail {:ev-id id}]])}
+         {:on-click #(rf/dispatch [:navigate [:lider-vendas/ev-detail {:ev-id id}]])}
          "Ver"])]]))
 
-(defn gerente-dashboard-page []
-  (rf/dispatch [:gerente/fetch-team])
+(defn lider-vendas-dashboard-page []
+  (rf/dispatch [:lider-vendas/fetch-team])
   (fn []
-    (let [members  @(rf/subscribe [:gerente/team-members])
+    (let [members  @(rf/subscribe [:lider-vendas/team-members])
           user     @(rf/subscribe [:auth/current-user])
           route    @(rf/subscribe [:current-route-name])
           rows     (or members [])
@@ -55,8 +55,8 @@
           on-leave (count (filter #(= (:appraisal_status %) "LOCKED") rows))]
       [layout/page-shell
        {:current-route route :user user
-        :crumbs ["plataforma rv" "gerente" "dashboard"]
-        :title "Painel do Gerente"
+        :crumbs ["plataforma rv" "líder de vendas" "dashboard"]
+        :title "Painel do Líder de Vendas"
         :subtitle "Time de Vendas · Q2/2026"
         :header-actions nil}
 

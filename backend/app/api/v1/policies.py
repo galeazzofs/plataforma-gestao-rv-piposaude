@@ -64,7 +64,7 @@ def list_policies():
         query = all_ev_policies_query()
     elif user.role in (UserRole.EV, UserRole.CN):
         query = active_ev_policies_query().filter(Policy.ev_id == user.id)
-    elif user.role == UserRole.GERENTE:
+    elif user.role == UserRole.LIDER_VENDAS:
         team_member_ids = [
             u.id for u in User.query.filter_by(team_id=user.team_id, active=True).all()
         ]

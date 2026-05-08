@@ -8,7 +8,7 @@ from app.models.compat import GUID
 class UserRole(str, enum.Enum):
     ADMIN = "ADMIN"
     FINANCE = "FINANCE"
-    GERENTE = "GERENTE"
+    LIDER_VENDAS = "LIDER_VENDAS"
     EV = "EV"
     CN = "CN"
 

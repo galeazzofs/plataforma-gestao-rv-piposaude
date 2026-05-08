@@ -20,7 +20,7 @@ def list_goals():
 
     if user.role in (UserRole.EV, UserRole.CN):
         query = query.filter(Goal.ev_id == user.id)
-    elif user.role == UserRole.GERENTE:
+    elif user.role == UserRole.LIDER_VENDAS:
         team_member_ids = [
             u.id for u in User.query.filter_by(team_id=user.team_id, active=True).all()
         ]
@@ -46,7 +46,7 @@ def list_goals():
 
 
 @goals_bp.route("", methods=["POST"])
-@require_role(UserRole.ADMIN, UserRole.GERENTE)
+@require_role(UserRole.ADMIN, UserRole.LIDER_VENDAS)
 def create_goal():
     """Create or update a goal for an EV."""
     data = request.get_json()
@@ -82,7 +82,7 @@ def create_goal():
 
 
 @goals_bp.route("/<goal_id>", methods=["PUT"])
-@require_role(UserRole.ADMIN, UserRole.GERENTE)
+@require_role(UserRole.ADMIN, UserRole.LIDER_VENDAS)
 def update_goal(goal_id):
     """Update a single goal's mrr_target."""
     goal = db.session.get(Goal, goal_id)
@@ -105,7 +105,7 @@ def update_goal(goal_id):
 
 
 @goals_bp.route("/import", methods=["POST"])
-@require_role(UserRole.ADMIN, UserRole.GERENTE)
+@require_role(UserRole.ADMIN, UserRole.LIDER_VENDAS)
 def import_goals():
     """Bulk import goals from JSON array."""
     data = request.get_json()

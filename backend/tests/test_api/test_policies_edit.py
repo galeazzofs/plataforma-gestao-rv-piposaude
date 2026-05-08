@@ -146,7 +146,7 @@ def test_put_policy_updates_first_payment_real_and_segment(client, fresh_actors)
 
 def test_get_policies_applies_active_ev_filter(client, fresh_actors):
     """GET /policies as ADMIN returns ALL policies (active + inactive EVs).
-    EV/CN/GERENTE roles get only active EV policies (covered elsewhere)."""
+    EV/CN/LIDER_VENDAS roles get only active EV policies (covered elsewhere)."""
     admin, active_ev, client_obj = fresh_actors
     suffix = uuid.uuid4().hex[:8]
     inactive_ev = User(

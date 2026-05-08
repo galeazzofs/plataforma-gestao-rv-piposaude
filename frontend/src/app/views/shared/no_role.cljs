@@ -58,7 +58,7 @@
                    :color t/text-primary :margin 0 :letter-spacing "-0.005em"}}
       "Sem perfil ainda"]
      [:p {:style {:font-size "13px" :color t/text-tertiary :margin-top "8px" :line-height "1.6"}}
-      "Solicite ao administrador da plataforma para configurar seu acesso. Assim que ele atribuir um role (EV, CN, Gerente, Finance ou RevOps), você terá acesso ao painel correspondente."]]
+      "Solicite ao administrador da plataforma para configurar seu acesso. Assim que ele atribuir um role (EV, CN, Líder de Vendas, Finance ou RevOps), você terá acesso ao painel correspondente."]]
 
     [:div.callout
      [layout/icon "info" {:width 20 :height 20}]

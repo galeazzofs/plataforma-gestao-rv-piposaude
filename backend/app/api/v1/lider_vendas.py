@@ -3,13 +3,13 @@ from app.auth.decorators import require_role
 from app.models.user import UserRole
 from app.extensions import db
 
-gerente_bp = Blueprint("gerente", __name__, url_prefix="/api/v1/gerente")
+lider_vendas_bp = Blueprint("lider_vendas", __name__, url_prefix="/api/v1/lider-vendas")
 
 
-@gerente_bp.route("/team")
-@require_role(UserRole.GERENTE)
+@lider_vendas_bp.route("/team")
+@require_role(UserRole.LIDER_VENDAS)
 def get_team():
-    """Return team members for the logged-in gerente."""
+    """Return team members for the logged-in lider de vendas."""
     from app.models import User
     user = g.current_user
     if not user.team_id:
@@ -31,14 +31,14 @@ def get_team():
     })
 
 
-@gerente_bp.route("/ev/<ev_id>")
-@require_role(UserRole.GERENTE)
+@lider_vendas_bp.route("/ev/<ev_id>")
+@require_role(UserRole.LIDER_VENDAS)
 def get_ev_detail(ev_id):
     """Return EV detail (policies, commissions) for a team member."""
     from app.models import User, Policy, Commission
     user = g.current_user
 
-    # Verify that the requested EV belongs to the gerente's team
+    # Verify that the requested EV belongs to the lider de vendas's team
     ev = db.session.get(User, ev_id)
     if ev is None or str(ev.team_id) != str(user.team_id):
         return jsonify({"error": {"code": "NOT_FOUND", "message": "EV not found or not in your team"}}), 404

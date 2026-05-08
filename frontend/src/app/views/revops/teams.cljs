@@ -39,13 +39,13 @@
          (let [editing? (some? (:id team-data))
                leader-options (into [{:value "" :label "Sem líder"}]
                                     (map #(hash-map :value (str (:id %)) :label (:name %))
-                                         (filter #(= (:role %) "GERENTE") (or users []))))]
+                                         (filter #(= (:role %) "LIDER_VENDAS") (or users []))))]
            [modal/modal {:open? open? :on-close on-close
                          :title (if editing? "Editar Time" "Novo Time") :size :sm}
             [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
              [inputs/input {:label "Nome do Time" :value (:name @form) :required true
                             :on-change #(swap! form assoc :name %)}]
-             [inputs/select {:label "Líder (Gerente)"
+             [inputs/select {:label "Líder de Vendas"
                              :value (or (:leader_id @form) "")
                              :options leader-options
                              :on-change #(swap! form assoc :leader_id %)}]
@@ -110,7 +110,7 @@
               [:div.card
                [:div.card-head
                 [:div [:h3 (:name t)]
-                 [:div.card-sub (str "gerente: " (or (:leader_name t) "·"))]]
+                 [:div.card-sub (str "líder: " (or (:leader_name t) "·"))]]
                 [:button.btn.btn-ghost.btn-sm
                  {:on-click #(do (reset! editing-team t) (reset! modal-open? true))
                   :title "Editar time"}

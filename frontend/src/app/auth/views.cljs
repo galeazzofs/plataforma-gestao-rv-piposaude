@@ -13,7 +13,7 @@
   (case role
     "ADMIN"    {:background t/color-primary :color t/color-white}
     "FINANCE"  {:background t/blue-700      :color t/color-white}
-    "GERENTE"  {:background t/purple-700    :color t/color-white}
+    "LIDER_VENDAS" {:background t/purple-700 :color t/color-white}
     "EV"       {:background t/success-default :color t/color-white}
     "CN"       {:background t/beige-500    :color t/text-secondary}
     {:background t/bg-subtle :color t/text-secondary}))

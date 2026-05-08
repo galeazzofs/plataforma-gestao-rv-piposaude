@@ -7,7 +7,7 @@ PERMISSIONS = {
         "finance:dashboard", "finance:export",
         "appraisals:approve_payment", "appraisals:return",
     ],
-    UserRole.GERENTE: ["policies:read_team", "commissions:read_team"],
+    UserRole.LIDER_VENDAS: ["policies:read_team", "commissions:read_team"],
     UserRole.EV: [
         "policies:read_own", "commissions:read_own",
         "validations:read_own", "validations:approve", "validations:contest",

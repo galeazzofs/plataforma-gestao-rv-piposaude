@@ -1,22 +1,22 @@
-(ns app.views.gerente.subs
+(ns app.views.lider-vendas.subs
   (:require [re-frame.core :as rf]))
 
 (rf/reg-sub
- :gerente/team-members
+ :lider-vendas/team-members
  (fn [db _]
    (get-in db [:admin :team-members])))
 
 (rf/reg-sub
- :gerente/loading?
+ :lider-vendas/loading?
  (fn [db _]
    (get-in db [:admin :team-loading?])))
 
 (rf/reg-sub
- :gerente/ev-detail
+ :lider-vendas/ev-detail
  (fn [db _]
    (get-in db [:admin :ev-detail])))
 
 (rf/reg-sub
- :gerente/ev-detail-loading?
+ :lider-vendas/ev-detail-loading?
  (fn [db _]
    (get-in db [:admin :ev-detail-loading?])))

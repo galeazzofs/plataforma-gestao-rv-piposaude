@@ -50,7 +50,7 @@
        [:div.card {:style {:padding 0}}
         [:div {:style {:padding "24px 24px 16px"}}
          [:h3 "Apurações pendentes"]
-         [:div.card-sub "Apurações aprovadas pelo gerente, aguardando liberação financeira"]]
+         [:div.card-sub "Apurações aprovadas pelo líder de vendas, aguardando liberação financeira"]]
         [:table.table
          [:thead
           [:tr

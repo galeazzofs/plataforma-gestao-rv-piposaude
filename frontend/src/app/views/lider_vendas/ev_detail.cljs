@@ -1,9 +1,9 @@
-(ns app.views.gerente.ev-detail
+(ns app.views.lider-vendas.ev-detail
   (:require [re-frame.core :as rf]
             [app.ds.layout :as layout]
             [app.auth.subs]))
 
-;; Detalhe do EV (visão do gerente) — mirrors the design's "Apuração detalhe"
+;; Detalhe do EV (visão do líder de vendas) — mirrors the design's "Apuração detalhe"
 ;; layout: KPIs row + memória de cálculo table.
 
 (defn- fmt-int [v]
@@ -21,9 +21,9 @@
   (let [route-params (rf/subscribe [:current-route])]
     (fn []
       (let [ev-id    (get-in @route-params [:path-params :ev-id])
-            _        (when ev-id (rf/dispatch [:gerente/fetch-ev-detail ev-id]))
-            ev-data  @(rf/subscribe [:gerente/ev-detail])
-            loading? @(rf/subscribe [:gerente/ev-detail-loading?])
+            _        (when ev-id (rf/dispatch [:lider-vendas/fetch-ev-detail ev-id]))
+            ev-data  @(rf/subscribe [:lider-vendas/ev-detail])
+            loading? @(rf/subscribe [:lider-vendas/ev-detail-loading?])
             user     @(rf/subscribe [:auth/current-user])
             route    @(rf/subscribe [:current-route-name])
             policies (or (:policies ev-data) [])
@@ -33,15 +33,15 @@
             pct      (or (:achievement_pct ev-data) 0)]
         [layout/page-shell
          {:current-route route :user user
-          :crumbs ["plataforma rv" "gerente" "EV" (str ev-name)]
+          :crumbs ["plataforma rv" "líder de vendas" "EV" (str ev-name)]
           :title (str ev-name " · Q" quarter "/" year)
           :subtitle "Apuração individual · em revisão"
           :header-actions
           [[:button.btn.btn-secondary
-            {:on-click #(rf/dispatch [:navigate :gerente/dashboard])}
+            {:on-click #(rf/dispatch [:navigate :lider-vendas/dashboard])}
             "Devolver para cálculo"]
            [:button.btn.btn-primary
-            {:on-click #(rf/dispatch [:gerente/approve-ev ev-id])}
+            {:on-click #(rf/dispatch [:lider-vendas/approve-ev ev-id])}
             [layout/icon "check" {:width 14 :height 14}] "Aprovar valores"]]}
 
          (if loading?

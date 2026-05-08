@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
-from app.models import UserRole, GerenteQuarterAppraisal
+from app.models import UserRole, LiderVendasQuarterAppraisal
 from app.extensions import db
 from app.modules.commissions.leadership_calculator import (
     run_leadership_appraisal,
@@ -56,18 +56,18 @@ def run_appraisal():
 @require_auth
 def list_appraisals():
     user = g.current_user
-    if user.role not in (UserRole.ADMIN, UserRole.GERENTE):
+    if user.role not in (UserRole.ADMIN, UserRole.LIDER_VENDAS):
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     quarter = request.args.get("quarter", type=int)
     year = request.args.get("year", type=int)
-    query = GerenteQuarterAppraisal.query
+    query = LiderVendasQuarterAppraisal.query
     if quarter:
         query = query.filter_by(quarter=quarter)
     if year:
         query = query.filter_by(year=year)
-    if user.role == UserRole.GERENTE:
-        query = query.filter_by(gerente_id=user.id)
+    if user.role == UserRole.LIDER_VENDAS:
+        query = query.filter_by(lider_vendas_id=user.id)
 
     items = query.all()
     return jsonify({"data": [_serialize(a) for a in items]})
@@ -80,7 +80,7 @@ def finalize(appraisal_id):
     if user.role != UserRole.ADMIN:
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
-    appraisal = db.session.get(GerenteQuarterAppraisal, appraisal_id)
+    appraisal = db.session.get(LiderVendasQuarterAppraisal, appraisal_id)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
     if appraisal.is_final:
@@ -94,8 +94,8 @@ def finalize(appraisal_id):
 def _serialize(a):
     return {
         "id": str(a.id),
-        "gerente_id": str(a.gerente_id),
-        "gerente_name": a.gerente.name if a.gerente else None,
+        "lider_vendas_id": str(a.lider_vendas_id),
+        "lider_vendas_name": a.lider_vendas.name if a.lider_vendas else None,
         "quarter": a.quarter,
         "year": a.year,
         "meta_mrr": str(a.meta_mrr) if a.meta_mrr is not None else None,

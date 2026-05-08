@@ -10,7 +10,7 @@ def register_blueprints(app):
     from app.api.v1.validations import validations_bp
     from app.api.v1.finance_dashboard import finance_dashboard_bp
     from app.api.v1.notifications import notifications_bp
-    from app.api.v1.gerente import gerente_bp
+    from app.api.v1.lider_vendas import lider_vendas_bp
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
@@ -22,7 +22,7 @@ def register_blueprints(app):
     app.register_blueprint(validations_bp)
     app.register_blueprint(finance_dashboard_bp)
     app.register_blueprint(notifications_bp)
-    app.register_blueprint(gerente_bp)
+    app.register_blueprint(lider_vendas_bp)
     from app.api.v1.cn_commissions import cn_commissions_bp
     from app.api.v1.ev_bonus import ev_bonus_bp
     from app.api.v1.leadership import leadership_bp

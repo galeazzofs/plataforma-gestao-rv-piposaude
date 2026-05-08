@@ -1,7 +1,7 @@
-"""GERENTE quarterly leadership bonus runner.
+"""LIDER_VENDAS quarterly leadership bonus runner.
 
 Spec §2.3:
-  meta_mrr  = 90% × SUM(Goal.mrr_target for all EVs in gerente's team, quarter, year)
+  meta_mrr  = 90% × SUM(Goal.mrr_target for all EVs in lider de vendas's team, quarter, year)
   pct_mrr   = realizado_mrr / meta_mrr
   pct_sql   = realizado_sql / meta_sql
   mult      = MATRIZ_LIDERANCA[mrr_faixa][sql_faixa]
@@ -10,7 +10,7 @@ Spec §2.3:
 from decimal import Decimal
 
 from app.extensions import db
-from app.models import User, UserRole, Goal, Team, GerenteQuarterAppraisal
+from app.models import User, UserRole, Goal, Team, LiderVendasQuarterAppraisal
 
 # Matrix rows = MRR faixas, columns = SQL faixas
 # MRR faixas: [< 60%, 60-79.9%, 80-94.9%, 95-109.9%, >= 110%]
@@ -39,22 +39,22 @@ def _lideranca_multiplier(pct_mrr: Decimal, pct_sql: Decimal) -> Decimal:
 
 
 def get_leadership_preview(quarter: int, year: int) -> list:
-    """Return list of GERENTEs with auto-computed meta_mrr for (quarter, year)."""
-    gerentes = User.query.filter_by(role=UserRole.GERENTE, active=True).all()
+    """Return list of LIDER_VENDAS users with auto-computed meta_mrr for (quarter, year)."""
+    lideres = User.query.filter_by(role=UserRole.LIDER_VENDAS, active=True).all()
     result = []
-    for gerente in gerentes:
-        meta_mrr = _compute_meta_mrr(gerente, quarter, year)
+    for lider in lideres:
+        meta_mrr = _compute_meta_mrr(lider, quarter, year)
         result.append({
-            "gerente_id": str(gerente.id),
-            "gerente_name": gerente.name,
+            "lider_vendas_id": str(lider.id),
+            "lider_vendas_name": lider.name,
             "meta_mrr": str(meta_mrr),
         })
     return result
 
 
-def _compute_meta_mrr(gerente: User, quarter: int, year: int) -> Decimal:
-    """90% × SUM(Goal.mrr_target for EVs in gerente's team)."""
-    team = Team.query.filter_by(leader_id=gerente.id).first()
+def _compute_meta_mrr(lider: User, quarter: int, year: int) -> Decimal:
+    """90% × SUM(Goal.mrr_target for EVs in lider de vendas's team)."""
+    team = Team.query.filter_by(leader_id=lider.id).first()
     if team is None:
         return Decimal("0")
 
@@ -79,29 +79,29 @@ def _compute_meta_mrr(gerente: User, quarter: int, year: int) -> Decimal:
 def run_leadership_appraisal(
     quarter: int, year: int, inputs: list
 ) -> dict:
-    """Compute and persist GERENTE bonus.
+    """Compute and persist LIDER_VENDAS bonus.
 
-    inputs: [{gerente_id, meta_sql, realizado_mrr, realizado_sql}, ...]
-    Skips GERENTEs already is_final=True for this quarter.
+    inputs: [{lider_vendas_id, meta_sql, realizado_mrr, realizado_sql}, ...]
+    Skips lideres already is_final=True for this quarter.
     """
     final_ids = {
-        str(row.gerente_id)
-        for row in GerenteQuarterAppraisal.query.filter_by(
+        str(row.lider_vendas_id)
+        for row in LiderVendasQuarterAppraisal.query.filter_by(
             quarter=quarter, year=year, is_final=True
         ).all()
     }
 
     created = 0
     for item in inputs:
-        gerente_id = item["gerente_id"]
-        if gerente_id in final_ids:  # gerente_id is already str from item["gerente_id"]
+        lider_vendas_id = item["lider_vendas_id"]
+        if lider_vendas_id in final_ids:
             continue
 
-        gerente = db.session.get(User, gerente_id)
-        if gerente is None or gerente.salario_base is None:
+        lider = db.session.get(User, lider_vendas_id)
+        if lider is None or lider.salario_base is None:
             continue
 
-        meta_mrr = _compute_meta_mrr(gerente, quarter, year)
+        meta_mrr = _compute_meta_mrr(lider, quarter, year)
         meta_sql = int(item["meta_sql"])
         realizado_mrr = Decimal(str(item["realizado_mrr"]))
         realizado_sql = int(item["realizado_sql"])
@@ -109,15 +109,15 @@ def run_leadership_appraisal(
         pct_mrr = (realizado_mrr / meta_mrr) if meta_mrr > 0 else Decimal("0")
         pct_sql = (Decimal(realizado_sql) / Decimal(meta_sql)) if meta_sql > 0 else Decimal("0")
         mult = _lideranca_multiplier(pct_mrr, pct_sql)
-        bonus = (Decimal(str(gerente.salario_base)) * mult).quantize(Decimal("0.01"))
+        bonus = (Decimal(str(lider.salario_base)) * mult).quantize(Decimal("0.01"))
 
         # Upsert
-        appraisal = GerenteQuarterAppraisal.query.filter_by(
-            gerente_id=gerente_id, quarter=quarter, year=year, is_final=False
+        appraisal = LiderVendasQuarterAppraisal.query.filter_by(
+            lider_vendas_id=lider_vendas_id, quarter=quarter, year=year, is_final=False
         ).first()
         if appraisal is None:
-            appraisal = GerenteQuarterAppraisal(
-                gerente_id=gerente_id, quarter=quarter, year=year
+            appraisal = LiderVendasQuarterAppraisal(
+                lider_vendas_id=lider_vendas_id, quarter=quarter, year=year
             )
             db.session.add(appraisal)
 

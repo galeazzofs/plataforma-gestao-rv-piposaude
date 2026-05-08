@@ -20,10 +20,10 @@
      ["/simulator"  {:name :cn/simulator  :role #{:CN :ADMIN}}]
      ["/dashboard"  {:name :cn/dashboard  :role #{:CN :ADMIN}}]]
 
-    ;; Gerente
-    ["/gerente"
-     ["/dashboard"    {:name :gerente/dashboard  :role #{:GERENTE :ADMIN}}]
-     ["/ev/:ev-id"    {:name :gerente/ev-detail  :role #{:GERENTE :ADMIN}}]]
+    ;; Líder de Vendas
+    ["/lider-vendas"
+     ["/dashboard"    {:name :lider-vendas/dashboard  :role #{:LIDER_VENDAS :ADMIN}}]
+     ["/ev/:ev-id"    {:name :lider-vendas/ev-detail  :role #{:LIDER_VENDAS :ADMIN}}]]
 
     ;; Finance
     ["/finance"
@@ -64,7 +64,7 @@
   (case role
     "ADMIN"   :revops/dashboard
     "FINANCE" :finance/dashboard
-    "GERENTE" :gerente/dashboard
+    "LIDER_VENDAS" :lider-vendas/dashboard
     "EV"      :ev/dashboard
     "CN"      :ev/dashboard
     :no-role))
