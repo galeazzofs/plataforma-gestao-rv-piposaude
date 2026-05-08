@@ -10,7 +10,10 @@ Spec §2.3:
 from decimal import Decimal
 
 from app.extensions import db
-from app.models import User, UserRole, Goal, Team, LiderVendasQuarterAppraisal
+from app.models import (
+    AppraisalStatus, EvQuarterAchievement, Goal, LiderVendasQuarterAppraisal,
+    Team, User, UserRole,
+)
 
 # Matrix rows = MRR faixas, columns = SQL faixas
 # MRR faixas: [< 60%, 60-79.9%, 80-94.9%, 95-109.9%, >= 110%]
@@ -38,16 +41,47 @@ def _lideranca_multiplier(pct_mrr: Decimal, pct_sql: Decimal) -> Decimal:
     return _MATRIZ[_row(pct_mrr, _MRR_THRESHOLDS)][_row(pct_sql, _SQL_THRESHOLDS)]
 
 
+def _compute_realizado_mrr(lider: User, quarter: int, year: int) -> Decimal:
+    """Σ EvQuarterAchievement.total_mrr for the EVs in the líder's team."""
+    team = Team.query.filter_by(leader_id=lider.id).first()
+    if team is None:
+        return Decimal("0.00")
+
+    ev_ids = [
+        u.id for u in User.query.filter_by(
+            team_id=team.id, role=UserRole.EV, active=True,
+        ).all()
+    ]
+    if not ev_ids:
+        return Decimal("0.00")
+
+    achs = EvQuarterAchievement.query.filter(
+        EvQuarterAchievement.ev_id.in_(ev_ids),
+        EvQuarterAchievement.quarter == quarter,
+        EvQuarterAchievement.year == year,
+    ).all()
+    total = sum(
+        (Decimal(str(a.total_mrr)) for a in achs if a.total_mrr is not None),
+        Decimal("0"),
+    )
+    return total.quantize(Decimal("0.01"))
+
+
 def get_leadership_preview(quarter: int, year: int) -> list:
-    """Return list of LIDER_VENDAS users with auto-computed meta_mrr for (quarter, year)."""
+    """Return list of LIDER_VENDAS users with auto-computed meta_mrr and
+    realizado_mrr_auto for (quarter, year). The realizado is editable in
+    the UI but defaults to Σ EvQuarterAchievement.total_mrr of the team.
+    """
     lideres = User.query.filter_by(role=UserRole.LIDER_VENDAS, active=True).all()
     result = []
     for lider in lideres:
         meta_mrr = _compute_meta_mrr(lider, quarter, year)
+        realizado_auto = _compute_realizado_mrr(lider, quarter, year)
         result.append({
             "lider_vendas_id": str(lider.id),
             "lider_vendas_name": lider.name,
             "meta_mrr": str(meta_mrr),
+            "realizado_mrr_auto": str(realizado_auto),
         })
     return result
 
@@ -82,12 +116,14 @@ def run_leadership_appraisal(
     """Compute and persist LIDER_VENDAS bonus.
 
     inputs: [{lider_vendas_id, meta_sql, realizado_mrr, realizado_sql}, ...]
-    Skips lideres already is_final=True for this quarter.
+    Skips lideres whose appraisal is already LOCKED for this quarter.
     """
     final_ids = {
         str(row.lider_vendas_id)
-        for row in LiderVendasQuarterAppraisal.query.filter_by(
-            quarter=quarter, year=year, is_final=True
+        for row in LiderVendasQuarterAppraisal.query.filter(
+            LiderVendasQuarterAppraisal.quarter == quarter,
+            LiderVendasQuarterAppraisal.year == year,
+            LiderVendasQuarterAppraisal.status == AppraisalStatus.LOCKED,
         ).all()
     }
 
@@ -111,13 +147,17 @@ def run_leadership_appraisal(
         mult = _lideranca_multiplier(pct_mrr, pct_sql)
         bonus = (Decimal(str(lider.salario_base)) * mult).quantize(Decimal("0.01"))
 
-        # Upsert
-        appraisal = LiderVendasQuarterAppraisal.query.filter_by(
-            lider_vendas_id=lider_vendas_id, quarter=quarter, year=year, is_final=False
+        # Upsert: pick the existing non-LOCKED row if any, else create.
+        appraisal = LiderVendasQuarterAppraisal.query.filter(
+            LiderVendasQuarterAppraisal.lider_vendas_id == lider_vendas_id,
+            LiderVendasQuarterAppraisal.quarter == quarter,
+            LiderVendasQuarterAppraisal.year == year,
+            LiderVendasQuarterAppraisal.status != AppraisalStatus.LOCKED,
         ).first()
         if appraisal is None:
             appraisal = LiderVendasQuarterAppraisal(
-                lider_vendas_id=lider_vendas_id, quarter=quarter, year=year
+                lider_vendas_id=lider_vendas_id, quarter=quarter, year=year,
+                status=AppraisalStatus.CALCULATING,
             )
             db.session.add(appraisal)
 
@@ -129,7 +169,11 @@ def run_leadership_appraisal(
         appraisal.pct_sql = pct_sql.quantize(Decimal("0.0001"))
         appraisal.multiplicador = mult
         appraisal.bonus_amount = bonus
-        appraisal.is_final = False
+        if appraisal.status == AppraisalStatus.LOCKED:
+            # Defensive — should not happen because of filter above.
+            continue
+        if appraisal.status is None:
+            appraisal.status = AppraisalStatus.CALCULATING
         created += 1
 
     db.session.flush()

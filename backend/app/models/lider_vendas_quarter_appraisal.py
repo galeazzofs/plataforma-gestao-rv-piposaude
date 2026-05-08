@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime, timezone
+from sqlalchemy.ext.hybrid import hybrid_property
+
 from app.extensions import db
 from app.models.compat import GUID
+from app.models.appraisal import AppraisalStatus
 
 
 class LiderVendasQuarterAppraisal(db.Model):
@@ -25,7 +28,11 @@ class LiderVendasQuarterAppraisal(db.Model):
     pct_sql = db.Column(db.Numeric(8, 4), nullable=False)
     multiplicador = db.Column(db.Numeric(8, 4), nullable=False)
     bonus_amount = db.Column(db.Numeric(12, 2), nullable=False)
-    is_final = db.Column(db.Boolean, default=False, nullable=False)
+    status = db.Column(
+        db.Enum(AppraisalStatus, name="lider_vendas_quarter_appraisal_status"),
+        default=AppraisalStatus.DRAFT,
+        nullable=False,
+    )
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -37,5 +44,17 @@ class LiderVendasQuarterAppraisal(db.Model):
 
     lider_vendas = db.relationship("User", foreign_keys=[lider_vendas_id])
 
+    @hybrid_property
+    def is_final(self):
+        return self.status == AppraisalStatus.LOCKED
+
+    @is_final.expression
+    def is_final(cls):  # noqa: N805 — hybrid_property convention
+        return cls.status == AppraisalStatus.LOCKED
+
     def __repr__(self):
-        return f"<LiderVendasQuarterAppraisal lider_vendas={self.lider_vendas_id} Q{self.quarter}/{self.year}>"
+        return (
+            f"<LiderVendasQuarterAppraisal lider_vendas={self.lider_vendas_id} "
+            f"Q{self.quarter}/{self.year} status="
+            f"{self.status.value if self.status else None}>"
+        )

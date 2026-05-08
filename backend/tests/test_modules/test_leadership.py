@@ -1,6 +1,8 @@
 from decimal import Decimal
 import pytest
-from app.models import User, UserRole, Team, Goal, LiderVendasQuarterAppraisal
+from app.models import (
+    AppraisalStatus, User, UserRole, Team, Goal, LiderVendasQuarterAppraisal,
+)
 from app.modules.commissions.leadership_calculator import (
     run_leadership_appraisal,
     get_leadership_preview,
@@ -119,7 +121,7 @@ class TestRunLeadershipAppraisal:
             pct_sql=Decimal("1.0000"),
             multiplicador=Decimal("3.0"),
             bonus_amount=Decimal("30000"),
-            is_final=True,
+            status=AppraisalStatus.LOCKED,
         )
         db_session.add(final)
         db_session.flush()
@@ -207,3 +209,78 @@ class TestRunLeadershipAppraisal:
         assert appraisal is not None
         assert appraisal.meta_mrr == Decimal("0")
         assert appraisal.bonus_amount == Decimal("0")
+
+
+class TestPreviewAutoFill:
+    def test_realizado_mrr_auto_sums_team_total_mrr(self, db_session):
+        from app.models import EvQuarterAchievement
+        lider = _make_lider(db_session, name="AutoLider", salario=Decimal("10000"))
+        team = _make_team(db_session, lider)
+
+        # Two EVs in the team with achievements
+        ev1 = User(email="auto-ev1@x", name="EV1",
+                   role=UserRole.EV, team_id=team.id, active=True)
+        ev2 = User(email="auto-ev2@x", name="EV2",
+                   role=UserRole.EV, team_id=team.id, active=True)
+        db_session.add_all([ev1, ev2])
+        db_session.flush()
+
+        db_session.add_all([
+            EvQuarterAchievement(
+                ev_id=ev1.id, quarter=2, year=2027,
+                total_mrr=Decimal("80000"),
+                mrr_target=Decimal("100000"),
+                achievement_pct=Decimal("0.80"),
+            ),
+            EvQuarterAchievement(
+                ev_id=ev2.id, quarter=2, year=2027,
+                total_mrr=Decimal("120000"),
+                mrr_target=Decimal("100000"),
+                achievement_pct=Decimal("1.20"),
+            ),
+        ])
+        db_session.flush()
+
+        preview = get_leadership_preview(quarter=2, year=2027)
+        row = next((r for r in preview if r["lider_vendas_id"] == str(lider.id)), None)
+        assert row is not None
+        assert row["realizado_mrr_auto"] == "200000.00"
+
+    def test_realizado_mrr_auto_zero_when_no_achievements(self, db_session):
+        lider = _make_lider(db_session, name="NoAchLider")
+        _make_team(db_session, lider)
+
+        preview = get_leadership_preview(quarter=2, year=2028)
+        row = next((r for r in preview if r["lider_vendas_id"] == str(lider.id)), None)
+        assert row is not None
+        assert row["realizado_mrr_auto"] == "0.00"
+
+
+class TestLeadershipTransitions:
+    def test_full_chain_to_locked(self, db_session):
+        from app.modules.workflow.state_machine import (
+            transition_lider_vendas_appraisal,
+        )
+        lider = _make_lider(db_session, name="TxLider")
+        appraisal = LiderVendasQuarterAppraisal(
+            lider_vendas_id=lider.id, quarter=4, year=2027,
+            meta_mrr=Decimal("100000"), meta_sql=10,
+            realizado_mrr=Decimal("100000"), realizado_sql=10,
+            pct_mrr=Decimal("1.0"), pct_sql=Decimal("1.0"),
+            multiplicador=Decimal("2.0"), bonus_amount=Decimal("20000"),
+            status=AppraisalStatus.DRAFT,
+        )
+        db_session.add(appraisal)
+        db_session.flush()
+
+        for s in [
+            AppraisalStatus.CALCULATING,
+            AppraisalStatus.VALIDATING,
+            AppraisalStatus.LIDER_REVIEW,
+            AppraisalStatus.REVOPS_REVIEW,
+            AppraisalStatus.LOCKED,
+        ]:
+            transition_lider_vendas_appraisal(appraisal, s)
+
+        assert appraisal.is_final is True
+        assert appraisal.status == AppraisalStatus.LOCKED

@@ -1,10 +1,14 @@
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
-from app.models import UserRole, LiderVendasQuarterAppraisal
+from app.models import AppraisalStatus, UserRole, LiderVendasQuarterAppraisal
 from app.extensions import db
 from app.modules.commissions.leadership_calculator import (
     run_leadership_appraisal,
     get_leadership_preview,
+)
+from app.modules.workflow.state_machine import (
+    transition_lider_vendas_appraisal,
+    InvalidTransitionError,
 )
 
 leadership_bp = Blueprint("leadership", __name__, url_prefix="/api/v1/commissions/leadership")
@@ -76,6 +80,7 @@ def list_appraisals():
 @leadership_bp.route("/appraisal/<appraisal_id>/finalize", methods=["POST"])
 @require_auth
 def finalize(appraisal_id):
+    """Drive a leadership appraisal straight to LOCKED via the state machine."""
     user = g.current_user
     if user.role != UserRole.ADMIN:
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
@@ -83,11 +88,76 @@ def finalize(appraisal_id):
     appraisal = db.session.get(LiderVendasQuarterAppraisal, appraisal_id)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
-    if appraisal.is_final:
+    if appraisal.status == AppraisalStatus.LOCKED:
         return jsonify({"error": {"code": "ALREADY_FINAL"}}), 409
 
-    appraisal.is_final = True
+    chain = [
+        AppraisalStatus.VALIDATING,
+        AppraisalStatus.LIDER_REVIEW,
+        AppraisalStatus.REVOPS_REVIEW,
+        AppraisalStatus.LOCKED,
+    ]
+    try:
+        for s in chain:
+            if appraisal.status == s:
+                continue
+            transition_lider_vendas_appraisal(appraisal, s)
+    except InvalidTransitionError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INVALID_TRANSITION", "message": str(e)}}), 422
+
     db.session.commit()
+    return jsonify({"data": _serialize(appraisal)})
+
+
+@leadership_bp.route("/appraisal/<appraisal_id>/transition", methods=["POST"])
+@require_auth
+def transition_endpoint(appraisal_id):
+    """Move a leadership appraisal to a new status.
+
+    Body: {"to": "VALIDATING" | "LIDER_REVIEW" | ...}
+    Coarse role check: ADMIN drives anything; the LIDER_VENDAS who owns
+    the row can move VALIDATING → LIDER_REVIEW (auto-validates own row).
+    """
+    user = g.current_user
+    appraisal = db.session.get(LiderVendasQuarterAppraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND"}}), 404
+
+    body = request.get_json() or {}
+    to_status_str = body.get("to")
+    if not to_status_str:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "'to' field required"},
+        }), 400
+
+    try:
+        new_status = AppraisalStatus(to_status_str)
+    except ValueError:
+        valid = [s.value for s in AppraisalStatus]
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": f"Invalid status. Valid: {valid}"},
+        }), 400
+
+    if user.role == UserRole.ADMIN:
+        pass
+    elif user.role == UserRole.LIDER_VENDAS:
+        if str(appraisal.lider_vendas_id) != str(user.id):
+            return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+        if not (appraisal.status == AppraisalStatus.VALIDATING
+                and new_status == AppraisalStatus.LIDER_REVIEW):
+            return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+    else:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    try:
+        transition_lider_vendas_appraisal(appraisal, new_status)
+        db.session.commit()
+    except InvalidTransitionError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INVALID_TRANSITION", "message": str(e)}}), 422
+
     return jsonify({"data": _serialize(appraisal)})
 
 
@@ -106,5 +176,6 @@ def _serialize(a):
         "pct_sql": str(a.pct_sql) if a.pct_sql is not None else None,
         "multiplicador": str(a.multiplicador) if a.multiplicador is not None else None,
         "bonus_amount": str(a.bonus_amount) if a.bonus_amount is not None else None,
+        "status": a.status.value if a.status else None,
         "is_final": a.is_final,
     }

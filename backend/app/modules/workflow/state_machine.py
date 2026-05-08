@@ -1,6 +1,9 @@
 from datetime import datetime, timezone, timedelta
 from app.extensions import db
-from app.models import Appraisal, AppraisalStatus, CnMonthlyAppraisal, Commission
+from app.models import (
+    Appraisal, AppraisalStatus, CnMonthlyAppraisal,
+    Commission, LiderVendasQuarterAppraisal,
+)
 from app.modules.workflow.transitions import VALID_TRANSITIONS
 
 
@@ -73,6 +76,26 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             deadline = (datetime.now(timezone.utc) + timedelta(days=5)).date()
         appraisal.validation_deadline = deadline
 
+    db.session.flush()
+    return appraisal
+
+
+def transition_lider_vendas_appraisal(
+    appraisal: LiderVendasQuarterAppraisal, new_status,
+):
+    """Transition a Líder de Vendas quarterly appraisal between
+    AppraisalStatus values, sharing VALID_TRANSITIONS with the other
+    components.
+    """
+    allowed = VALID_TRANSITIONS.get(appraisal.status, [])
+    if new_status not in allowed:
+        raise InvalidTransitionError(
+            f"Cannot transition leadership appraisal from "
+            f"{appraisal.status.value} to {new_status.value}. "
+            f"Allowed: {[s.value for s in allowed]}"
+        )
+
+    appraisal.status = new_status
     db.session.flush()
     return appraisal
 
