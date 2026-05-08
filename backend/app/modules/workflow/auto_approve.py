@@ -30,14 +30,14 @@ def auto_approve_expired_validations():
             validation.resolved_at = datetime.now(timezone.utc)
             count += 1
 
-        # If all validations are now done, advance to REVIEWING
+        # If all validations are now done, advance to LIDER_REVIEW
         remaining_pending = EvValidation.query.filter(
             EvValidation.appraisal_id == appraisal.id,
             EvValidation.status == ValidationStatus.PENDING,
         ).count()
 
         if remaining_pending == 0:
-            appraisal.status = AppraisalStatus.REVIEWING
+            appraisal.status = AppraisalStatus.LIDER_REVIEW
 
     db.session.flush()
     return count

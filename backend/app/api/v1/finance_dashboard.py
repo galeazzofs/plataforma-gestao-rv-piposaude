@@ -785,13 +785,13 @@ def dashboard():
 @finance_dashboard_bp.route("/approval")
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def list_approval():
-    """Return appraisals with status APPROVED, pending finance release."""
+    """Return appraisals in REVOPS_REVIEW, pending finance release."""
     from app.api.middlewares import paginate_query
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
     query = Appraisal.query.filter_by(
-        status=AppraisalStatus.APPROVED
+        status=AppraisalStatus.REVOPS_REVIEW
     ).order_by(Appraisal.year.desc(), Appraisal.quarter.desc())
 
     items, meta = paginate_query(query, page, per_page)

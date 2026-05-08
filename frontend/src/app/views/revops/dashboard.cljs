@@ -14,15 +14,16 @@
 
 (defn- status->badge [status]
   (case status
-    "REVIEWING"   [:span.badge.badge-review "Reviewing"]
-    "VALIDATING"  [:span.badge.badge-validating "Validating"]
-    "LOCKED"      [:span.badge.badge-locked "Locked"]
-    "DRAFT"       [:span.badge.badge-draft "Draft"]
-    "APPROVED"    [:span.badge.badge-approved "Approved"]
-    "CALCULATING" [:span.badge.badge-calc "Calculating"]
+    "DRAFT"         [:span.badge.badge-draft "Draft"]
+    "CALCULATING"   [:span.badge.badge-calc "Calculating"]
+    "VALIDATING"    [:span.badge.badge-validating "Validating"]
+    "LIDER_REVIEW"  [:span.badge.badge-review "Líder Review"]
+    "REVOPS_REVIEW" [:span.badge.badge-review "RevOps Review"]
+    "LOCKED"        [:span.badge.badge-locked "Locked"]
     [:span.badge.badge-locked (or status "·")]))
 
-(def ^:private steps ["DRAFT" "CALCULATING" "REVIEWING" "VALIDATING" "APPROVED" "LOCKED"])
+(def ^:private steps
+  ["DRAFT" "CALCULATING" "VALIDATING" "LIDER_REVIEW" "REVOPS_REVIEW" "LOCKED"])
 
 (defn- step-of [status]
   (let [idx (.indexOf (clj->js steps) (or status "DRAFT"))]
@@ -36,12 +37,15 @@
    [:td.right.strong-num (or (fmt/fmt-brl-int (:total_amount a)) "·")]
    [:td.right
     (case (:status a)
-      "REVIEWING"  [:button.btn.btn-primary.btn-sm
-                    {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
-                    "Revisar"]
-      "VALIDATING" [:button.btn.btn-secondary.btn-sm
-                    {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
-                    "Acompanhar"]
+      "LIDER_REVIEW"  [:button.btn.btn-primary.btn-sm
+                       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
+                       "Revisar"]
+      "REVOPS_REVIEW" [:button.btn.btn-primary.btn-sm
+                       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
+                       "Revisar"]
+      "VALIDATING"    [:button.btn.btn-secondary.btn-sm
+                       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
+                       "Acompanhar"]
       [:button.btn.btn-ghost.btn-sm
        {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
        "Ver"])]])
@@ -133,7 +137,7 @@
             [:span (str (.toLocaleString synced "pt-BR") " negócios sincronizados")])]]]
 
        ;; Callout when an appraisal is in review
-       (when (and active (= (:status active) "REVIEWING"))
+       (when (and active (#{"LIDER_REVIEW" "REVOPS_REVIEW"} (:status active)))
          [:div.callout
           [layout/icon "info" {:width 20 :height 20}]
           [:div {:style {:flex 1}}

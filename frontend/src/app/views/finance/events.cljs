@@ -83,7 +83,7 @@
  (fn [_ [_ appraisal-id]]
    {:http {:method     :post
            :url        (str "/appraisals/" appraisal-id "/transition")
-           :body       {:to "REVIEWING"}
+           :body       {:to "REVOPS_REVIEW"}
            :on-success [:finance/payment-action-success]
            :on-failure [:finance/payment-action-error]}}))
 

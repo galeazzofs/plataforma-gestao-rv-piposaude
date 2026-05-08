@@ -40,7 +40,8 @@
                 "DRAFT"         {:label "Rascunho"      :variant :default}
                 "CALCULATING"   {:label "Calculando"    :variant :info}
                 "VALIDATING"    {:label "Validação"     :variant :info}
-                "REVIEWING"     {:label "Revisão"       :variant :warning}
+                "LIDER_REVIEW"  {:label "Revisão Líder" :variant :warning}
+                "REVOPS_REVIEW" {:label "Revisão RevOps":variant :warning}
                 "APPROVED"      {:label "Aprovado"      :variant :success}
                 "LOCKED"        {:label "Fechado"       :variant :default}
                 "PENDING"       {:label "Pendente"      :variant :warning}

@@ -91,7 +91,7 @@ def create_appraisal():
 def transition(appraisal_id):
     """Transition an appraisal to a new status.
 
-    Body: { "to": "CALCULATING" | "VALIDATING" | "REVIEWING" | "APPROVED" | "LOCKED", ... }
+    Body: { "to": "CALCULATING" | "VALIDATING" | "LIDER_REVIEW" | "REVOPS_REVIEW" | "LOCKED", ... }
     """
     appraisal = db.session.get(Appraisal, appraisal_id)
     if appraisal is None:
@@ -172,7 +172,7 @@ def delete_appraisal(appraisal_id):
 def recalculate(appraisal_id):
     """Re-run the calculator for this appraisal's (quarter, year).
 
-    Allowed when appraisal is in CALCULATING / REVIEWING / VALIDATING.
+    Allowed when appraisal is in CALCULATING / VALIDATING / LIDER_REVIEW / REVOPS_REVIEW.
     Blocked when LOCKED. Returns the enriched detail payload.
     """
     appraisal = db.session.get(Appraisal, appraisal_id)

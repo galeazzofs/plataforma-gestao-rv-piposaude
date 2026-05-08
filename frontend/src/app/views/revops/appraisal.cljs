@@ -14,18 +14,23 @@
 
 (defn- status->badge [status]
   (case status
-    "DRAFT"      [:span.badge.badge-draft "Draft"]
-    "CALCULATING"[:span.badge.badge-calc "Calculating"]
-    "REVIEWING"  [:span.badge.badge-review "Reviewing"]
-    "VALIDATING" [:span.badge.badge-validating "Validating"]
-    "APPROVED"   [:span.badge.badge-approved "Approved"]
-    "LOCKED"     [:span.badge.badge-locked "Locked"]
+    "DRAFT"         [:span.badge.badge-draft "Draft"]
+    "CALCULATING"   [:span.badge.badge-calc "Calculating"]
+    "VALIDATING"    [:span.badge.badge-validating "Validating"]
+    "LIDER_REVIEW"  [:span.badge.badge-review "Líder Review"]
+    "REVOPS_REVIEW" [:span.badge.badge-review "RevOps Review"]
+    "LOCKED"        [:span.badge.badge-locked "Locked"]
     [:span.badge.badge-locked (or status "·")]))
 
-(def ^:private steps ["DRAFT" "CALCULATING" "VALIDATING" "REVIEWING" "APPROVED" "LOCKED"])
+(def ^:private steps
+  ["DRAFT" "CALCULATING" "VALIDATING" "LIDER_REVIEW" "REVOPS_REVIEW" "LOCKED"])
 (def ^:private step-labels
-  {"DRAFT" "Draft" "CALCULATING" "Calculating" "REVIEWING" "Reviewing"
-   "VALIDATING" "Validating" "APPROVED" "Approved" "LOCKED" "Locked"})
+  {"DRAFT"         "Draft"
+   "CALCULATING"   "Calculating"
+   "VALIDATING"    "Validating"
+   "LIDER_REVIEW"  "Líder Review"
+   "REVOPS_REVIEW" "RevOps Review"
+   "LOCKED"        "Locked"})
 
 (defn- stepper [current]
   (let [idx (max 0 (.indexOf (clj->js steps) (or current "DRAFT")))]
@@ -146,7 +151,14 @@
       "Revisar"]
      [delete-btn id]]
 
-    "REVIEWING"
+    "LIDER_REVIEW"
+    [:<>
+     [:button.btn.btn-primary.btn-sm
+      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
+      "Revisar"]
+     [delete-btn id]]
+
+    "REVOPS_REVIEW"
     [:<>
      [:button.btn.btn-primary.btn-sm
       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
@@ -157,11 +169,6 @@
     [:button.btn.btn-secondary.btn-sm
      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
      "Acompanhar"]
-
-    "APPROVED"
-    [:button.btn.btn-primary.btn-sm
-     {:on-click #(rf/dispatch [:revops/approve-appraisal-payment id])}
-     "Liberar"]
 
     "LOCKED"
     [:<>

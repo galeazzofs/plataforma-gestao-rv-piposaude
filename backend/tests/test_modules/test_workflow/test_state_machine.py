@@ -44,14 +44,14 @@ def test_invalid_transition_raises(db_session):
 
     appraisal = start_appraisal(quarter=2, year=2026, created_by=admin.id)
     try:
-        # DRAFT → APPROVED is invalid
-        transition_appraisal(appraisal, AppraisalStatus.APPROVED)
+        # DRAFT → LOCKED is invalid (must traverse the full chain)
+        transition_appraisal(appraisal, AppraisalStatus.LOCKED)
         assert False, "Should have raised InvalidTransitionError"
     except InvalidTransitionError:
         pass
 
 
-def test_locked_appraisal_cannot_transition(db_session):
+def test_full_chain_to_locked(db_session):
     admin = User(email="admin4@piposaude.com", name="Admin", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.flush()
@@ -62,9 +62,59 @@ def test_locked_appraisal_cannot_transition(db_session):
     with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
-    transition_appraisal(appraisal, AppraisalStatus.REVIEWING)
-    transition_appraisal(appraisal, AppraisalStatus.APPROVED)
-    transition_appraisal(appraisal, AppraisalStatus.LOCKED)
+    transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
+    transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=admin.id)
+
+    assert appraisal.status == AppraisalStatus.LOCKED
+
+
+def test_lider_review_can_send_back_to_calculating(db_session):
+    admin = User(email="admin-lr@piposaude.com", name="Admin", role=UserRole.ADMIN)
+    db_session.add(admin)
+    db_session.flush()
+
+    appraisal = start_appraisal(quarter=1, year=2027, created_by=admin.id)
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+    transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    assert appraisal.status == AppraisalStatus.CALCULATING
+
+
+def test_revops_review_can_send_back_to_calculating(db_session):
+    admin = User(email="admin-rr@piposaude.com", name="Admin", role=UserRole.ADMIN)
+    db_session.add(admin)
+    db_session.flush()
+
+    appraisal = start_appraisal(quarter=2, year=2027, created_by=admin.id)
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+    transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
+    transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    assert appraisal.status == AppraisalStatus.CALCULATING
+
+
+def test_locked_can_reopen_to_revops_review(db_session):
+    admin = User(email="admin5@piposaude.com", name="Admin", role=UserRole.ADMIN)
+    db_session.add(admin)
+    db_session.flush()
+
+    appraisal = start_appraisal(quarter=3, year=2027, created_by=admin.id)
+    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+    transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
+    transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=admin.id)
+
+    transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+    assert appraisal.status == AppraisalStatus.REVOPS_REVIEW
 
     try:
         transition_appraisal(appraisal, AppraisalStatus.DRAFT)
@@ -74,7 +124,7 @@ def test_locked_appraisal_cannot_transition(db_session):
 
 
 def test_lock_marks_all_quarter_commissions_as_final(db_session):
-    """When transitioning APPROVED → LOCKED, all non-final commissions
+    """When transitioning REVOPS_REVIEW → LOCKED, all non-final commissions
     for the apuração's (quarter, year) get is_final=True."""
     admin = User(email="lock-admin@piposaude.com", name="Admin",
                  role=UserRole.ADMIN, active=True)
@@ -103,7 +153,7 @@ def test_lock_marks_all_quarter_commissions_as_final(db_session):
     db.session.flush()
 
     appraisal = Appraisal(
-        quarter=4, year=2026, status=AppraisalStatus.APPROVED,
+        quarter=4, year=2026, status=AppraisalStatus.REVOPS_REVIEW,
         created_by=admin.id,
     )
     db.session.add(appraisal)

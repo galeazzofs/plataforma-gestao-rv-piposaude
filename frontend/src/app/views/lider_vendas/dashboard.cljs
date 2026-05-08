@@ -26,12 +26,11 @@
        [:span.pct (str (.toFixed pct 0) "%")]]]
      [:td.right.strong-num (str "R$ " (or (fmt-int commission) "·"))]
      [:td (case appraisal_status
-            "APPROVED"  [:span.badge.badge-approved "Aprovado"]
-            "REVIEWING" [:span.badge.badge-review "Revisar"]
-            "LOCKED"    [:span.badge.badge-locked "Férias"]
+            "LIDER_REVIEW" [:span.badge.badge-review "Revisar"]
+            "LOCKED"       [:span.badge.badge-locked "Férias"]
             [:span.badge.badge-locked (or appraisal_status "·")])]
      [:td.right
-      (if (= appraisal_status "REVIEWING")
+      (if (= appraisal_status "LIDER_REVIEW")
         [:button.btn.btn-primary.btn-sm
          {:on-click #(rf/dispatch [:navigate [:lider-vendas/ev-detail {:ev-id id}]])}
          "Aprovar"]
@@ -50,7 +49,7 @@
           avg-pct (if (empty? rows) 0
                       (->> rows (map :achievement_pct) (filter some?)
                            ((fn [vs] (when (seq vs) (/ (reduce + 0 vs) (count vs)))))))
-          pending-approvals (count (filter #(= (:appraisal_status %) "REVIEWING") rows))
+          pending-approvals (count (filter #(= (:appraisal_status %) "LIDER_REVIEW") rows))
           actives (count (filter #(not= (:appraisal_status %) "LOCKED") rows))
           on-leave (count (filter #(= (:appraisal_status %) "LOCKED") rows))]
       [layout/page-shell
