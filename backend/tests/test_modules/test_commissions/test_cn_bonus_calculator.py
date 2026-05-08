@@ -6,7 +6,8 @@ import pytest
 
 from app.extensions import db
 from app.models import (
-    User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal, CnQuarterBonus,
+    AppraisalStatus, User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
+    CnQuarterBonus,
 )
 from app.modules.commissions.cn_bonus_calculator import (
     run_cn_quarterly_bonus,
@@ -32,6 +33,7 @@ def _seed_quarter(cn, year, quarter,
                   sao_realizado_per_month, sao_target_per_month,
                   is_final=True):
     months = {1: (1, 2, 3), 2: (4, 5, 6), 3: (7, 8, 9), 4: (10, 11, 12)}[quarter]
+    status = AppraisalStatus.LOCKED if is_final else AppraisalStatus.CALCULATING
     for m in months:
         db.session.add(CnMonthlyGoal(
             cn_id=cn.id, month=m, year=year,
@@ -47,7 +49,7 @@ def _seed_quarter(cn, year, quarter,
             score_final=Decimal("0.9"),
             multiplicador=Decimal("1.0"),
             commission_amount=Decimal("0"),
-            is_final=is_final,
+            status=status,
         ))
     db.session.flush()
 
@@ -126,7 +128,7 @@ class TestRunCnQuarterlyBonus:
                 vidas_realizado=Decimal("8"),
                 pct_sao=Decimal("1.0"), pct_vidas=Decimal("0.8"),
                 score_final=Decimal("0.9"), multiplicador=Decimal("1.0"),
-                commission_amount=Decimal("0"), is_final=True,
+                commission_amount=Decimal("0"), status=AppraisalStatus.LOCKED,
             ))
         db.session.flush()
 

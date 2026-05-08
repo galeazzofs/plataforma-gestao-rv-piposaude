@@ -59,6 +59,8 @@ class TestRunCnMonthlyAppraisal:
             cn_id=cn.id, month=3, year=2026
         ).first()
         assert appraisal is not None
+        # Calculator advances directly into CALCULATING; LOCKED is the
+        # finalization step.
         assert appraisal.is_final is False
         assert result["appraisals_created"] >= 1
 
@@ -78,17 +80,22 @@ class TestRunCnMonthlyAppraisal:
         assert count == 1
 
     def test_does_not_overwrite_final_appraisal(self, db_session):
+        from app.models import AppraisalStatus
         cn = _make_cn(db_session, name="Fabio")
         _make_goal(db_session, cn, month=7, year=2026)
         run_cn_monthly_appraisal(month=7, year=2026)
         appraisal = CnMonthlyAppraisal.query.filter_by(
             cn_id=cn.id, month=7, year=2026
         ).first()
-        appraisal.is_final = True
+        appraisal.status = AppraisalStatus.LOCKED
         db_session.flush()
 
         # second run should skip this CN
         run_cn_monthly_appraisal(month=7, year=2026)
-        assert CnMonthlyAppraisal.query.filter_by(
-            cn_id=cn.id, month=7, year=2026, is_final=True
-        ).count() == 1
+        locked = CnMonthlyAppraisal.query.filter(
+            CnMonthlyAppraisal.cn_id == cn.id,
+            CnMonthlyAppraisal.month == 7,
+            CnMonthlyAppraisal.year == 2026,
+            CnMonthlyAppraisal.status == AppraisalStatus.LOCKED,
+        ).count()
+        assert locked == 1

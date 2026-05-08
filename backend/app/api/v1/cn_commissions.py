@@ -2,7 +2,8 @@ from decimal import Decimal
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
 from app.models import (
-    UserRole, CnMonthlyGoal, CnMonthlyAppraisal, CnQuarterBonus, User,
+    AppraisalStatus, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
+    CnQuarterBonus, User,
 )
 from app.extensions import db
 from app.modules.commissions.simulator import simulate_cn
@@ -12,6 +13,10 @@ from app.modules.commissions.cn_calculator import (
     MissingGoalsError,
 )
 from app.modules.commissions.cn_bonus_calculator import run_cn_quarterly_bonus
+from app.modules.workflow.state_machine import (
+    transition_cn_monthly_appraisal,
+    InvalidTransitionError,
+)
 
 cn_commissions_bp = Blueprint(
     "cn_commissions", __name__, url_prefix="/api/v1/commissions/cn"
@@ -138,6 +143,11 @@ def list_cn_appraisals():
 @cn_commissions_bp.route("/appraisal/<appraisal_id>/finalize", methods=["POST"])
 @require_auth
 def finalize_cn_appraisal(appraisal_id):
+    """Drive the CN monthly appraisal straight to LOCKED.
+
+    Kept for backwards compatibility with existing UI; new code should
+    prefer the explicit transition endpoint.
+    """
     user = g.current_user
     if user.role != UserRole.ADMIN:
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
@@ -145,11 +155,84 @@ def finalize_cn_appraisal(appraisal_id):
     appraisal = db.session.get(CnMonthlyAppraisal, appraisal_id)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
-    if appraisal.is_final:
+    if appraisal.status == AppraisalStatus.LOCKED:
         return jsonify({"error": {"code": "ALREADY_FINAL"}}), 409
 
-    appraisal.is_final = True
+    # Walk through the state machine to LOCKED. This preserves the
+    # invariants enforced by transition_cn_monthly_appraisal.
+    chain = [
+        AppraisalStatus.VALIDATING,
+        AppraisalStatus.LIDER_REVIEW,
+        AppraisalStatus.REVOPS_REVIEW,
+        AppraisalStatus.LOCKED,
+    ]
+    try:
+        for s in chain:
+            if appraisal.status == s:
+                continue
+            transition_cn_monthly_appraisal(appraisal, s)
+    except InvalidTransitionError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INVALID_TRANSITION", "message": str(e)}}), 422
+
     db.session.commit()
+    return jsonify({"data": _serialize_appraisal(appraisal)})
+
+
+@cn_commissions_bp.route("/appraisal/<appraisal_id>/transition", methods=["POST"])
+@require_auth
+def transition_cn_appraisal_endpoint(appraisal_id):
+    """Move a CN monthly appraisal to a new status.
+
+    Body: {"to": "VALIDATING" | "LIDER_REVIEW" | ...}
+    Role check: ADMIN can drive any transition. CNs can only move their
+    own appraisal from VALIDATING → LIDER_REVIEW (auto-approve their data).
+    Líder de Vendas can drive LIDER_REVIEW → REVOPS_REVIEW.
+    """
+    user = g.current_user
+    appraisal = db.session.get(CnMonthlyAppraisal, appraisal_id)
+    if appraisal is None:
+        return jsonify({"error": {"code": "NOT_FOUND"}}), 404
+
+    body = request.get_json() or {}
+    to_status_str = body.get("to")
+    if not to_status_str:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "'to' field required"},
+        }), 400
+
+    try:
+        new_status = AppraisalStatus(to_status_str)
+    except ValueError:
+        valid = [s.value for s in AppraisalStatus]
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": f"Invalid status. Valid: {valid}"},
+        }), 400
+
+    # Coarse role gate. Finer per-state rules can land in a follow-up.
+    if user.role == UserRole.ADMIN:
+        pass
+    elif user.role == UserRole.CN:
+        if str(appraisal.cn_id) != str(user.id):
+            return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+        if not (appraisal.status == AppraisalStatus.VALIDATING
+                and new_status == AppraisalStatus.LIDER_REVIEW):
+            return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+    elif user.role == UserRole.LIDER_VENDAS:
+        if not (appraisal.status == AppraisalStatus.LIDER_REVIEW
+                and new_status == AppraisalStatus.REVOPS_REVIEW):
+            return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+    else:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    try:
+        transition_cn_monthly_appraisal(appraisal, new_status)
+        db.session.commit()
+    except InvalidTransitionError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "INVALID_TRANSITION", "message": str(e)}}), 422
+
     return jsonify({"data": _serialize_appraisal(appraisal)})
 
 
@@ -325,5 +408,6 @@ def _serialize_appraisal(a):
         "score_final": str(a.score_final),
         "multiplicador": str(a.multiplicador),
         "commission_amount": str(a.commission_amount),
+        "status": a.status.value if a.status else None,
         "is_final": a.is_final,
     }

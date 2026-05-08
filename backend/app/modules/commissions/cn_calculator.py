@@ -6,7 +6,9 @@ given (month, year), persists results to CnMonthlyAppraisal.
 from decimal import Decimal
 
 from app.extensions import db
-from app.models import User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal
+from app.models import (
+    AppraisalStatus, User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
+)
 from app.modules.commissions.simulator import simulate_cn
 
 
@@ -36,8 +38,8 @@ def run_cn_monthly_appraisal(month: int, year: int) -> dict:
     run_cn_monthly_appraisal_with_inputs().
 
     Raises MissingGoalsError if any active CN lacks a goal.
-    Skips CNs whose appraisal is already is_final=True.
-    Replaces non-final appraisals on re-run.
+    Skips CNs whose appraisal is already LOCKED.
+    Replaces non-LOCKED appraisals on re-run.
     """
     missing = validate_cn_goals(month, year)
     if missing:
@@ -45,14 +47,18 @@ def run_cn_monthly_appraisal(month: int, year: int) -> dict:
 
     final_ids = {
         row.cn_id
-        for row in CnMonthlyAppraisal.query.filter_by(
-            month=month, year=year, is_final=True
+        for row in CnMonthlyAppraisal.query.filter(
+            CnMonthlyAppraisal.month == month,
+            CnMonthlyAppraisal.year == year,
+            CnMonthlyAppraisal.status == AppraisalStatus.LOCKED,
         ).all()
     }
 
-    CnMonthlyAppraisal.query.filter_by(
-        month=month, year=year, is_final=False
-    ).delete()
+    CnMonthlyAppraisal.query.filter(
+        CnMonthlyAppraisal.month == month,
+        CnMonthlyAppraisal.year == year,
+        CnMonthlyAppraisal.status != AppraisalStatus.LOCKED,
+    ).delete(synchronize_session=False)
     db.session.flush()
 
     active_cns = User.query.filter_by(role=UserRole.CN, active=True).all()
@@ -86,7 +92,7 @@ def run_cn_monthly_appraisal(month: int, year: int) -> dict:
             score_final=Decimal(result["score_final"]),
             multiplicador=Decimal(result["multiplicador"]),
             commission_amount=Decimal(result["commission_amount"]),
-            is_final=False,
+            status=AppraisalStatus.CALCULATING,
         )
         db.session.add(appraisal)
         created += 1
@@ -111,14 +117,18 @@ def run_cn_monthly_appraisal_with_inputs(
 
     final_ids = {
         row.cn_id
-        for row in CnMonthlyAppraisal.query.filter_by(
-            month=month, year=year, is_final=True
+        for row in CnMonthlyAppraisal.query.filter(
+            CnMonthlyAppraisal.month == month,
+            CnMonthlyAppraisal.year == year,
+            CnMonthlyAppraisal.status == AppraisalStatus.LOCKED,
         ).all()
     }
 
-    CnMonthlyAppraisal.query.filter_by(
-        month=month, year=year, is_final=False
-    ).delete()
+    CnMonthlyAppraisal.query.filter(
+        CnMonthlyAppraisal.month == month,
+        CnMonthlyAppraisal.year == year,
+        CnMonthlyAppraisal.status != AppraisalStatus.LOCKED,
+    ).delete(synchronize_session=False)
     db.session.flush()
 
     active_cns = User.query.filter_by(role=UserRole.CN, active=True).all()
@@ -156,7 +166,7 @@ def run_cn_monthly_appraisal_with_inputs(
             score_final=Decimal(result["score_final"]),
             multiplicador=Decimal(result["multiplicador"]),
             commission_amount=Decimal(result["commission_amount"]),
-            is_final=False,
+            status=AppraisalStatus.CALCULATING,
         )
         db.session.add(appraisal)
         created += 1

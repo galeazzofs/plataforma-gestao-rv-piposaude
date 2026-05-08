@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime, timezone
+from sqlalchemy.ext.hybrid import hybrid_property
+
 from app.extensions import db
 from app.models.compat import GUID
+from app.models.appraisal import AppraisalStatus
 
 
 class CnMonthlyAppraisal(db.Model):
@@ -21,7 +24,11 @@ class CnMonthlyAppraisal(db.Model):
     score_final = db.Column(db.Numeric(8, 4), nullable=False)
     multiplicador = db.Column(db.Numeric(8, 4), nullable=False)
     commission_amount = db.Column(db.Numeric(12, 2), nullable=False)
-    is_final = db.Column(db.Boolean, default=False, nullable=False)
+    status = db.Column(
+        db.Enum(AppraisalStatus, name="cn_monthly_appraisal_status"),
+        default=AppraisalStatus.DRAFT,
+        nullable=False,
+    )
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -33,5 +40,16 @@ class CnMonthlyAppraisal(db.Model):
 
     cn = db.relationship("User", foreign_keys=[cn_id])
 
+    @hybrid_property
+    def is_final(self):
+        return self.status == AppraisalStatus.LOCKED
+
+    @is_final.expression
+    def is_final(cls):  # noqa: N805 — hybrid_property convention
+        return cls.status == AppraisalStatus.LOCKED
+
     def __repr__(self):
-        return f"<CnMonthlyAppraisal cn={self.cn_id} {self.month}/{self.year} final={self.is_final}>"
+        return (
+            f"<CnMonthlyAppraisal cn={self.cn_id} {self.month}/{self.year} "
+            f"status={self.status.value if self.status else None}>"
+        )

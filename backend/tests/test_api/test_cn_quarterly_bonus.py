@@ -6,7 +6,8 @@ import pytest
 
 from app.extensions import db
 from app.models import (
-    User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal, CnQuarterBonus,
+    AppraisalStatus, User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
+    CnQuarterBonus,
 )
 from app.auth.jwt_manager import create_access_token
 
@@ -43,7 +44,7 @@ def cn_quarter_setup():
             sao_realizado=Decimal("110"), vidas_realizado=Decimal("8"),
             pct_sao=Decimal("1.0"), pct_vidas=Decimal("0.8"),
             score_final=Decimal("0.9"), multiplicador=Decimal("1.0"),
-            commission_amount=Decimal("0"), is_final=True,
+            commission_amount=Decimal("0"), status=AppraisalStatus.LOCKED,
         )
         db.session.add_all([g, a])
         goals.append(g)

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from app.extensions import db
-from app.models import Appraisal, AppraisalStatus, Commission
+from app.models import Appraisal, AppraisalStatus, CnMonthlyAppraisal, Commission
 from app.modules.workflow.transitions import VALID_TRANSITIONS
 
 
@@ -73,5 +73,25 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             deadline = (datetime.now(timezone.utc) + timedelta(days=5)).date()
         appraisal.validation_deadline = deadline
 
+    db.session.flush()
+    return appraisal
+
+
+def transition_cn_monthly_appraisal(appraisal: CnMonthlyAppraisal, new_status):
+    """Transition a CN monthly appraisal between AppraisalStatus values.
+
+    Uses the same VALID_TRANSITIONS map as the quarterly appraisal — the
+    state graph is identical (DRAFT → CALCULATING → VALIDATING →
+    LIDER_REVIEW → REVOPS_REVIEW → LOCKED, with reopen and recalculate
+    branches).
+    """
+    allowed = VALID_TRANSITIONS.get(appraisal.status, [])
+    if new_status not in allowed:
+        raise InvalidTransitionError(
+            f"Cannot transition CN appraisal from {appraisal.status.value} "
+            f"to {new_status.value}. Allowed: {[s.value for s in allowed]}"
+        )
+
+    appraisal.status = new_status
     db.session.flush()
     return appraisal

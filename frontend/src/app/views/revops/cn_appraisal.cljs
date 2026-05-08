@@ -49,6 +49,15 @@
            :on-success [:revops/fetch-cn-appraisals month year]
            :on-failure [:revops/cn-appraisals-error]}}))
 
+(rf/reg-event-fx
+ :revops/transition-cn-appraisal
+ (fn [_ [_ id to-status month year]]
+   {:http {:method     :post
+           :url        (str ep/cn-appraisal "/" id "/transition")
+           :body       {:to to-status}
+           :on-success [:revops/fetch-cn-appraisals month year]
+           :on-failure [:revops/cn-appraisals-error]}}))
+
 (rf/reg-sub :revops/cn-appraisals (fn [db _] (get-in db [:admin :cn-appraisals] [])))
 (rf/reg-sub :revops/cn-appraisals-loading? (fn [db _] (get-in db [:admin :cn-appraisals-loading?])))
 
@@ -61,6 +70,54 @@
 (defn- mult [v]
   (when v (-> v js/parseFloat (.toFixed 2)
               (str/replace "." ","))))
+
+(def ^:private cn-stepper-states
+  ["DRAFT" "CALCULATING" "VALIDATING" "LIDER_REVIEW" "REVOPS_REVIEW" "LOCKED"])
+
+(def ^:private cn-stepper-labels
+  {"DRAFT"         "Draft"
+   "CALCULATING"   "Calculating"
+   "VALIDATING"    "Validating"
+   "LIDER_REVIEW"  "Líder Review"
+   "REVOPS_REVIEW" "RevOps Review"
+   "LOCKED"        "Locked"})
+
+(defn- status->badge [status]
+  (case status
+    "DRAFT"         [:span.badge.badge-draft "Draft"]
+    "CALCULATING"   [:span.badge.badge-calc "Calculating"]
+    "VALIDATING"    [:span.badge.badge-validating "Validating"]
+    "LIDER_REVIEW"  [:span.badge.badge-review "Líder Review"]
+    "REVOPS_REVIEW" [:span.badge.badge-review "RevOps Review"]
+    "LOCKED"        [:span.badge.badge-paid "Locked"]
+    [:span.badge.badge-locked (or status "·")]))
+
+(defn- cn-stepper [current]
+  (let [idx (max 0 (.indexOf (clj->js cn-stepper-states) (or current "DRAFT")))]
+    [:div.stepper
+     (for [[i s] (map-indexed vector cn-stepper-states)
+           :let [done?    (< i idx)
+                 current? (= i idx)]]
+       ^{:key s}
+       [:<>
+        [:div.stepper-stack
+         [:div {:class (str "step" (cond done? " done" current? " current"))}
+          [:div.step-dot (str (inc i))]]
+         [:div.step-label (cn-stepper-labels s)]]
+        (when (< i (dec (count cn-stepper-states)))
+          [:div.step-line])])]))
+
+(defn- next-status-action
+  "Return [label, target-status] for the next admin action on this status,
+   or nil when there's nothing to do (LOCKED)."
+  [status]
+  (case status
+    "DRAFT"          ["Iniciar"        "CALCULATING"]
+    "CALCULATING"    ["Liberar p/ EV"  "VALIDATING"]
+    "VALIDATING"     ["Avançar"        "LIDER_REVIEW"]
+    "LIDER_REVIEW"   ["Aprovar (Líder)" "REVOPS_REVIEW"]
+    "REVOPS_REVIEW"  ["Fechar"         "LOCKED"]
+    nil))
 
 (defn page []
   (let [filter-s    (r/atom {:month "4" :year "2026"})
@@ -121,6 +178,17 @@
            [:div.kpi-label [layout/icon "check" {:width 14 :height 14}] "finalizados"]
            [:div.kpi-value (str finals " / " (count (or items [])))]]]
 
+         ;; State machine progress (issue #34) — shows where the cohort
+         ;; sits as a whole, taking the most-common status as a proxy.
+         (when (seq items)
+           (let [statuses (->> items (map :status) (filter some?))
+                 dominant (when (seq statuses)
+                            (->> statuses frequencies
+                                 (sort-by val >) first first))]
+             [:div.card {:style {:padding "18px 20px"}}
+              [:h3 "Progresso geral"]
+              [cn-stepper dominant]]))
+
          [:div.callout
           [layout/icon "info" {:width 20 :height 20}]
           [:div {:style {:flex 1}}
@@ -136,29 +204,42 @@
              [:th.center "Score"]
              [:th.right "Mult."]
              [:th.right "Comissão"]
-             [:th.right "Status"]]]
+             [:th "Status"]
+             [:th.right "Ação"]]]
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 5 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 6 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? items)
-              [:tr [:td {:col-span 5 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 6 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhuma apuração · rode a apuração para gerar"]]
 
               :else
               (for [row items]
                 ^{:key (:id row)}
-                [:tr
-                 [:td.name (:cn_name row)]
-                 [:td.center.num (str (or (pct (:score_final row)) "·") "%")]
-                 [:td.right.num (str (or (mult (:multiplicador row)) "·") "x")]
-                 [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_amount row)) "·"))]
-                 [:td.right
-                  (if (:is_final row)
-                    [:span.badge.badge-paid "Final"]
-                    [:button.btn.btn-primary.btn-sm
-                     {:on-click #(rf/dispatch [:revops/finalize-cn-appraisal
-                                                (:id row) (:month @filter-s) (:year @filter-s)])}
-                     "Finalizar"])]]))]]]]))))
+                (let [next-action (next-status-action (:status row))]
+                  [:tr
+                   [:td.name (:cn_name row)]
+                   [:td.center.num (str (or (pct (:score_final row)) "·") "%")]
+                   [:td.right.num (str (or (mult (:multiplicador row)) "·") "x")]
+                   [:td.right.strong-num
+                    (str "R$ " (or (fmt-int (:commission_amount row)) "·"))]
+                   [:td [status->badge (:status row)]]
+                   [:td.right
+                    (cond
+                      (:is_final row)
+                      [:span.muted {:style {:font-family "var(--font-mono)"
+                                            :font-size "11px"}}
+                       "fechado"]
+
+                      next-action
+                      [:button.btn.btn-primary.btn-sm
+                       {:on-click #(rf/dispatch
+                                    [:revops/transition-cn-appraisal
+                                     (:id row) (second next-action)
+                                     (:month @filter-s) (:year @filter-s)])}
+                       (first next-action)]
+
+                      :else nil)]])))]]]]))))
