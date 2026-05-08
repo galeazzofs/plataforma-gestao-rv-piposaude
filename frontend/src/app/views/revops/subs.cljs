@@ -151,3 +151,8 @@
  :revops/achievements-loading?
  (fn [db _]
    (get-in db [:admin :achievements-loading?])))
+
+(rf/reg-sub
+ :revops/quarterly-cycles
+ (fn [db _]
+   (get-in db [:appraisal :quarterly-cycles])))

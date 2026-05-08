@@ -680,3 +680,46 @@
 (rf/reg-event-db
  :revops/policies-error
  (fn [db _] (assoc-in db [:admin :policies-loading?] false)))
+
+;; ---- Quarterly Cycles (issue #32) ----
+
+(rf/reg-event-fx
+ :revops/fetch-quarterly-cycles
+ (fn [_ _]
+   {:http {:method     :get
+           :url        "/quarterly-cycles"
+           :on-success [:revops/quarterly-cycles-loaded]
+           :on-failure [:revops/quarterly-cycles-error]}}))
+
+(rf/reg-event-db
+ :revops/quarterly-cycles-loaded
+ (fn [db [_ response]]
+   (assoc-in db [:appraisal :quarterly-cycles] (:data response))))
+
+(rf/reg-event-db
+ :revops/quarterly-cycles-error
+ (fn [db _] db))
+
+(rf/reg-event-fx
+ :revops/open-quarterly-cycle
+ (fn [_ [_ {:keys [quarter year]}]]
+   {:http {:method     :post
+           :url        "/quarterly-cycles"
+           :body       {:quarter quarter :year year}
+           :on-success [:revops/quarterly-cycle-opened]
+           :on-failure [:revops/quarterly-cycle-open-error]}}))
+
+(rf/reg-event-fx
+ :revops/quarterly-cycle-opened
+ (fn [_ [_ response]]
+   (let [c (:data response)]
+     {:dispatch-n [[:revops/fetch-quarterly-cycles]
+                   [:ui/show-toast
+                    {:type :success
+                     :message (str "Ciclo Q" (:quarter c) "/" (:year c) " aberto.")}]]})))
+
+(rf/reg-event-fx
+ :revops/quarterly-cycle-open-error
+ (fn [_ [_ resp]]
+   (let [msg (or (get-in resp [:error :message]) "Erro ao abrir ciclo")]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))
