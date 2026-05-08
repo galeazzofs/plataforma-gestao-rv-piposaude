@@ -1,9 +1,15 @@
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth, require_role
-from app.models import EvValidation, ValidationStatus, UserRole
+from app.models import (
+    Appraisal, EvValidation, User, ValidationStatus, UserRole,
+)
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
+from app.modules.workflow.state_machine import (
+    maybe_auto_advance_appraisal_after_validation,
+    maybe_dm_lider_team_validated,
+)
 
 validations_bp = Blueprint("validations", __name__, url_prefix="/api/v1/validations")
 
@@ -67,6 +73,8 @@ def approve_validation(validation_id):
               new_values={"status": ValidationStatus.APPROVED.value})
     db.session.commit()
 
+    _post_validation_hooks(validation)
+
     return jsonify({"data": _serialize_validation(validation)})
 
 
@@ -129,7 +137,33 @@ def resolve_validation(validation_id):
               new_values={"status": ValidationStatus.RESOLVED.value})
     db.session.commit()
 
+    _post_validation_hooks(validation)
+
     return jsonify({"data": _serialize_validation(validation)})
+
+
+def _post_validation_hooks(validation: EvValidation):
+    """Run post-approval/post-resolve checks: DM the team Líder when their
+    team finished, and auto-advance the global Appraisal if every team
+    has finished and every Líder validated own. Issues #37a + #38.
+
+    All work runs in a fresh transaction so a hook failure never poisons
+    the parent commit. The validation row is already persisted by the
+    time we get here.
+    """
+    appraisal = db.session.get(Appraisal, validation.appraisal_id)
+    if appraisal is None:
+        return
+
+    ev = db.session.get(User, validation.ev_id)
+    team_id = ev.team_id if ev is not None else None
+
+    try:
+        maybe_dm_lider_team_validated(appraisal, team_id)
+        if maybe_auto_advance_appraisal_after_validation(appraisal):
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def _serialize_validation(v):
