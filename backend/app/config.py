@@ -26,6 +26,9 @@ class Config:
         os.environ.get("HUBSPOT_SYNC_INTERVAL_MINUTES", "30")
     )
     SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+    SLACK_OPS_CHANNEL = os.environ.get("SLACK_OPS_CHANNEL", "")
+    SLACK_FINANCE_CHANNEL = os.environ.get("SLACK_FINANCE_CHANNEL", "")
+    PLATFORM_PUBLIC_URL = os.environ.get("PLATFORM_PUBLIC_URL", "")
     DEFAULT_PAGE_SIZE = 20
     MAX_PAGE_SIZE = 100
     # Reject uploads larger than 100 MB — financial XLSX files are routinely large.

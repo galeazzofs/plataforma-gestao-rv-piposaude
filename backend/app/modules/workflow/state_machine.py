@@ -95,14 +95,26 @@ def transition_appraisal(appraisal, new_status, **kwargs):
 
 def _maybe_lock_attached_cycle(appraisal):
     """When an Appraisal is LOCKED, re-evaluate the QuarterlyCycle for
-    its (quarter, year) and auto-LOCK if every component is now LOCKED."""
+    its (quarter, year) and auto-LOCK if every component is now LOCKED.
+    Emits a Slack notification when the cycle transitions to LOCKED.
+    """
     from app.models import QuarterlyCycle
     from app.modules.workflow.cycle_aggregator import maybe_lock_cycle
+    from app.modules.notifications.slack import notify_cycle_locked
     cycle = QuarterlyCycle.query.filter_by(
         quarter=appraisal.quarter, year=appraisal.year,
     ).first()
-    if cycle is not None:
-        maybe_lock_cycle(cycle)
+    if cycle is None:
+        return
+    locked_now = maybe_lock_cycle(cycle)
+    if locked_now:
+        try:
+            notify_cycle_locked(cycle.quarter, cycle.year)
+        except Exception as e:  # pragma: no cover — graceful failure
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Slack notify_cycle_locked failed: {e}"
+            )
 
 
 def transition_lider_vendas_appraisal(

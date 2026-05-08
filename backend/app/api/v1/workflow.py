@@ -218,6 +218,18 @@ def contest_appraisal(appraisal_id):
         new_values={"has_contestation": True, "note": note},
     )
     db.session.commit()
+
+    try:
+        from app.modules.notifications.slack import notify_contestation_opened
+        notify_contestation_opened(
+            appraisal.quarter, appraisal.year, g.current_user.name,
+        )
+    except Exception as e:  # pragma: no cover — graceful failure
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Slack notify_contestation_opened failed: {e}"
+        )
+
     return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
 
 
@@ -257,6 +269,30 @@ def resolve_contestation(appraisal_id):
         new_values={"has_contestation": False, "resolution_note": resolution},
     )
     db.session.commit()
+
+    # Best-effort: DM the contestant if we can identify them via the
+    # latest CONTEST audit log entry.
+    try:
+        from app.modules.notifications.slack import notify_contestation_resolved
+        from app.models import AuditLog
+        contest_log = (
+            AuditLog.query
+            .filter_by(table_name="appraisals", row_id=appraisal.id, action="CONTEST")
+            .order_by(AuditLog.created_at.desc())
+            .first()
+        )
+        if contest_log and contest_log.user_id:
+            contestant = db.session.get(User, contest_log.user_id)
+            if contestant is not None:
+                notify_contestation_resolved(
+                    contestant, appraisal.quarter, appraisal.year,
+                )
+    except Exception as e:  # pragma: no cover — graceful failure
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Slack notify_contestation_resolved failed: {e}"
+        )
+
     return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
 
 
