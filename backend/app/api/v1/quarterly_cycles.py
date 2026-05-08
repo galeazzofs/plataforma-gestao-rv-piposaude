@@ -4,22 +4,11 @@ from app.auth.decorators import require_auth, require_role
 from app.models import QuarterlyCycle, QuarterlyCycleStatus, UserRole
 from app.api.middlewares import log_audit
 from app.extensions import db
+from app.modules.workflow.cycle_aggregator import build_cycle_payload
 
 
 quarterly_cycles_bp = Blueprint(
     "quarterly_cycles", __name__, url_prefix="/api/v1/quarterly-cycles"
-)
-
-
-# Placeholder component layout returned by GET /:id until issue #37 wires
-# the real orchestration. Each entry mirrors what the orchestrator will
-# eventually populate so the frontend can already render the cycle page.
-_PLACEHOLDER_COMPONENTS = (
-    "ev_quarter",
-    "cn_monthly",
-    "cn_quarterly_bonus",
-    "ev_quarterly_bonus",
-    "leadership",
 )
 
 
@@ -35,8 +24,6 @@ def _serialize(cycle: QuarterlyCycle) -> dict:
     }
 
 
-def _placeholder_components() -> list:
-    return [{"key": k, "status": "PENDING"} for k in _PLACEHOLDER_COMPONENTS]
 
 
 @quarterly_cycles_bp.route("", methods=["POST"])
@@ -104,15 +91,9 @@ def list_cycles():
 @quarterly_cycles_bp.route("/<cycle_id>")
 @require_auth
 def get_cycle(cycle_id):
-    """Return a cycle and its 5 component slots.
-
-    Components are placeholders (status PENDING) until issue #37 wires the
-    real orchestration that reads each component's actual state.
-    """
+    """Return a cycle with team-grouped status of each of the 5 components."""
     cycle = db.session.get(QuarterlyCycle, cycle_id)
     if cycle is None:
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
 
-    payload = _serialize(cycle)
-    payload["components"] = _placeholder_components()
-    return jsonify({"data": payload})
+    return jsonify({"data": build_cycle_payload(cycle)})

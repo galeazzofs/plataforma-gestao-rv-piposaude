@@ -117,7 +117,7 @@ def test_list_cycles_returns_newest_first(client, admin):
     assert idx_31q1 < idx_30q4
 
 
-def test_get_cycle_returns_placeholder_components(client, admin):
+def test_get_cycle_returns_team_components(client, admin):
     cycle = QuarterlyCycle(
         quarter=2, year=2031,
         status=QuarterlyCycleStatus.OPEN,
@@ -134,12 +134,13 @@ def test_get_cycle_returns_placeholder_components(client, admin):
     body = resp.get_json()["data"]
     assert body["quarter"] == 2
     assert body["year"] == 2031
-    assert {c["status"] for c in body["components"]} == {"PENDING"}
-    keys = {c["key"] for c in body["components"]}
-    assert keys == {
-        "ev_quarter", "cn_monthly", "cn_quarterly_bonus",
-        "ev_quarterly_bonus", "leadership",
-    }
+    assert "teams" in body
+    # Each team block has the 5 component keys.
+    for team in body["teams"]:
+        assert set(team["components"].keys()) == {
+            "ev_quarter", "cn_monthly", "cn_quarterly_bonus",
+            "ev_quarterly_bonus", "leadership",
+        }
 
 
 def test_get_cycle_404(client, admin):

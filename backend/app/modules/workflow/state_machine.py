@@ -81,6 +81,7 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         recompute_policy_paid_totals_for_apuracao(
             appraisal.quarter, appraisal.year
         )
+        _maybe_lock_attached_cycle(appraisal)
 
     if new_status == AppraisalStatus.VALIDATING:
         deadline = kwargs.get("validation_deadline")
@@ -90,6 +91,18 @@ def transition_appraisal(appraisal, new_status, **kwargs):
 
     db.session.flush()
     return appraisal
+
+
+def _maybe_lock_attached_cycle(appraisal):
+    """When an Appraisal is LOCKED, re-evaluate the QuarterlyCycle for
+    its (quarter, year) and auto-LOCK if every component is now LOCKED."""
+    from app.models import QuarterlyCycle
+    from app.modules.workflow.cycle_aggregator import maybe_lock_cycle
+    cycle = QuarterlyCycle.query.filter_by(
+        quarter=appraisal.quarter, year=appraisal.year,
+    ).first()
+    if cycle is not None:
+        maybe_lock_cycle(cycle)
 
 
 def transition_lider_vendas_appraisal(
