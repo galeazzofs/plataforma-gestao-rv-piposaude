@@ -37,7 +37,7 @@
                    "FINANCE" :finance/dashboard
                    "LIDER_VENDAS" :lider-vendas/dashboard
                    "EV"      :ev/dashboard
-                   "CN"      :ev/dashboard
+                   "CN"      :cn/dashboard
                    :no-role)})))
 
 (rf/reg-event-db

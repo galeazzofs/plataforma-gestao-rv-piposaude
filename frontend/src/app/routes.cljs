@@ -9,11 +9,11 @@
     ["/login" {:name :login}]
     ["/no-role" {:name :no-role}]
 
-    ;; EV / CN
+    ;; EV
     ["/ev"
-     ["/dashboard"  {:name :ev/dashboard  :role #{:EV :CN :ADMIN}}]
-     ["/history"    {:name :ev/history    :role #{:EV :CN :ADMIN}}]
-     ["/validation" {:name :ev/validation :role #{:EV :CN :ADMIN}}]]
+     ["/dashboard"  {:name :ev/dashboard  :role #{:EV :ADMIN}}]
+     ["/history"    {:name :ev/history    :role #{:EV :ADMIN}}]
+     ["/validation" {:name :ev/validation :role #{:EV :ADMIN}}]]
 
     ;; CN
     ["/cn"
@@ -68,21 +68,47 @@
     "FINANCE" :finance/dashboard
     "LIDER_VENDAS" :lider-vendas/dashboard
     "EV"      :ev/dashboard
-    "CN"      :ev/dashboard
+    "CN"      :cn/dashboard
     :no-role))
 
-;; Re-frame events for routing.
-;; When an authenticated user lands on :home or :login (e.g. fresh page load
-;; on `/`, manual nav to `/login`, browser back), redirect to their landing
-;; instead of falling through to the 404 view.
+(defn route-allowed?
+  "True when `user-role` (a string like \"EV\") is allowed on a route whose
+   `route-roles` metadata is a set of keywords like `#{:EV :ADMIN}`. Routes
+   with no `:role` metadata are public — anyone may visit them."
+  [route-roles user-role]
+  (or (nil? route-roles)
+      (and (some? user-role)
+           (contains? route-roles (keyword user-role)))))
+
+(defn handle-route-changed
+  "Pure handler for `:route/changed`. Returns the re-frame effect map.
+
+   Two redirect cases for logged-in users:
+   1. Landing on :home or :login → bounce to their role's landing page.
+   2. Hitting a role-gated route they're not in → bounce, and DO NOT commit
+      the new route to :current-route. Keeping :current-route on the previous
+      (valid) page prevents the view from flashing the unauthorized page in
+      the frame between dispatch and the redirect landing."
+  [db match]
+  (let [route-name  (get-in match [:data :name])
+        route-roles (get-in match [:data :role])
+        user-role   (get-in db [:auth :user :role])
+        logged-in?  (some? (get-in db [:auth :user]))]
+    (cond
+      (and logged-in? (#{:home :login} route-name))
+      {:db        (assoc db :current-route match)
+       :navigate! (role->landing user-role)}
+
+      (and logged-in? (not (route-allowed? route-roles user-role)))
+      {:navigate! (role->landing user-role)}
+
+      :else
+      {:db (assoc db :current-route match)})))
+
 (rf/reg-event-fx
  :route/changed
  (fn [{:keys [db]} [_ match]]
-   (let [route-name (get-in match [:data :name])
-         logged-in? (some? (get-in db [:auth :user]))]
-     (cond-> {:db (assoc db :current-route match)}
-       (and logged-in? (#{:home :login} route-name))
-       (assoc :navigate! (role->landing (get-in db [:auth :user :role])))))))
+   (handle-route-changed db match)))
 
 (rf/reg-sub
  :current-route

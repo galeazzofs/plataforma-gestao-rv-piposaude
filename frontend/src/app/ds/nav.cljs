@@ -41,8 +41,12 @@
   [{:section "vendas"}
    {:key :ev/dashboard  :label "Dashboard"  :icon "trend"    :route :ev/dashboard}
    {:key :ev/history    :label "Histórico"  :icon "calendar" :route :ev/history}
-   {:key :ev/validation :label "Validação"  :icon "check"    :route :ev/validation}
-   {:key :cn/simulator  :label "Simulador"  :icon "target"   :route :cn/simulator}])
+   {:key :ev/validation :label "Validação"  :icon "check"    :route :ev/validation}])
+
+(def cn-items
+  [{:section "vendas"}
+   {:key :cn/dashboard :label "Dashboard"  :icon "trend"  :route :cn/dashboard}
+   {:key :cn/simulator :label "Simulador"  :icon "target" :route :cn/simulator}])
 
 (def lider-vendas-items
   [{:section "gestão de time"}
@@ -68,5 +72,5 @@
     "FINANCE" finance-items
     "LIDER_VENDAS" lider-vendas-items
     "EV"      ev-items
-    "CN"      ev-items
+    "CN"      cn-items
     admin-items))
