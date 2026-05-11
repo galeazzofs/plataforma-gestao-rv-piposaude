@@ -103,16 +103,33 @@
     {:quarter (inc quarter) :year year}
     {:quarter 1 :year (inc year)}))
 
-(defn- suggest-cycle
-  "If the most recent cycle is LOCKED and there's no cycle yet for the
-   following quarter, suggest opening it."
-  [cycles last-cycle]
-  (when (and last-cycle (= "LOCKED" (:status last-cycle)))
-    (let [{:keys [quarter year] :as nq} (next-quarter last-cycle)
-          already? (some #(and (= (:quarter %) quarter)
-                                (= (:year %) year))
-                         cycles)]
-      (when-not already? nq))))
+(defn quarter-for-date [date]
+  (inc (quot (.getMonth date) 3)))
+
+(defn current-cycle-suggestion
+  ([] (current-cycle-suggestion (js/Date.)))
+  ([date]
+   {:quarter (quarter-for-date date)
+    :year (.getFullYear date)}))
+
+(defn suggest-cycle
+  "Suggest the cycle that should be opened next.
+   With no existing cycles, default to the current quarter. If the most recent
+   cycle is LOCKED and there's no cycle yet for the following quarter, suggest
+   that following quarter."
+  ([cycles last-cycle]
+   (suggest-cycle cycles last-cycle (js/Date.)))
+  ([cycles last-cycle today]
+   (cond
+     (empty? (or cycles []))
+     (current-cycle-suggestion today)
+
+     (and last-cycle (= "LOCKED" (:status last-cycle)))
+     (let [{:keys [quarter year] :as nq} (next-quarter last-cycle)
+           already? (some #(and (= (:quarter %) quarter)
+                                 (= (:year %) year))
+                          cycles)]
+       (when-not already? nq)))))
 
 (defn- header-banner [cycles cycle suggestion]
   [:<>
@@ -123,7 +140,9 @@
        [:strong (str "Q" (:quarter suggestion) "/" (:year suggestion)
                      " pronto para apurar")]
        [:div {:style {:font-size "13px" :color "var(--fg-3)"}}
-        "O trimestre anterior está fechado. Abra o ciclo trimestral para começar."]]
+        (if (empty? (or cycles []))
+          "Abra o ciclo trimestral atual para começar."
+          "O trimestre anterior está fechado. Abra o ciclo trimestral para começar.")]]
       [:button.btn.btn-primary.btn-sm
        {:on-click #(rf/dispatch [:revops/open-quarterly-cycle suggestion])}
        (str "Abrir Q" (:quarter suggestion) "/" (:year suggestion))]])])
