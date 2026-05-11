@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
 from app.models import (
@@ -6,7 +6,7 @@ from app.models import (
     CnQuarterBonus, User,
 )
 from app.extensions import db
-from app.modules.commissions.simulator import simulate_cn
+from app.modules.commissions.simulator import simulate_cn, vidas_meta_from_sao
 from app.modules.commissions.cn_calculator import (
     run_cn_monthly_appraisal_with_inputs,
     validate_cn_goals,
@@ -324,19 +324,32 @@ def simulate_cn_endpoint():
 
     # CN can only simulate with their own nivel
     if user.role == UserRole.CN:
-        nivel = user.nivel.value if user.nivel else "CN1"
+        nivel = user.nivel.value if hasattr(user.nivel, "value") else (user.nivel or "CN1")
+        porte = user.porte.value if hasattr(user.porte, "value") else user.porte
     else:
         nivel = body.get("nivel", "CN1")
+        porte = body.get("porte")
 
     try:
+        sao_meta = Decimal(str(body["sao_meta"]))
+        vidas_meta = (
+            Decimal(str(body["vidas_meta"]))
+            if body.get("vidas_meta") not in (None, "")
+            else vidas_meta_from_sao(sao_meta, porte)
+        )
         result = simulate_cn(
             nivel=nivel,
-            sao_meta=Decimal(str(body["sao_meta"])),
+            sao_meta=sao_meta,
             sao_realizado=Decimal(str(body["sao_realizado"])),
-            vidas_meta=Decimal(str(body["vidas_meta"])),
+            vidas_meta=vidas_meta,
             vidas_realizado=Decimal(str(body["vidas_realizado"])),
         )
-    except (KeyError, TypeError, ValueError) as e:
+        result.update({
+            "nivel": nivel,
+            "porte": porte,
+            "vidas_meta": str(vidas_meta),
+        })
+    except (KeyError, TypeError, ValueError, InvalidOperation) as e:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
     return jsonify({"data": result})
 

@@ -15,16 +15,31 @@
    {:value "FINANCE" :label "Financeiro"}
    {:value "ADMIN"   :label "Admin (RevOps)"}])
 
-(defn- empty-form [] {:name "" :email "" :role "" :team_id ""})
+(def cn-nivel-options
+  [{:value "" :label "Selecione"}
+   {:value "CN1" :label "CN1"}
+   {:value "CN2" :label "CN2"}
+   {:value "CN3" :label "CN3"}])
+
+(def cn-porte-options
+  [{:value "" :label "Selecione"}
+   {:value "M" :label "M"}
+   {:value "G+" :label "G+"}])
+
+(defn- empty-form [] {:name "" :email "" :role "" :team_id "" :nivel "" :porte ""})
 
 (defn- form-from-user [user-data]
   (merge (empty-form)
-         (select-keys (or user-data {}) [:name :email :role :team_id])
+         (select-keys (or user-data {}) [:name :email :role :team_id :nivel :porte])
          (when (:team_id user-data) {:team_id (str (:team_id user-data))})))
 
 (defn- initials [name]
   (let [parts (->> (str/split (or name "") #"\s+") (filter seq) (take 2))]
     (->> parts (map (fn [p] (subs p 0 1))) (apply str) str/upper-case)))
+
+(defn- cn-profile-label [u]
+  (when (= (:role u) "CN")
+    (str (or (:nivel u) "sem nivel") " / " (or (:porte u) "sem porte"))))
 
 (defn user-modal []
   (let [form (r/atom (empty-form))]
@@ -51,16 +66,36 @@
                                             (map #(hash-map :value (str (:id %)) :label (:name %))
                                                  (or teams [])))
                              :on-change #(swap! form assoc :team_id %)}]
+             (when (= (:role @form) "CN")
+               [:div.form-grid.-tight
+                [inputs/select {:label "Nivel do CN"
+                                :value (or (:nivel @form) "")
+                                :options cn-nivel-options
+                                :required true
+                                :on-change #(swap! form assoc :nivel %)}]
+                [inputs/select {:label "Porte"
+                                :value (or (:porte @form) "")
+                                :options cn-porte-options
+                                :required true
+                                :on-change #(swap! form assoc :porte %)}]])
              [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
               [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
               [btn/button
                {:variant :primary
                 :disabled (or (str/blank? (:name @form))
                               (str/blank? (:email @form))
-                              (str/blank? (:role @form)))
+                              (str/blank? (:role @form))
+                              (and (= (:role @form) "CN")
+                                   (or (str/blank? (:nivel @form))
+                                       (str/blank? (:porte @form)))))
                 :on-click (fn []
                             (let [payload (-> @form
-                                              (update :team_id #(when-not (str/blank? %) %)))]
+                                              (update :team_id #(when-not (str/blank? %) %))
+                                              (update :nivel #(when-not (str/blank? %) %))
+                                              (update :porte #(when-not (str/blank? %) %)))
+                                  payload (if (= (:role payload) "CN")
+                                            payload
+                                            (assoc payload :nivel nil :porte nil))]
                               (if editing?
                                 (rf/dispatch [:revops/update-user (:id user-data) (dissoc payload :email)])
                                 (rf/dispatch [:revops/create-user payload])))
@@ -125,17 +160,18 @@
              [:th "Usuário"]
              [:th "E-mail"]
              [:th "Perfil"]
+             [:th "CN"]
              [:th "Time"]
              [:th "Status"]
              [:th.right "Ações"]]]
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 6 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 7 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? shown)
-              [:tr [:td {:col-span 6 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 7 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhum usuário encontrado"]]
 
               :else
@@ -149,6 +185,7 @@
                    [:div.name (:name u)]]]
                  [:td.muted (:email u)]
                  [:td [:span.badge.badge-locked (:role u)]]
+                 [:td (or (cn-profile-label u) "·")]
                  [:td (or (:team_name u) "·")]
                  [:td [:span.badge.badge-approved "Ativo"]]
                  [:td.right

@@ -28,6 +28,43 @@
                   :color (or color "var(--fg-1)")}}
     value]])
 
+(defn- cn-members [team]
+  (filter #(= (:role %) "CN") (or (:members team) [])))
+
+(defn- cn-profile-summary [team]
+  (let [cns (cn-members team)
+        with-profile (filter #(and (:nivel %) (:porte %)) cns)]
+    (when (seq cns)
+      (str (count with-profile) "/" (count cns) " CNs com perfil"))))
+
+(defn- cn-member-list [team]
+  (let [cns (take 4 (cn-members team))]
+    (when (seq cns)
+      [:div {:style {:border-top "1px solid var(--border-subtle)"
+                     :margin-top "16px"
+                     :padding-top "12px"
+                     :display "flex"
+                     :flex-direction "column"
+                     :gap "8px"}}
+       (for [m cns]
+         ^{:key (:id m)}
+         [:div {:style {:display "flex"
+                        :justify-content "space-between"
+                        :gap "12px"
+                        :align-items "center"}}
+          [:span {:style {:font-family "var(--font-ui)"
+                          :font-size "12px"
+                          :color "var(--fg-2)"
+                          :overflow "hidden"
+                          :text-overflow "ellipsis"
+                          :white-space "nowrap"}}
+           (:name m)]
+          [:span {:style {:font-family "var(--font-mono)"
+                          :font-size "11px"
+                          :color "var(--fg-3)"
+                          :white-space "nowrap"}}
+           (str (or (:nivel m) "sem nivel") " / " (or (:porte m) "sem porte"))]])])))
+
 (defn team-modal []
   (let [form (r/atom (empty-team-form))]
     (r/create-class
@@ -76,12 +113,12 @@
             user  @(rf/subscribe [:auth/current-user])
             route @(rf/subscribe [:current-route-name])
             team-rows (or teams [])
-            total-evs (reduce + 0 (map #(count (:members %)) team-rows))]
+            total-members (reduce + 0 (map #(count (:members %)) team-rows))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "configuração" "times"]
           :title "Times"
-          :subtitle (str (count team-rows) " times · " total-evs " vendedores ativos")
+          :subtitle (str (count team-rows) " times · " total-members " pessoas ativas")
           :header-actions
           [[:button.btn.btn-primary
             {:on-click #(do (reset! editing-team nil) (reset! modal-open? true))}
@@ -117,7 +154,9 @@
                  [layout/icon "edit" {:width 12 :height 12}]]]
                [:div {:style {:display "flex" :gap "14px" :margin-top "4px" :flex-wrap "wrap"}}
                 [stat-col {:label "composição"
-                           :value (str (count (:members t)) " EVs")}]
+                           :value (str (count (:members t)) " pessoas")}]
+                (when-let [summary (cn-profile-summary t)]
+                  [stat-col {:label "perfil cn" :value summary}])
                 (when-let [mrr (:mrr_sum t)]
                   [stat-col {:label "MRR" :value (str "R$ " (fmt-int mrr))}])
                 (when-let [pct (:achievement_pct t)]
@@ -126,7 +165,8 @@
                              :color (cond
                                       (>= pct 100) "var(--success-dark)"
                                       (>= pct 70)  "var(--warning-dark)"
-                                      :else        "var(--danger-dark)")}])]])])
+                                      :else        "var(--danger-dark)")}])]
+               [cn-member-list t]])])
 
          ^{:key (str "team-modal-" (or (:id @editing-team) "new") "-" @modal-open?)}
          [team-modal {:open? @modal-open? :on-close #(reset! modal-open? false)

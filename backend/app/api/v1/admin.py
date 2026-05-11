@@ -20,6 +20,9 @@ WRITABLE_SETTINGS = {
     "perk_match_strict",
 }
 
+CN_NIVEIS = {"CN1", "CN2", "CN3"}
+CN_PORTES = {"M", "G+"}
+
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -86,6 +89,9 @@ def create_user():
         team_id=data.get("team_id") or None,
         active=True,
     )
+    error = _apply_profile_fields(user, data)
+    if error:
+        return error
     db.session.add(user)
     db.session.flush()
     log_audit("users", user.id, "CREATE", new_values={"email": email, "role": role})
@@ -116,6 +122,9 @@ def update_user(user_id):
         user.team_id = data["team_id"] or None
     if "active" in data:
         user.active = bool(data["active"])
+    error = _apply_profile_fields(user, data)
+    if error:
+        return error
 
     log_audit("users", user.id, "UPDATE", old_values=old_values, new_values=_serialize_user(user))
     db.session.commit()
@@ -709,6 +718,9 @@ def _serialize_user(u):
         "team_id": str(u.team_id) if u.team_id else None,
         "team_name": team_name,
         "active": u.active,
+        "nivel": u.nivel.value if hasattr(u.nivel, "value") else u.nivel,
+        "porte": u.porte.value if hasattr(u.porte, "value") else u.porte,
+        "salario_base": str(u.salario_base) if u.salario_base is not None else None,
     }
 
 
@@ -730,10 +742,46 @@ def _serialize_team(t):
                 "name": m.name,
                 "email": m.email,
                 "role": m.role.value if m.role else None,
+                "nivel": m.nivel.value if hasattr(m.nivel, "value") else m.nivel,
+                "porte": m.porte.value if hasattr(m.porte, "value") else m.porte,
+                "salario_base": str(m.salario_base) if m.salario_base is not None else None,
             }
             for m in members
         ],
     }
+
+
+def _apply_profile_fields(user, data):
+    """Persist role-specific compensation profile fields from admin forms."""
+    from decimal import Decimal, InvalidOperation
+
+    if "nivel" in data:
+        nivel = data.get("nivel") or None
+        if nivel is not None and nivel not in CN_NIVEIS:
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Invalid nivel: {nivel}"}}), 400
+        user.nivel = nivel
+
+    if "porte" in data:
+        porte = data.get("porte") or None
+        if porte is not None and porte not in CN_PORTES:
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Invalid porte: {porte}"}}), 400
+        user.porte = porte
+
+    if "salario_base" in data:
+        salario = data.get("salario_base")
+        if salario in (None, ""):
+            user.salario_base = None
+        else:
+            try:
+                user.salario_base = Decimal(str(salario))
+            except (InvalidOperation, ValueError):
+                return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Invalid salario_base"}}), 400
+
+    if "role" in data and user.role != UserRole.CN:
+        user.nivel = None
+        user.porte = None
+
+    return None
 
 
 def _serialize_pct_row(r):

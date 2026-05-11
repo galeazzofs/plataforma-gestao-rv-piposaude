@@ -15,6 +15,11 @@ CN_BASES: dict[str, Decimal] = {
     "CN3": Decimal("3000"),
 }
 
+VIDAS_META_FACTORS: dict[str, Decimal] = {
+    "M": Decimal("375"),
+    "G+": Decimal("1000"),
+}
+
 _ZERO = Decimal("0")
 _SCALE4 = Decimal("0.0001")
 _SCALE2 = Decimal("0.01")
@@ -33,6 +38,14 @@ def _regua(score: Decimal) -> Decimal:
     if score < Decimal("1.40"):
         return Decimal("1.80")
     return Decimal("2.10")
+
+
+def vidas_meta_from_sao(sao_meta: Decimal, porte: str | None) -> Decimal:
+    """Monthly lives target derived from SAO target and CN company-size profile."""
+    factor = VIDAS_META_FACTORS.get(porte or "")
+    if sao_meta <= _ZERO or factor is None:
+        return _ZERO
+    return (sao_meta * factor).quantize(_SCALE2)
 
 
 def simulate_cn(

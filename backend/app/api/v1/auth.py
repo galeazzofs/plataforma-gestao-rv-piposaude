@@ -7,20 +7,25 @@ from app.extensions import db
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 
 
+def _serialize_auth_user(user):
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "role": user.role.value if user.role else None,
+        "team_id": str(user.team_id) if user.team_id else None,
+        "active": user.active,
+        "nivel": user.nivel.value if hasattr(user.nivel, "value") else user.nivel,
+        "porte": user.porte.value if hasattr(user.porte, "value") else user.porte,
+        "salario_base": str(user.salario_base) if user.salario_base is not None else None,
+    }
+
+
 @auth_bp.route("/me")
 @require_auth
 def me():
     user = g.current_user
-    return jsonify({
-        "data": {
-            "id": str(user.id),
-            "email": user.email,
-            "name": user.name,
-            "role": user.role.value if user.role else None,
-            "team_id": str(user.team_id) if user.team_id else None,
-            "active": user.active,
-        }
-    })
+    return jsonify({"data": _serialize_auth_user(user)})
 
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -87,13 +92,7 @@ def dev_login():
         "data": {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "user": {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "role": user.role.value if user.role else None,
-                "team_id": str(user.team_id) if user.team_id else None,
-            },
+            "user": _serialize_auth_user(user),
         }
     })
 
@@ -155,11 +154,6 @@ def google_login():
         "data": {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "user": {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "role": user.role.value if user.role else None,
-            },
+            "user": _serialize_auth_user(user),
         }
     })
