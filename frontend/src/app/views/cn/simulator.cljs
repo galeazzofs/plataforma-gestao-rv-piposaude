@@ -178,17 +178,6 @@
      :commission_amount (* base multiplicador)
      :base base}))
 
-(defn- normalize-api-result [result]
-  (when result
-    {:pct_sao (or (->num (:pct_sao result)) 0)
-     :pct_vidas (or (->num (:pct_vidas result)) 0)
-     :score_final (or (->num (:score_final result)) 0)
-     :multiplicador (or (->num (:multiplicador result)) 0)
-     :commission_amount (or (->num (:commission_amount result)) 0)
-     :nivel (:nivel result)
-     :porte (:porte result)
-     :vidas_meta (or (->num (:vidas_meta result)) 0)}))
-
 (defn- validation-errors [form]
   (let [sao-meta (->num (:sao_meta form))
         sao-realizado (->num (:sao_realizado form))
@@ -207,13 +196,6 @@
       (assoc :vidas_meta "Meta de vidas automatica indisponivel.")
       (neg? (or vidas-realizado 0))
       (assoc :vidas_realizado "Use zero ou um valor positivo."))))
-
-(defn- payload [form]
-  {:nivel (:nivel form)
-   :sao_meta (or (->num (:sao_meta form)) 0)
-   :sao_realizado (or (->num (:sao_realizado form)) 0)
-   :vidas_meta (or (->num (:vidas_meta form)) 0)
-   :vidas_realizado (or (->num (:vidas_realizado form)) 0)})
 
 (defn- field [{:keys [label value placeholder help error on-change min step disabled]}]
   [:div.field
@@ -367,44 +349,32 @@
 (defn page []
   (let [initial-form {:nivel "CN1"
                       :porte "M"
-                      :sao_meta "500000"
-                      :sao_realizado "540000"
+                      :sao_meta ""
+                      :sao_realizado ""
                       :vidas_realizado "2180"}
         form (r/atom initial-form)]
     (fn []
-      (let [api-result @(rf/subscribe [:cn/simulator-result])
-            simulating? @(rf/subscribe [:cn/simulator-simulating?])
-            api-error @(rf/subscribe [:cn/simulator-error])
-            user @(rf/subscribe [:auth/current-user])
+      (let [user @(rf/subscribe [:auth/current-user])
             route @(rf/subscribe [:current-route-name])
             effective-form (enrich-form user @form)
             cn-user? (= (:role user) "CN")
             vidas-meta (:vidas_meta effective-form)
             errors (validation-errors effective-form)
             preview (calculate effective-form)
-            confirmed (normalize-api-result api-result)
-            chart-result (or confirmed preview)
-            can-submit? (empty? errors)]
+            chart-result preview]
         [layout/page-shell
          {:current-route route
           :user user
           :crumbs ["plataforma rv" "cn" "simulador"]
           :title "Simulador de comissao"
-          :subtitle (when simulating? "confirmando simulacao...")
+          :subtitle "previa automatica conforme os campos sao preenchidos"
           :header-actions
           [[:button.btn.btn-secondary
             {:type "button"
              :on-click #(do
                           (reset! form initial-form)
                           (rf/dispatch [:cn/simulator-clear]))}
-            "Resetar"]
-           [:button.btn.btn-primary
-            {:type "button"
-             :disabled (or simulating? (not can-submit?))
-             :on-click #(when can-submit?
-                          (rf/dispatch [:cn/simulate (payload effective-form)]))}
-            [layout/icon "target" {:width 14 :height 14}]
-            (if simulating? "Simulando" "Simular")]]}
+            "Resetar"]]}
 
          [:div.sim-grid
           [:div.card
@@ -477,16 +447,16 @@
              [:div.sim-rule-row
               [:span "pagamento"]
               [:strong "base mensal x multiplicador"]]]
-            (when api-error
+            (when (seq errors)
               [:div.callout.sim-error
                [layout/icon "alert" {:width 18 :height 18}]
                [:div
-                [:strong "Simulacao nao confirmada"]
-                [:p api-error]]])]]
+                [:strong "Preencha os campos para ver a simulacao"]
+                [:p "A previa atualiza automaticamente assim que os dados obrigatorios ficam validos."]]])]]
 
           [score-card {:preview preview
-                       :confirmed confirmed
-                       :simulating? simulating?}]]
+                       :confirmed nil
+                       :simulating? false}]]
 
          [:div.card.cn-chart-card
           [:div.card-head
