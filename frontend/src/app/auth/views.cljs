@@ -98,10 +98,10 @@
    ;; Brand mark
    [:div {:style {:position "relative" :z-index 1 :display "flex" :gap "14px" :align-items "center"}}
     [:div {:style {:width "42px" :height "42px" :border-radius "12px"
-                   :background t/color-white :color t/color-primary
-                   :display "flex" :align-items "center" :justify-content "center"
-                   :font-family t/font-display :font-size "26px" :line-height "1"}}
-     "P"]
+                   :background t/color-white :overflow "hidden"
+                   :display "flex" :align-items "center" :justify-content "center"}}
+     [:img {:src "/img/pipo-mark-light.png" :alt "Pipo Saúde"
+            :style {:width "42px" :height "42px" :display "block"}}]]
     [:div
      [:strong {:style {:font-family t/font-heading :font-size "17px"
                        :font-weight (:semibold t/font-weights)}}
@@ -115,7 +115,7 @@
                    :text-transform "uppercase" :letter-spacing "0.08em"
                    :margin-bottom "14px"}}
      "plataforma rv · q2/2026"]
-    [:h1 {:style {:font-family t/font-display :font-size "64px" :font-weight "400"
+    [:h1 {:style {:font-family t/font-display :font-size "64px" :font-weight "600"
                   :line-height "1.05" :color t/color-white
                   :letter-spacing "-0.015em" :margin 0}}
      "Comissões"
@@ -147,7 +147,7 @@
                       :text-transform "uppercase" :letter-spacing "0.06em"
                       :margin-bottom "8px"}}
         "entrar"]
-       [:h2 {:style {:font-family t/font-display :font-weight "400" :font-size "34px"
+       [:h2 {:style {:font-family t/font-display :font-weight "600" :font-size "34px"
                      :color t/text-primary :margin 0 :letter-spacing "-0.005em"}}
         "Bem-vindo de volta"]
        [:p {:style {:font-size "13px" :color t/text-tertiary :margin-top "6px"}}

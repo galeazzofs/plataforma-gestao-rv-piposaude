@@ -35,7 +35,7 @@
       (when-not (or (nil? n) (js/isNaN n)) n))))
 
 (defn- brl-value
-  "DM Serif Display number with the R$ prefix in UI font (or fallback when nil)."
+  "STIX Two Text number with the R$ prefix in UI font (or fallback when nil)."
   [v fallback]
   (if (some? v)
     [:<> [:span.currency "R$"] (or (fmt/int-brl v) fallback)]
@@ -355,8 +355,8 @@
        vec))
 
 (defn- fluxo-tooltip-render
-  "Dark editorial tooltip — month label in lowercase mono on top, projected
-   value in DM Serif tabular-nums below."
+  "Dark editorial tooltip — month label in lowercase Manrope on top, projected
+   value in STIX Two Text tabular-nums below."
   [props]
   (let [p (js->clj props :keywordize-keys true)
         active? (:active p)
@@ -439,7 +439,7 @@
                                               :offset 10
                                               :fill "var(--fg-2)"
                                               :fontSize 10
-                                              :fontFamily "IBM Plex Mono, monospace"
+                                              :fontFamily "Manrope, sans-serif"
                                               :letterSpacing "0.04em"}}])
             [rc-x-axis {:dataKey "idx"
                         :type "number"
@@ -454,7 +454,7 @@
                         :padding #js {:left 12 :right 12}
                         :tick #js {:fill "var(--fg-3)"
                                    :fontSize 11
-                                   :fontFamily "IBM Plex Mono, monospace"
+                                   :fontFamily "Manrope, sans-serif"
                                    :letterSpacing "0.02em"}}]
             [rc-y-axis {:domain #js [0 y-ceil]
                         :tickFormatter fmt-axis-val
@@ -464,7 +464,7 @@
                         :tickMargin 10
                         :tick #js {:fill "var(--fg-3)"
                                    :fontSize 11
-                                   :fontFamily "IBM Plex Mono, monospace"
+                                   :fontFamily "Manrope, sans-serif"
                                    :letterSpacing "0.02em"}}]
             (when today-x
               [rc-reference-line {:x today-x

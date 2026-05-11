@@ -19,10 +19,10 @@
                    :opacity 0.18}}]
     [:div {:style {:position "relative" :z-index 1 :display "flex" :gap "14px" :align-items "center"}}
      [:div {:style {:width "42px" :height "42px" :border-radius "12px"
-                    :background t/color-white :color t/color-primary
-                    :display "flex" :align-items "center" :justify-content "center"
-                    :font-family t/font-display :font-size "26px" :line-height "1"}}
-      "P"]
+                    :background t/color-white :overflow "hidden"
+                    :display "flex" :align-items "center" :justify-content "center"}}
+      [:img {:src "/img/pipo-mark-light.png" :alt "Pipo Saúde"
+             :style {:width "42px" :height "42px" :display "block"}}]]
      [:div
       [:strong {:style {:font-family t/font-heading :font-size "17px" :font-weight "600"}}
        "Pipo Saúde"]
@@ -34,7 +34,7 @@
                     :text-transform "uppercase" :letter-spacing "0.08em"
                     :margin-bottom "14px"}}
       "acesso pendente"]
-     [:h1 {:style {:font-family t/font-display :font-size "52px" :font-weight "400"
+     [:h1 {:style {:font-family t/font-display :font-size "52px" :font-weight "600"
                    :line-height "1.05" :color t/color-white
                    :letter-spacing "-0.015em" :margin 0}}
       "Quase lá."]
@@ -54,7 +54,7 @@
                     :text-transform "uppercase" :letter-spacing "0.06em"
                     :margin-bottom "8px"}}
       "aguardando atribuição"]
-     [:h2 {:style {:font-family t/font-display :font-weight "400" :font-size "30px"
+     [:h2 {:style {:font-family t/font-display :font-weight "600" :font-size "30px"
                    :color t/text-primary :margin 0 :letter-spacing "-0.005em"}}
       "Sem perfil ainda"]
      [:p {:style {:font-size "13px" :color t/text-tertiary :margin-top "8px" :line-height "1.6"}}

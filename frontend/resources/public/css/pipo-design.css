@@ -64,11 +64,12 @@
   --ease:cubic-bezier(.2,0,0,1);
   --d:160ms;
 
-  --font-display:"DM Serif Display",Georgia,serif;
-  --font-heading:"Poppins",system-ui,sans-serif;
-  --font-body:"Work Sans",system-ui,sans-serif;
-  --font-ui:"Manrope","Work Sans",system-ui,sans-serif;
-  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  /* Pipo brand: STIX Two Text (600) titles + Manrope (500 default) everything else. */
+  --font-display:"STIX Two Text",Georgia,serif;
+  --font-heading:"Manrope",system-ui,sans-serif;
+  --font-body:"Manrope",system-ui,sans-serif;
+  --font-ui:"Manrope",system-ui,sans-serif;
+  --font-mono:"Manrope",system-ui,sans-serif;
 }
 
 *{box-sizing:border-box}
@@ -76,6 +77,7 @@ html,body{margin:0;padding:0}
 body{
   font-family:var(--font-body);
   font-size:14px;
+  font-weight:500;
   line-height:1.5;
   color:var(--fg-2);
   background:var(--bg-2);
@@ -181,7 +183,7 @@ main:focus{outline:none}
 .crumbs{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--fg-3);text-transform:lowercase}
 .crumbs span:not(:last-child)::after{content:"/";margin-left:6px;color:var(--fg-muted)}
 .title-row{display:flex;align-items:baseline;gap:14px}
-.title-row h1{font-family:var(--font-display);font-size:30px;font-weight:400;letter-spacing:-0.005em;line-height:1}
+.title-row h1{font-family:var(--font-display);font-size:30px;font-weight:600;letter-spacing:-0.005em;line-height:1}
 .subtitle{font-size:13px;color:var(--fg-3)}
 .topbar-r{display:flex;align-items:center;gap:10px}
 
@@ -235,7 +237,7 @@ main:focus{outline:none}
 }
 .kpi-label{font-family:var(--font-mono);font-size:11px;text-transform:lowercase;letter-spacing:0.02em;color:var(--fg-3);display:flex;align-items:center;gap:6px}
 .kpi-label svg{width:14px;height:14px;color:var(--fg-3)}
-.kpi-value{font-family:var(--font-display);font-size:38px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.kpi-value{font-family:var(--font-display);font-size:38px;line-height:1;font-weight:600;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .kpi-value .currency{font-family:var(--font-ui);font-size:14px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
 .kpi-value .frac{font-family:var(--font-display);font-size:24px;color:var(--fg-3)}
 .kpi-foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3);margin-top:auto}
@@ -249,7 +251,7 @@ main:focus{outline:none}
 .split-numerics{display:grid;grid-template-columns:1fr 1px 1fr;gap:24px;align-items:start;padding:4px 0}
 .split-numerics .col{display:flex;flex-direction:column;gap:4px;min-width:0}
 .split-numerics .rule{background:var(--border-subtle);width:1px;justify-self:center;align-self:stretch}
-.split-numerics .num{font-family:var(--font-display);font-size:34px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.split-numerics .num{font-family:var(--font-display);font-size:34px;line-height:1;font-weight:600;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .split-numerics .num .currency{font-family:var(--font-ui);font-size:13px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
 .split-numerics .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
 
@@ -267,7 +269,7 @@ main:focus{outline:none}
 .horizon-strip .col{display:flex;flex-direction:column;gap:6px;min-width:0;position:relative}
 .horizon-strip .col + .col{padding-left:32px;border-left:1px solid var(--border-subtle)}
 .horizon-strip .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);letter-spacing:0.02em;text-transform:lowercase}
-.horizon-strip .num{font-family:var(--font-display);font-size:24px;line-height:1;font-weight:400;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.horizon-strip .num{font-family:var(--font-display);font-size:24px;line-height:1;font-weight:600;color:var(--fg-1);letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .horizon-strip .num .currency{font-family:var(--font-ui);font-size:12px;font-weight:600;color:var(--fg-3);margin-right:5px;letter-spacing:0}
 .horizon-strip .meta{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);letter-spacing:0.04em}
 
@@ -291,7 +293,7 @@ main:focus{outline:none}
   letter-spacing:0.04em;text-transform:lowercase;white-space:nowrap;
 }
 .horizon-card-num{
-  font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:400;
+  font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:600;
   color:var(--fg-1);letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
   margin-top:2px;
@@ -550,7 +552,7 @@ main:focus{outline:none}
 }
 .inspector-month{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
 .inspector-month strong{
-  font-family:var(--font-display);font-size:26px;line-height:1;font-weight:400;
+  font-family:var(--font-display);font-size:26px;line-height:1;font-weight:600;
   color:var(--fg-1);font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
 }
 .inspector-month span{
@@ -568,7 +570,7 @@ main:focus{outline:none}
   letter-spacing:0.04em;text-transform:lowercase;
 }
 .inspector-total strong{
-  font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:400;
+  font-family:var(--font-display);font-size:30px;line-height:1.05;font-weight:600;
   color:var(--fg-1);letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
 }
@@ -636,7 +638,7 @@ main:focus{outline:none}
 }
 
 /* Dark editorial tooltip — black pill with white text. Month label in
-   lowercase mono, value in DM Serif tabular-nums. */
+   lowercase Manrope, value in STIX Two Text tabular-nums. */
 .fluxo-tooltip{
   display:inline-flex;flex-direction:column;gap:4px;
   padding:10px 14px;
@@ -658,7 +660,7 @@ main:focus{outline:none}
   font-family:var(--font-display);
   font-size:18px;
   color:var(--bg-1);
-  font-weight:400;
+  font-weight:600;
   letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;
   font-feature-settings:"tnum";
@@ -791,13 +793,13 @@ main:focus{outline:none}
 }
 .score-row{display:flex;justify-content:space-between;align-items:baseline}
 .score-row span{font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:0.06em}
-.score-row strong{font-family:var(--font-display);font-size:28px;font-weight:400;letter-spacing:-0.01em}
+.score-row strong{font-family:var(--font-display);font-size:28px;font-weight:600;letter-spacing:-0.01em}
 .score-final{
   border-top:1px solid rgba(255,255,255,.15);padding-top:18px;margin-top:6px;
   display:flex;flex-direction:column;gap:4px;
 }
 .score-final span{font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:0.06em}
-.score-final strong{font-family:var(--font-display);font-size:48px;line-height:1;font-weight:400;color:var(--cyan);letter-spacing:-0.015em}
+.score-final strong{font-family:var(--font-display);font-size:48px;line-height:1;font-weight:600;color:var(--cyan);letter-spacing:-0.015em}
 .score-final .currency{font-family:var(--font-ui);font-size:16px;color:#fff;margin-right:8px;font-weight:600}
 
 /* Hidden views */
@@ -807,7 +809,7 @@ main:focus{outline:none}
 /* Section header inside content */
 .section-h{display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
 .section-h .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);text-transform:lowercase;margin-bottom:2px}
-.section-h h2{font-family:var(--font-display);font-weight:400;font-size:22px;letter-spacing:-0.005em}
+.section-h h2{font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:-0.005em}
 
 /* Distribution bar (saldo por ano) */
 .dist{display:flex;flex-direction:column;gap:14px}
@@ -906,7 +908,7 @@ main:focus{outline:none}
   opacity:.18;pointer-events:none;
 }
 .login-form-side{background:#fff;color:var(--fg-2);padding:64px 72px;display:flex;flex-direction:column;justify-content:center;gap:28px;overflow-y:auto}
-.login-form-side h2{font-family:var(--font-display);font-weight:400;font-size:34px;color:var(--fg-1)}
+.login-form-side h2{font-family:var(--font-display);font-weight:600;font-size:34px;color:var(--fg-1)}
 .login-form-side .field-input{padding:14px 16px;font-size:14px}
 .dot-grid{position:absolute;inset:0;background-image:radial-gradient(circle,var(--cyan) 1px,transparent 1.5px);background:32px 32px;background-size:32px 32px;opacity:.15;pointer-events:none}
 
@@ -1713,7 +1715,7 @@ main:focus{outline:none}
   font-family:var(--font-display);
   font-size:48px;
   line-height:.96;
-  font-weight:400;
+  font-weight:600;
   color:var(--fg-1);
   letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;
@@ -1758,7 +1760,7 @@ main:focus{outline:none}
   font-family:var(--font-display);
   font-size:30px;
   line-height:1;
-  font-weight:400;
+  font-weight:600;
   color:var(--fg-1);
   letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;

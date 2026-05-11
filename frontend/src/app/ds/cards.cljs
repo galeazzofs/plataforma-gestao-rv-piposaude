@@ -34,7 +34,7 @@
       (when icon [:span {:style {:font-size "14px"}} icon])
       label]
      [:span {:style {:font-family t/font-display :font-size "38px" :line-height "1"
-                     :font-weight "400" :color accent
+                     :font-weight "600" :color accent
                      :letter-spacing "-0.01em"}}
       value]
      (when subtitle
@@ -58,7 +58,7 @@
        label]
       [:div {:style {:display "flex" :justify-content "space-between" :align-items "baseline"}}
        [:span {:style {:font-family t/font-display :font-size "38px"
-                       :font-weight "400" :line-height "1"
+                       :font-weight "600" :line-height "1"
                        :color bar-color :letter-spacing "-0.01em"}}
         (str (.toFixed pct 1) "%")]
        (when (and current target)

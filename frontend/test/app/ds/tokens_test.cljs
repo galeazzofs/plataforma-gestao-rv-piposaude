@@ -42,11 +42,12 @@
     (is (= "24px" (get tokens/font-sizes :2xl))))
 
   (testing "font families are wired to design system roles"
-    (is (re-find #"Work Sans"        tokens/font-body))
-    (is (re-find #"Poppins"          tokens/font-heading))
-    (is (re-find #"Manrope"          tokens/font-ui))
-    (is (re-find #"DM Serif Display" tokens/font-display))
-    (is (re-find #"IBM Plex Mono"    tokens/font-mono))))
+    ;; Pipo brand: STIX Two Text for titles (font-display), Manrope for everything else.
+    (is (re-find #"Manrope"        tokens/font-body))
+    (is (re-find #"Manrope"        tokens/font-heading))
+    (is (re-find #"Manrope"        tokens/font-ui))
+    (is (re-find #"STIX Two Text"  tokens/font-display))
+    (is (re-find #"Manrope"        tokens/font-mono))))
 
 (deftest layout-test
   (testing "responsive breakpoints align with the CSS media queries"

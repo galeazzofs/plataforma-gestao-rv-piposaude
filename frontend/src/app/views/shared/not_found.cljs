@@ -24,7 +24,7 @@
                    :color t/text-tertiary :text-transform "uppercase"
                    :letter-spacing "0.08em"}}
      "404 · página perdida"]
-    [:h1 {:style {:font-family t/font-display :font-size "96px" :font-weight "400"
+    [:h1 {:style {:font-family t/font-display :font-size "96px" :font-weight "600"
                   :color t/text-primary :margin 0 :line-height "1"
                   :letter-spacing "-0.015em"}}
      "Ops."]

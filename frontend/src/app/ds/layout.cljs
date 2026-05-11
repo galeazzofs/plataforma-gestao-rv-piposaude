@@ -74,7 +74,9 @@
   [{:keys [items active-key user]}]
   [:aside.sidebar {:aria-label "Navegação principal"}
    [:div.brand
-    [:div.brand-mark {:aria-hidden true} "P"]
+    [:div.brand-mark {:aria-hidden true}
+     [:img {:src "/img/pipo-mark-dark.png" :alt ""
+            :style {:width "34px" :height "34px" :border-radius "10px" :display "block"}}]]
     [:div.brand-name
      [:strong "Pipo Saúde"]
      [:span "plataforma · rv"]]]

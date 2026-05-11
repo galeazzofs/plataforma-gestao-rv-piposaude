@@ -92,7 +92,7 @@
          [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
                         :color "var(--fg-3)" :text-transform "lowercase"}}
           "apuração ativa"]
-         [:h2 {:style {:font-family "var(--font-display)" :font-weight 400 :font-size "24px" :margin-top "2px"}}
+         [:h2 {:style {:font-family "var(--font-display)" :font-weight 600 :font-size "24px" :margin-top "2px"}}
           (str period " · em revisão")]]
         [:div.card-actions
          [status->badge status]

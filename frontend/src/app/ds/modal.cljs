@@ -106,7 +106,7 @@
                           :border-bottom (str "1px solid " t/border-default)
                           :flex-shrink 0}}
             [:h3 {:id title-id
-                  :style {:font-family t/font-display :font-size "22px" :font-weight "400"
+                  :style {:font-family t/font-display :font-size "22px" :font-weight "600"
                           :color t/text-primary :margin 0 :letter-spacing "-0.005em"}}
              title]
             [:button {:on-click on-close

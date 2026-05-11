@@ -101,14 +101,15 @@
 ;; TYPOGRAPHY
 ;; ============================================
 
-;; Default font-family used by inline styles (body copy).
-;; Headings/labels can opt-in to font-display, font-heading, font-ui, font-mono.
-(def font-family   "'Work Sans', system-ui, -apple-system, sans-serif")
-(def font-display  "'DM Serif Display', Georgia, serif")
-(def font-heading  "'Poppins', system-ui, sans-serif")
-(def font-body     "'Work Sans', system-ui, sans-serif")
-(def font-ui       "'Manrope', 'Work Sans', system-ui, sans-serif")
-(def font-mono     "'IBM Plex Mono', ui-monospace, Menlo, monospace")
+;; Pipo brand: STIX Two Text (600) for titles, Manrope (500 default) for everything else.
+;; font-display = titles (page-level h1, KPI heroes, display copy).
+;; All other roles collapse to Manrope so the system uses just the two brand families.
+(def font-family   "'Manrope', system-ui, -apple-system, sans-serif")
+(def font-display  "'STIX Two Text', Georgia, serif")
+(def font-heading  "'Manrope', system-ui, sans-serif")
+(def font-body     "'Manrope', system-ui, sans-serif")
+(def font-ui       "'Manrope', system-ui, sans-serif")
+(def font-mono     "'Manrope', system-ui, sans-serif")
 
 (def font-sizes
   {:xs   "12px"
