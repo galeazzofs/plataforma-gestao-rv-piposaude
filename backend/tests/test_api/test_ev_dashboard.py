@@ -72,7 +72,7 @@ def _policy(ev, client, mrr, closed, first_payment):
     return policy
 
 
-def test_summary_period_filter_scopes_balance_mrr_and_goal(client, db_session):
+def test_summary_period_filter_scopes_receivable_schedule_mrr_and_goal(client, db_session):
     _seed_p_pct_table()
     ev, client_obj = _ev_and_client()
     db.session.add_all([
@@ -91,11 +91,30 @@ def test_summary_period_filter_scopes_balance_mrr_and_goal(client, db_session):
     data = resp.get_json()["data"]
     assert data["current_quarter"] == 1
     assert data["current_year"] == 2026
-    assert data["balance_estimated"] == "960.00"
+    assert data["balance_estimated"] == "240.00"
     assert data["mrr_sold"] == "1000.00"
     assert data["mrr_target"] == "10000.00"
     assert data["achievement_pct"] == "10.00"
     assert data["available_years"] == [2026]
+
+
+def test_summary_period_balance_uses_receivable_schedule_not_quarter_sales(client, db_session):
+    _seed_p_pct_table()
+    ev, client_obj = _ev_and_client()
+    _policy(ev, client_obj, "1000.00", date(2026, 1, 15), date(2026, 1, 1))
+    policy = Policy.query.filter_by(ev_id=ev.id).first()
+    policy.installments_paid = 6
+    db.session.flush()
+
+    resp = client.get(
+        "/api/v1/commissions/summary?year=2026&quarter=3",
+        headers=_auth_header(ev),
+    )
+
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    assert data["balance_estimated"] == "240.00"
+    assert data["mrr_sold"] == "0.00"
 
 
 def test_projection_period_filter_returns_selected_quarter_months(client, db_session):

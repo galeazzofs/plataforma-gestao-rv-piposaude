@@ -21,6 +21,11 @@ from app.modules.commissions.pct_lookup import lookup_commission_pct
 _MIDDLE_TIER_ACH = Decimal("0.5000")
 
 
+def _add_months(value: date, months: int) -> date:
+    month_index = value.year * 12 + (value.month - 1) + months
+    return date(month_index // 12, (month_index % 12) + 1, 1)
+
+
 def _resolve_achievement(policy) -> Decimal:
     """Return the achievement pct to use for commission-rate lookup.
 
@@ -101,26 +106,26 @@ def compute_ev_projection(ev_id, ref_date=None, period_start=None, period_months
         m = ((m - 1) % 12) + 1
         buckets.append({"month": f"{y}-{m:02d}", "projected": Decimal("0")})
 
+    bucket_by_month = {b["month"]: b for b in buckets}
+
     for p in policies:
         monthly = _estimated_monthly(p)
         if monthly <= 0:
             continue
 
-        remaining = max(0, 12 - (p.installments_paid or 0))
+        months_paid = max(0, min(p.installments_paid or 0, 12))
+        remaining = max(0, 12 - months_paid)
         if remaining == 0:
             continue
 
         # Determine payment start: real > prev > ref_date
         start = p.first_payment_real or p.first_payment_prev or ref_date
 
-        distributed = 0
-        for bucket in buckets:
-            if distributed >= remaining:
-                break
-            bucket_y, bucket_m = map(int, bucket["month"].split("-"))
-            if (bucket_y, bucket_m) >= (start.year, start.month):
+        for i in range(remaining):
+            scheduled = _add_months(start, months_paid + i)
+            bucket = bucket_by_month.get(scheduled.strftime("%Y-%m"))
+            if bucket is not None:
                 bucket["projected"] += monthly
-                distributed += 1
 
     # Quantize all values
     for b in buckets:

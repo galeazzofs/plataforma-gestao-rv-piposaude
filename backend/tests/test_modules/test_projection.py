@@ -170,3 +170,37 @@ class TestComputeEvProjection:
         non_zero = [m for m in months if m["projected"] > Decimal("0")]
         assert len(non_zero) == 6
         assert all(m["projected"] == Decimal("800.00") for m in non_zero)
+
+    def test_projection_schedules_remaining_months_after_paid_installments(self, db_session):
+        ev, client = _setup(db_session)
+
+        db_session.add(Policy(
+            hubspot_apolice_id="A-6", hubspot_ticket_id="T-6", ev_id=ev.id, client_id=client.id,
+            segment=Segment.P, benefit_type=BenefitType.SAUDE,
+            mrr_projected=Decimal("1000"),
+            closed_date=date(2026, 1, 15),
+            commission_status=CommissionStatus.IN_PAYMENT,
+            installments_paid=10,
+            first_payment_real=date(2026, 1, 1),
+        ))
+        db_session.flush()
+
+        q3 = compute_ev_projection(
+            ev.id,
+            period_start=date(2026, 7, 1),
+            period_months=3,
+        )
+        q4 = compute_ev_projection(
+            ev.id,
+            period_start=date(2026, 10, 1),
+            period_months=3,
+        )
+
+        assert [m["projected"] for m in q3] == [
+            Decimal("0.00"), Decimal("0.00"), Decimal("0.00"),
+        ]
+        assert q4 == [
+            {"month": "2026-10", "projected": Decimal("0.00")},
+            {"month": "2026-11", "projected": Decimal("80.00")},
+            {"month": "2026-12", "projected": Decimal("80.00")},
+        ]

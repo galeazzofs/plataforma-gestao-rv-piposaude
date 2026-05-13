@@ -95,7 +95,7 @@ def list_commissions():
 @require_auth
 def commission_summary():
     """Summary: saldo a receber, atingimento, projecao (spec S7 + S9)."""
-    from app.modules.commissions.projection import compute_ev_balance
+    from app.modules.commissions.projection import compute_ev_projection
 
     user = g.current_user
     ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
@@ -112,7 +112,14 @@ def commission_summary():
     selected_quarter = quarter or (today.month - 1) // 3 + 1
     selected_year = year or today.year
     start_date, end_date = _period_bounds(selected_year, selected_quarter)
-    balance = compute_ev_balance(ev_id, start_date, end_date)
+    period_start, period_months = _projection_window(selected_year, selected_quarter)
+    period_projection = compute_ev_projection(
+        ev_id,
+        period_start=period_start,
+        period_months=period_months,
+    )
+    balance = sum((m["projected"] for m in period_projection), Decimal("0"))
+    balance = balance.quantize(Decimal("0.01"))
 
     goal = Goal.query.filter_by(
         ev_id=ev_id, quarter=selected_quarter, year=selected_year
@@ -125,9 +132,10 @@ def commission_summary():
         Policy.closed_date >= start_date,
         Policy.closed_date < end_date,
     ).scalar()
+    quarter_mrr = Decimal(str(quarter_mrr or "0")).quantize(Decimal("0.01"))
 
     target = goal.mrr_target if goal else Decimal("0")
-    achievement = (Decimal(str(quarter_mrr)) / target * 100) if target > 0 else Decimal("0")
+    achievement = (quarter_mrr / target * 100) if target > 0 else Decimal("0")
 
     return jsonify({
         "data": {

@@ -29,8 +29,9 @@
 
 (rf/reg-event-fx
  :revops/run-cn-appraisal
- (fn [_ [_ payload]]
-   {:http {:method     :post
+ (fn [{:keys [db]} [_ payload]]
+   {:db   (assoc-in db [:admin :cn-appraisals-loading?] true)
+    :http {:method     :post
            :url        ep/cn-appraisal
            :body       payload
            :on-success [:revops/cn-appraisal-done (:month payload) (:year payload)]
@@ -77,8 +78,48 @@
            :on-success [:revops/fetch-cn-appraisals month year]
            :on-failure [:revops/cn-appraisals-error]}}))
 
+(rf/reg-event-fx
+ :revops/sync-cn-appraisal-preview
+ (fn [{:keys [db]} [_ month year]]
+   {:db   (assoc-in db [:admin :cn-sync-loading?] true)
+    :http {:method     :get
+           :url        (str ep/cn-appraisal "/sync?month=" month "&year=" year)
+           :on-success [:revops/cn-sync-preview-loaded]
+           :on-failure [:revops/cn-sync-preview-error]}}))
+
+(rf/reg-event-db
+ :revops/cn-sync-preview-loaded
+ (fn [db [_ response]]
+   (-> db
+       (assoc-in [:admin :cn-sync-preview] (:data response))
+       (assoc-in [:admin :cn-sync-preview-at] (.getTime (js/Date.)))
+       (assoc-in [:admin :cn-sync-loading?] false)
+       (assoc-in [:admin :cn-sync-error] nil))))
+
+(rf/reg-event-db
+ :revops/cn-sync-preview-error
+ (fn [db [_ response]]
+   (js/console.error "cn-sync-preview-error:" (clj->js response))
+   (-> db
+       (assoc-in [:admin :cn-sync-loading?] false)
+       (assoc-in [:admin :cn-sync-error]
+                 (or (get-in response [:error :message])
+                     (get-in response [:error :code])
+                     "Sync falhou — veja o console pra detalhes.")))))
+
+(rf/reg-event-db
+ :revops/cn-sync-preview-clear
+ (fn [db _]
+   (-> db
+       (assoc-in [:admin :cn-sync-preview] nil)
+       (assoc-in [:admin :cn-sync-preview-at] nil))))
+
 (rf/reg-sub :revops/cn-appraisals (fn [db _] (get-in db [:admin :cn-appraisals] [])))
 (rf/reg-sub :revops/cn-appraisals-loading? (fn [db _] (get-in db [:admin :cn-appraisals-loading?])))
+(rf/reg-sub :revops/cn-sync-preview (fn [db _] (get-in db [:admin :cn-sync-preview])))
+(rf/reg-sub :revops/cn-sync-preview-at (fn [db _] (get-in db [:admin :cn-sync-preview-at])))
+(rf/reg-sub :revops/cn-sync-loading? (fn [db _] (get-in db [:admin :cn-sync-loading?])))
+(rf/reg-sub :revops/cn-sync-error (fn [db _] (get-in db [:admin :cn-sync-error])))
 
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
@@ -135,8 +176,7 @@
    or nil when there's nothing to do (LOCKED)."
   [status]
   (case status
-    "DRAFT"          ["Iniciar"        "CALCULATING"]
-    "CALCULATING"    ["Liberar p/ EV"  "VALIDATING"]
+    "CALCULATING"    ["Liberar p/ CN"  "VALIDATING"]
     "VALIDATING"     ["Avançar"        "LIDER_REVIEW"]
     "LIDER_REVIEW"   ["Aprovar (Líder)" "REVOPS_REVIEW"]
     "REVOPS_REVIEW"  ["Fechar"         "LOCKED"]
@@ -203,11 +243,23 @@
 
 (defn page []
   (let [filter-s    (r/atom {:month "4" :year "2026"})
-        form-inputs (r/atom {})
-        modal-state (r/atom {:open? false :mode nil :row nil :note ""})]
+        modal-state (r/atom {:open? false :mode nil :row nil :note ""})
+        select-period (fn [k v]
+                        (swap! filter-s assoc k v)
+                        ;; Preview is tied to a specific month/year — clear
+                        ;; it on filter change so admin re-syncs explicitly.
+                        (rf/dispatch [:revops/cn-sync-preview-clear])
+                        (rf/dispatch [:revops/fetch-cn-appraisals
+                                      (:month @filter-s) (:year @filter-s)]))]
+    (rf/dispatch [:revops/fetch-cn-appraisals
+                  (:month @filter-s) (:year @filter-s)])
     (fn []
       (let [items    @(rf/subscribe [:revops/cn-appraisals])
             loading? @(rf/subscribe [:revops/cn-appraisals-loading?])
+            sync-preview @(rf/subscribe [:revops/cn-sync-preview])
+            sync-loading? @(rf/subscribe [:revops/cn-sync-loading?])
+            sync-at  @(rf/subscribe [:revops/cn-sync-preview-at])
+            sync-error @(rf/subscribe [:revops/cn-sync-error])
             user     @(rf/subscribe [:auth/current-user])
             route    @(rf/subscribe [:current-route-name])
             total    (reduce + 0 (map #(or (:commission_amount %) 0) (or items [])))
@@ -234,13 +286,22 @@
             {:on-click #(rf/dispatch [:revops/fetch-cn-appraisals
                                       (:month @filter-s) (:year @filter-s)])}
             [layout/icon "refresh" {:width 14 :height 14}] "Buscar"]
+           [:button.btn.btn-secondary
+            {:disabled (boolean sync-loading?)
+             :on-click #(rf/dispatch [:revops/sync-cn-appraisal-preview
+                                      (:month @filter-s) (:year @filter-s)])}
+            [layout/icon "refresh" {:width 14 :height 14}]
+            (if sync-loading? "Sincronizando…" "Sincronizar HubSpot")]
            [:button.btn.btn-primary
-            {:on-click (fn []
+            {:disabled (or (nil? sync-preview) loading?)
+             :title    (when (nil? sync-preview)
+                         "Sincronize com o HubSpot primeiro")
+             :on-click (fn []
                          (rf/dispatch [:revops/run-cn-appraisal
                                        {:month  (:month @filter-s)
                                         :year   (:year @filter-s)
-                                        :inputs (mapv (fn [[cn-id vals]] (merge {:cn_id cn-id} vals))
-                                                       @form-inputs)}]))}
+                                        :inputs (mapv #(select-keys % [:cn_id :sao_realizado :vidas_realizado])
+                                                       (:items sync-preview))}]))}
             [layout/icon "target" {:width 14 :height 14}] "Rodar apuração"]]}
 
          [contest-modal {:state modal-state :on-submit on-modal-submit}]
@@ -252,7 +313,7 @@
                       :class (str "chip" (when (= (str m) (:month @filter-s)) " active"))
                       :aria-pressed (str (= (str m) (:month @filter-s)))
                       :aria-label (str "Mês " m)
-                      :on-click #(swap! filter-s assoc :month (str m))}
+                      :on-click #(select-period :month (str m))}
              (str m)])
           [:div {:role "separator" :aria-hidden "true"
                  :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
@@ -261,7 +322,7 @@
             [:button {:type "button"
                       :class (str "chip" (when (= y (:year @filter-s)) " active"))
                       :aria-pressed (str (= y (:year @filter-s)))
-                      :on-click #(swap! filter-s assoc :year y)}
+                      :on-click #(select-period :year y)}
              y])]
 
          [:div.kpi-grid.-three
@@ -301,7 +362,61 @@
           [:div {:style {:flex 1}}
            [:strong "Como funciona"]
            [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
-            "Preencha os valores realizados nos formulários da equipe (em CN · Metas) e clique em Rodar apuração."]]]
+            "1) Sincronizar HubSpot puxa os deals que entraram em SAO no mês "
+            "(agrupados por CN via owner) e mostra o preview abaixo. "
+            "2) Rodar apuração usa esses valores para calcular comissão. "
+            "Trocar mês/ano limpa o preview — sincronize de novo."]]]
+
+         (when sync-error
+           [:div.callout {:style {:border-color "var(--danger, #c33)"}}
+            [layout/icon "info" {:width 20 :height 20}]
+            [:div {:style {:flex 1}}
+             [:strong "Sync falhou"]
+             [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
+              sync-error]]])
+
+         (when sync-preview
+           (let [{:keys [items summary]} sync-preview
+                 {:keys [cns_hit total_sao total_vidas
+                         deals_scanned unresolved]} summary
+                 with-deals (filter #(pos? (js/parseFloat (:sao_realizado %))) items)]
+             [:div.card {:style {:padding "16px 20px"}}
+              [:div {:style {:display "flex" :justify-content "space-between"
+                             :align-items "center" :margin-bottom "10px"}}
+               [:div
+                [:h3 {:style {:margin 0}} "Preview HubSpot"]
+                [:div.card-sub
+                 (str deals_scanned " deals do HubSpot · "
+                      cns_hit "/" (count items) " CNs com deals · "
+                      total_sao " SAOs · " total_vidas " vidas"
+                      (when (pos? unresolved)
+                        (str " · " unresolved " deals sem CN reconhecido"))
+                      " · (" (:month sync-preview) "/" (:year sync-preview) ")")]]
+               (when sync-at
+                 [:span.muted {:style {:font-family "var(--font-mono)"
+                                       :font-size "11px"}}
+                  (str "sincronizado "
+                       (.toLocaleTimeString (js/Date. sync-at) "pt-BR"))])]
+              [:table.table
+               [:thead
+                [:tr
+                 [:th "CN"]
+                 [:th.right "SAOs"]
+                 [:th.right "Vidas"]]]
+               [:tbody
+                (if (empty? with-deals)
+                  [:tr [:td {:col-span 3 :style {:padding "16px"
+                                                 :text-align "center"
+                                                 :color "var(--fg-3)"}}
+                        (if (pos? deals_scanned)
+                          "HubSpot devolveu deals, mas o nome do CN no deal não bateu com nenhum CN ativo"
+                          "Nenhum deal entrou em SAO no mês")]]
+                  (for [row with-deals]
+                    ^{:key (:cn_id row)}
+                    [:tr
+                     [:td.name (:cn_name row)]
+                     [:td.right.num (:sao_realizado row)]
+                     [:td.right.num (:vidas_realizado row)]]))]]]))
 
          [:div.card {:style {:padding 0}}
           [:table.table

@@ -30,6 +30,9 @@ def run_ev_quarterly_bonus(quarter: int, year: int) -> dict:
     Skips achievements that are already is_final=True.
     Skips EVs with no salario_base set.
     """
+    if quarter not in (1, 2, 3, 4):
+        raise ValueError(f"quarter must be 1..4, got {quarter}")
+
     achievements = EvQuarterAchievement.query.filter_by(
         quarter=quarter, year=year
     ).all()

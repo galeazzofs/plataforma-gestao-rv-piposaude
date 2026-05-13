@@ -23,12 +23,16 @@ def run_bonus():
     try:
         quarter = int(body["quarter"])
         year = int(body["year"])
+        _validate_quarter(quarter)
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
 
     try:
         result = run_ev_quarterly_bonus(quarter, year)
         db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
@@ -42,8 +46,14 @@ def list_bonuses():
     if user.role not in (UserRole.ADMIN, UserRole.EV):
         return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
-    quarter = request.args.get("quarter", type=int)
-    year = request.args.get("year", type=int)
+    try:
+        quarter = _optional_int_arg("quarter")
+        year = _optional_int_arg("year")
+        if quarter is not None:
+            _validate_quarter(quarter)
+    except ValueError as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
+
     query = EvQuarterAchievement.query
     if quarter:
         query = query.filter_by(quarter=quarter)
@@ -52,14 +62,31 @@ def list_bonuses():
     if user.role == UserRole.EV:
         query = query.filter_by(ev_id=user.id)
 
-    items = query.all()
+    items = query.order_by(EvQuarterAchievement.year.desc(),
+                           EvQuarterAchievement.quarter.desc()).all()
     return jsonify({"data": [_serialize(a) for a in items]})
+
+
+def _optional_int_arg(name):
+    value = request.args.get(name)
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer")
+
+
+def _validate_quarter(quarter):
+    if quarter not in (1, 2, 3, 4):
+        raise ValueError(f"quarter must be 1..4, got {quarter}")
 
 
 def _serialize(a):
     return {
         "id": str(a.id),
         "ev_id": str(a.ev_id),
+        "ev_name": a.ev.name if a.ev else None,
         "quarter": a.quarter,
         "year": a.year,
         "achievement_pct": str(a.achievement_pct) if a.achievement_pct is not None else None,

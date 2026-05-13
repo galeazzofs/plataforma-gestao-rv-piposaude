@@ -13,6 +13,9 @@ from app.modules.commissions.cn_calculator import (
     MissingGoalsError,
 )
 from app.modules.commissions.cn_bonus_calculator import run_cn_quarterly_bonus
+from app.modules.hubspot_sync.cn_realized import (
+    fetch_cn_realized, fetch_cn_realized_with_meta,
+)
 from app.modules.workflow.state_machine import (
     transition_cn_monthly_appraisal,
     InvalidTransitionError,
@@ -104,7 +107,7 @@ def run_cn_appraisal():
         year = int(body["year"])
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
-    inputs = body.get("inputs", [])
+    inputs = body.get("inputs") or []
 
     try:
         result = run_cn_monthly_appraisal_with_inputs(month, year, inputs)
@@ -116,6 +119,62 @@ def run_cn_appraisal():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
+
+
+@cn_commissions_bp.route("/appraisal/sync")
+@require_auth
+def preview_cn_appraisal_sync():
+    """Read-only HubSpot pull: returns one row per active CN with the SAO
+    count + vidas sum for (month, year). No DB writes — the frontend
+    stores this client-side and passes it as `inputs` to POST /appraisal.
+
+    Including CNs with zero deals keeps the UI honest: admin sees the full
+    cohort and can spot anyone missing from HubSpot."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    try:
+        month = int(request.args.get("month"))
+        year = int(request.args.get("year"))
+    except (TypeError, ValueError) as e:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": str(e)}}), 400
+
+    try:
+        realized, meta = fetch_cn_realized_with_meta(month, year)
+    except Exception as e:
+        return jsonify({
+            "error": {"code": "HUBSPOT_SYNC_FAILED", "message": str(e)},
+        }), 502
+
+    active_cns = (
+        User.query.filter_by(role=UserRole.CN, active=True)
+        .order_by(User.name).all()
+    )
+    from decimal import Decimal as _D
+    zero = {"sao_realizado": _D("0"), "vidas_realizado": _D("0")}
+    items = []
+    for cn in active_cns:
+        vals = realized.get(cn.id, zero)
+        items.append({
+            "cn_id": str(cn.id),
+            "cn_name": cn.name,
+            "sao_realizado": str(vals["sao_realizado"]),
+            "vidas_realizado": str(vals["vidas_realizado"]),
+        })
+    return jsonify({"data": {
+        "month": month, "year": year,
+        "items": items,
+        "summary": {
+            "cns_hit": len(realized),
+            "total_sao": sum(int(v["sao_realizado"]) for v in realized.values()),
+            "total_vidas": str(sum(
+                (v["vidas_realizado"] for v in realized.values()), _D("0"),
+            )),
+            "deals_scanned": meta["deals_scanned"],
+            "unresolved": meta["unresolved"],
+        },
+    }})
 
 
 @cn_commissions_bp.route("/appraisal")
