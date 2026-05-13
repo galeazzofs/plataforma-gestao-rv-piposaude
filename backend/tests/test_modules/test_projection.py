@@ -204,3 +204,58 @@ class TestComputeEvProjection:
             {"month": "2026-11", "projected": Decimal("80.00")},
             {"month": "2026-12", "projected": Decimal("80.00")},
         ]
+
+    def test_projection_uses_paid_commission_when_installment_count_is_missing(self, db_session):
+        ev, client = _setup(db_session)
+
+        db_session.add(Policy(
+            hubspot_apolice_id="A-7", hubspot_ticket_id="T-7", ev_id=ev.id, client_id=client.id,
+            segment=Segment.P, benefit_type=BenefitType.SAUDE,
+            mrr_projected=Decimal("1000"),
+            closed_date=date(2026, 1, 15),
+            commission_status=CommissionStatus.IN_PAYMENT,
+            installments_paid=0,
+            first_payment_real=date(2026, 1, 1),
+            total_paid_comissao=Decimal("240.00"),
+        ))
+        db_session.flush()
+
+        months = compute_ev_projection(
+            ev.id,
+            period_start=date(2026, 1, 1),
+            period_months=6,
+        )
+
+        assert months == [
+            {"month": "2026-01", "projected": Decimal("0.00")},
+            {"month": "2026-02", "projected": Decimal("0.00")},
+            {"month": "2026-03", "projected": Decimal("0.00")},
+            {"month": "2026-04", "projected": Decimal("80.00")},
+            {"month": "2026-05", "projected": Decimal("80.00")},
+            {"month": "2026-06", "projected": Decimal("80.00")},
+        ]
+
+    def test_projection_uses_paid_agenciamento_to_reduce_ev_open_balance(self, db_session):
+        ev, client = _setup(db_session)
+
+        db_session.add(Policy(
+            hubspot_apolice_id="A-8", hubspot_ticket_id="T-8", ev_id=ev.id, client_id=client.id,
+            segment=Segment.P, benefit_type=BenefitType.SAUDE,
+            mrr_projected=Decimal("1000"),
+            closed_date=date(2026, 1, 15),
+            commission_status=CommissionStatus.IN_PAYMENT,
+            installments_paid=0,
+            first_payment_real=date(2026, 1, 1),
+            total_paid_agenciamento=Decimal("240.00"),
+        ))
+        db_session.flush()
+
+        months = compute_ev_projection(
+            ev.id,
+            period_start=date(2026, 1, 1),
+            period_months=3,
+        )
+
+        assert [m["projected"] for m in months] == [
+            Decimal("0.00"), Decimal("0.00"), Decimal("0.00"),
+        ]

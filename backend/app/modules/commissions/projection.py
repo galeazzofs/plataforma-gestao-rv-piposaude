@@ -11,7 +11,7 @@ fields directly and compute on-the-fly so projections stay current after each
 sync.
 """
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 
 from app.models import Policy, CommissionStatus, EvQuarterAchievement
 from app.modules.commissions.pct_lookup import lookup_commission_pct
@@ -58,6 +58,47 @@ def _estimated_monthly(policy):
     return (mrr * pct).quantize(Decimal("0.01"))
 
 
+def _paid_commissionable_total(policy) -> Decimal:
+    """Commissionable remuneration already paid for the policy.
+
+    EV dashboard answers "saldo a receber", so both Comissao and Agenciamento
+    already received by the EV reduce the open balance shown there.
+    """
+    explicit = (policy.total_paid_comissao or Decimal("0")) + (
+        policy.total_paid_agenciamento or Decimal("0")
+    )
+    if explicit <= 0:
+        explicit = Decimal("0")
+        for c in policy.commissions or []:
+            if c.is_final and c.total_actual is not None:
+                explicit += c.total_actual
+    return explicit + (policy.commission_paid_legacy or Decimal("0"))
+
+
+def _projection_state(policy):
+    monthly = _estimated_monthly(policy)
+    if monthly <= 0:
+        return monthly, 0, Decimal("0")
+
+    installments_paid = max(0, min(policy.installments_paid or 0, 12))
+    paid = _paid_commissionable_total(policy)
+    paid_months = 0
+    if paid > 0:
+        paid_months = int((paid / monthly).to_integral_value(rounding=ROUND_CEILING))
+        paid_months = max(0, min(paid_months, 12))
+
+    start_index = max(installments_paid, paid_months)
+    scheduled_capacity = monthly * Decimal(max(0, 12 - start_index))
+    catchup_capacity = Decimal("0")
+    if paid_months > installments_paid:
+        catchup_capacity = max(Decimal("0"), (monthly * Decimal(paid_months)) - paid)
+
+    full_life_projection = monthly * Decimal("12")
+    unpaid_projection = max(Decimal("0"), full_life_projection - paid)
+    amount_remaining = min(unpaid_projection, scheduled_capacity + catchup_capacity)
+    return monthly, start_index, amount_remaining.quantize(Decimal("0.01"))
+
+
 def _active_policies(ev_id, closed_start=None, closed_end=None):
     """Non-settled, non-cancelled policies for an EV."""
     query = Policy.query.filter(
@@ -82,9 +123,8 @@ def compute_ev_balance(ev_id, closed_start=None, closed_end=None):
     policies = _active_policies(ev_id, closed_start, closed_end)
     balance = Decimal("0")
     for p in policies:
-        monthly = _estimated_monthly(p)
-        remaining = max(0, 12 - (p.installments_paid or 0))
-        balance += monthly * remaining
+        _, _, amount_remaining = _projection_state(p)
+        balance += amount_remaining
     return balance.quantize(Decimal("0.01"))
 
 
@@ -109,23 +149,28 @@ def compute_ev_projection(ev_id, ref_date=None, period_start=None, period_months
     bucket_by_month = {b["month"]: b for b in buckets}
 
     for p in policies:
-        monthly = _estimated_monthly(p)
-        if monthly <= 0:
-            continue
-
-        months_paid = max(0, min(p.installments_paid or 0, 12))
-        remaining = max(0, 12 - months_paid)
-        if remaining == 0:
+        monthly, start_index, amount_remaining = _projection_state(p)
+        if monthly <= 0 or amount_remaining <= 0:
             continue
 
         # Determine payment start: real > prev > ref_date
         start = p.first_payment_real or p.first_payment_prev or ref_date
 
-        for i in range(remaining):
-            scheduled = _add_months(start, months_paid + i)
+        remaining_slots = max(0, 12 - start_index)
+        for i in range(remaining_slots):
+            if amount_remaining <= 0:
+                break
+            slots_left = remaining_slots - i
+            future_regular_capacity = monthly * Decimal(max(0, slots_left - 1))
+            amount = min(
+                amount_remaining,
+                max(monthly, amount_remaining - future_regular_capacity),
+            )
+            scheduled = _add_months(start, start_index + i)
             bucket = bucket_by_month.get(scheduled.strftime("%Y-%m"))
             if bucket is not None:
-                bucket["projected"] += monthly
+                bucket["projected"] += amount
+            amount_remaining -= amount
 
     # Quantize all values
     for b in buckets:

@@ -98,10 +98,14 @@ class Policy(db.Model):
         """Sum of total_actual across this policy's commissions, plus the
         legacy manual amount for policies that pre-date the platform."""
         from decimal import Decimal
-        total = Decimal("0")
-        for c in self.commissions or []:
-            if c.total_actual is not None:
-                total += c.total_actual
+        explicit = (self.total_paid_comissao or Decimal("0")) + (
+            self.total_paid_agenciamento or Decimal("0")
+        )
+        total = explicit
+        if explicit <= 0:
+            for c in self.commissions or []:
+                if c.total_actual is not None:
+                    total += c.total_actual
         if self.commission_paid_legacy is not None:
             total += self.commission_paid_legacy
         return total

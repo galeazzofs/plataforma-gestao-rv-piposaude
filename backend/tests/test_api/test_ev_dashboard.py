@@ -72,6 +72,44 @@ def _policy(ev, client, mrr, closed, first_payment):
     return policy
 
 
+def test_summary_period_balance_excludes_competencies_covered_by_paid_commission(client, db_session):
+    _seed_p_pct_table()
+    ev, client_obj = _ev_and_client()
+    policy = _policy(ev, client_obj, "1000.00", date(2026, 1, 15), date(2026, 1, 1))
+    policy.total_paid_comissao = Decimal("240.00")
+    db.session.flush()
+
+    q1 = client.get(
+        "/api/v1/commissions/summary?year=2026&quarter=1",
+        headers=_auth_header(ev),
+    )
+    q2 = client.get(
+        "/api/v1/commissions/summary?year=2026&quarter=2",
+        headers=_auth_header(ev),
+    )
+
+    assert q1.status_code == 200
+    assert q2.status_code == 200
+    assert q1.get_json()["data"]["balance_estimated"] == "0.00"
+    assert q2.get_json()["data"]["balance_estimated"] == "240.00"
+
+
+def test_summary_period_balance_excludes_competencies_covered_by_paid_agenciamento(client, db_session):
+    _seed_p_pct_table()
+    ev, client_obj = _ev_and_client()
+    policy = _policy(ev, client_obj, "1000.00", date(2026, 1, 15), date(2026, 1, 1))
+    policy.total_paid_agenciamento = Decimal("240.00")
+    db.session.flush()
+
+    resp = client.get(
+        "/api/v1/commissions/summary?year=2026&quarter=1",
+        headers=_auth_header(ev),
+    )
+
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["balance_estimated"] == "0.00"
+
+
 def test_summary_period_filter_scopes_receivable_schedule_mrr_and_goal(client, db_session):
     _seed_p_pct_table()
     ev, client_obj = _ev_and_client()

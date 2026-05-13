@@ -47,6 +47,18 @@ def test_mrr_for_commission_falls_back_to_projected(db_session):
     assert policy.mrr_for_commission == Decimal("1000")
 
 
+def test_commission_paid_total_prefers_explicit_policy_paid_totals(db_session):
+    policy = Policy(
+        hubspot_apolice_id="A-PAID-1",
+        hubspot_ticket_id="PAID-1",
+        total_paid_comissao=Decimal("100.00"),
+        total_paid_agenciamento=Decimal("25.00"),
+        commission_paid_legacy=Decimal("10.00"),
+    )
+
+    assert policy.commission_paid_total == Decimal("135.00")
+
+
 def test_quarter_closed_from_date(db_session):
     policy = Policy(
         hubspot_apolice_id="A-TEST-4",
