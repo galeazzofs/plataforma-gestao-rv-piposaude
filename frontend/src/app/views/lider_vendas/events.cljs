@@ -13,9 +13,11 @@
 (rf/reg-event-db
  :lider-vendas/team-loaded
  (fn [db [_ response]]
-   (-> db
-       (assoc-in [:admin :team-members]  (get-in response [:data :members]))
-       (assoc-in [:admin :team-loading?] false))))
+   (let [data (get-in response [:data])
+         members (if (map? data) (:members data) data)]
+     (-> db
+         (assoc-in [:admin :team-members]  members)
+         (assoc-in [:admin :team-loading?] false)))))
 
 (rf/reg-event-db
  :lider-vendas/team-error

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, g
+from sqlalchemy import or_
 from app.auth.decorators import require_role, require_auth
 from app.models.user import User, UserRole
 from app.models import PlatformSetting
@@ -88,6 +89,7 @@ def create_user():
         role=role_enum,
         team_id=data.get("team_id") or None,
         active=True,
+        left_company=bool(data.get("left_company", False)),
     )
     error = _apply_profile_fields(user, data)
     if error:
@@ -122,6 +124,8 @@ def update_user(user_id):
         user.team_id = data["team_id"] or None
     if "active" in data:
         user.active = bool(data["active"])
+    if "left_company" in data:
+        user.left_company = bool(data["left_company"])
     error = _apply_profile_fields(user, data)
     if error:
         return error
@@ -539,8 +543,12 @@ def list_ev_achievements():
     quarter = request.args.get("quarter", type=int)
     year = request.args.get("year", type=int)
 
-    # Get all active users with EV role
-    evs = User.query.filter_by(role=UserRole.EV, active=True).order_by(User.name).all()
+    # Former EVs can keep receiving policy commissions after leaving, so
+    # achievement maintenance must include active EVs plus flagged leavers.
+    evs = User.query.filter(
+        User.role == UserRole.EV,
+        or_(User.active.is_(True), User.left_company.is_(True)),
+    ).order_by(User.name).all()
 
     # Build achievement lookup keyed by ev_id
     ach_map = {}
@@ -718,6 +726,7 @@ def _serialize_user(u):
         "team_id": str(u.team_id) if u.team_id else None,
         "team_name": team_name,
         "active": u.active,
+        "left_company": bool(getattr(u, "left_company", False)),
         "nivel": u.nivel.value if hasattr(u.nivel, "value") else u.nivel,
         "porte": u.porte.value if hasattr(u.porte, "value") else u.porte,
         "salario_base": str(u.salario_base) if u.salario_base is not None else None,
@@ -742,6 +751,8 @@ def _serialize_team(t):
                 "name": m.name,
                 "email": m.email,
                 "role": m.role.value if m.role else None,
+                "active": m.active,
+                "left_company": bool(getattr(m, "left_company", False)),
                 "nivel": m.nivel.value if hasattr(m.nivel, "value") else m.nivel,
                 "porte": m.porte.value if hasattr(m.porte, "value") else m.porte,
                 "salario_base": str(m.salario_base) if m.salario_base is not None else None,
@@ -780,6 +791,8 @@ def _apply_profile_fields(user, data):
     if "role" in data and user.role != UserRole.CN:
         user.nivel = None
         user.porte = None
+    if "role" in data and user.role != UserRole.EV:
+        user.left_company = False
 
     return None
 

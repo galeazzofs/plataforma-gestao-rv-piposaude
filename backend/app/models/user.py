@@ -34,6 +34,7 @@ class User(db.Model):
     google_id = db.Column(db.String(255), nullable=True)
     team_id = db.Column(GUID, db.ForeignKey("teams.id"), nullable=True)
     active = db.Column(db.Boolean, default=True, nullable=False)
+    left_company = db.Column(db.Boolean, default=False, nullable=False)
     refresh_token = db.Column(db.String(500), nullable=True)
     slack_user_id = db.Column(db.String(50), nullable=True)
     # CN-specific profile fields

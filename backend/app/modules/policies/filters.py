@@ -1,15 +1,18 @@
 """Centralized policy filters.
 
 Use these query builders for any feature that should only see policies
-tied to active EV users (Apólices page, dashboards, calculator, etc).
+tied to commissionable EV users (active EVs plus EVs flagged as having
+left the company but still eligible for policy commission).
 """
+from sqlalchemy import or_
+
 from app.models import Policy, User, UserRole
 from app.extensions import db
 
 
 def active_ev_policies_query():
-    """Base query returning only policies whose ev_id resolves to an
-    active user with role=EV.
+    """Base query returning policies whose ev_id resolves to a
+    commissionable user with role=EV.
 
     Use as starting point for further filters:
         active_ev_policies_query().filter(Policy.year == 2026).all()
@@ -17,7 +20,10 @@ def active_ev_policies_query():
     return (
         db.session.query(Policy)
         .join(User, Policy.ev_id == User.id)
-        .filter(User.role == UserRole.EV, User.active.is_(True))
+        .filter(
+            User.role == UserRole.EV,
+            or_(User.active.is_(True), User.left_company.is_(True)),
+        )
     )
 
 

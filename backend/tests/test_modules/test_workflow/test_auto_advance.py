@@ -120,6 +120,25 @@ def test_calc_to_validating_dms_each_ev(db_session):
     assert ev.slack_user_id in channels
 
 
+def test_calc_to_validating_auto_approves_departed_ev_without_dm(db_session):
+    admin = _user(UserRole.ADMIN, "AdminDeparted")
+    ev = _user(UserRole.EV, "EvDeparted")
+    ev.left_company = True
+    ev.active = False
+    appraisal = _appraisal(1, 2042, AppraisalStatus.CALCULATING, admin)
+    validation = _ev_validation(appraisal, ev)
+
+    mock = MagicMock(return_value={"ok": True})
+    with patch("slack_sdk.WebClient.chat_postMessage", mock):
+        transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+
+    assert validation.status == ValidationStatus.AUTO_APPROVED
+    assert validation.resolution_comment == (
+        "Autoaprovado: EV saiu da empresa; aprovacao fica com RevOps."
+    )
+    assert not mock.called
+
+
 def test_lider_review_to_revops_review_posts_ops(db_session):
     admin = _user(UserRole.ADMIN, "AdminL")
     appraisal = _appraisal(2, 2040, AppraisalStatus.LIDER_REVIEW, admin)
@@ -235,6 +254,31 @@ def test_auto_advance_fires_when_team_done_and_lider_validated_own(db_session):
 
     assert advanced is True
     assert appraisal.status == AppraisalStatus.LIDER_REVIEW
+
+
+def test_current_ev_cannot_skip_lider_review_when_team_has_leader(db_session):
+    admin = _user(UserRole.ADMIN, "AdminSkip")
+    lider = _user(UserRole.LIDER_VENDAS, "LdrSkip")
+    _team("TeamSkip", lider)
+    ev = _user(UserRole.EV, "EvSkip", team_id=lider.team_id)
+    appraisal = _appraisal(2, 2043, AppraisalStatus.VALIDATING, admin)
+    _ev_validation(appraisal, ev, ValidationStatus.APPROVED)
+
+    with pytest.raises(InvalidTransitionError):
+        transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+
+
+def test_auto_advance_departed_ev_only_goes_to_revops_review(db_session):
+    admin = _user(UserRole.ADMIN, "AdminE")
+    ev = _user(UserRole.EV, "EvE")
+    ev.left_company = True
+    appraisal = _appraisal(1, 2043, AppraisalStatus.VALIDATING, admin)
+    _ev_validation(appraisal, ev, ValidationStatus.AUTO_APPROVED)
+
+    advanced = maybe_auto_advance_appraisal_after_validation(appraisal)
+
+    assert advanced is True
+    assert appraisal.status == AppraisalStatus.REVOPS_REVIEW
 
 
 def test_auto_advance_blocked_by_open_contestation(db_session):

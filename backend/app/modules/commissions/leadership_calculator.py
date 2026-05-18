@@ -50,6 +50,7 @@ def _compute_realizado_mrr(lider: User, quarter: int, year: int) -> Decimal:
     ev_ids = [
         u.id for u in User.query.filter_by(
             team_id=team.id, role=UserRole.EV, active=True,
+            left_company=False,
         ).all()
     ]
     if not ev_ids:
@@ -94,7 +95,8 @@ def _compute_meta_mrr(lider: User, quarter: int, year: int) -> Decimal:
 
     ev_ids = [
         u.id for u in User.query.filter_by(
-            team_id=team.id, role=UserRole.EV, active=True
+            team_id=team.id, role=UserRole.EV, active=True,
+            left_company=False,
         ).all()
     ]
     if not ev_ids:

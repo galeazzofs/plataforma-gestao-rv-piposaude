@@ -52,6 +52,12 @@ def transition_appraisal(appraisal, new_status, **kwargs):
     Validates the transition is allowed.
     """
     allowed = VALID_TRANSITIONS.get(appraisal.status, [])
+    if (
+        appraisal.status == AppraisalStatus.VALIDATING
+        and new_status == AppraisalStatus.REVOPS_REVIEW
+        and not _required_lider_ids_for_appraisal(appraisal)
+    ):
+        allowed = [*allowed, AppraisalStatus.REVOPS_REVIEW]
     if new_status not in allowed:
         raise InvalidTransitionError(
             f"Cannot transition from {appraisal.status.value} to {new_status.value}. "
@@ -70,6 +76,16 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             "Resolve the contestation first."
         )
 
+    if (
+        appraisal.status == AppraisalStatus.VALIDATING
+        and new_status == AppraisalStatus.REVOPS_REVIEW
+        and _required_lider_ids_for_appraisal(appraisal)
+    ):
+        raise InvalidTransitionError(
+            "Cannot skip LIDER_REVIEW while current EVs still require "
+            "sales-leader approval."
+        )
+
     old_status = appraisal.status
     appraisal.status = new_status
 
@@ -85,6 +101,7 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         if deadline is None:
             deadline = (datetime.now(timezone.utc) + timedelta(days=5)).date()
         appraisal.validation_deadline = deadline
+        _auto_approve_left_company_validations(appraisal)
 
     if new_status == AppraisalStatus.LOCKED:
         appraisal.locked_at = datetime.now(timezone.utc)
@@ -257,7 +274,10 @@ def _emit_appraisal_slack(appraisal: Appraisal,
             .filter_by(appraisal_id=appraisal.id).all()
         }
         if ev_ids:
-            evs = User.query.filter(User.id.in_(ev_ids)).all()
+            evs = User.query.filter(
+                User.id.in_(ev_ids),
+                User.left_company.is_(False),
+            ).all()
             slack = _import_slack()
             for ev in evs:
                 _safe_slack(
@@ -303,6 +323,7 @@ def _team_ev_ids(team_id) -> list:
     return [
         u.id for u in User.query.filter_by(
             team_id=team_id, role=UserRole.EV, active=True,
+            left_company=False,
         ).all()
     ]
 
@@ -320,36 +341,87 @@ def _team_validations_complete(appraisal_id, ev_ids: list) -> tuple:
     return (total, done)
 
 
-def _all_lideres_validated_own(quarter: int, year: int) -> bool:
-    """True iff every active Líder de Vendas has moved their own
-    LiderVendasQuarterAppraisal past VALIDATING for (quarter, year)."""
-    lideres = User.query.filter_by(
-        role=UserRole.LIDER_VENDAS, active=True,
-    ).all()
-    if not lideres:
-        return True  # vacuously true — nothing to gate on
-    for lider in lideres:
+def _required_lideres_validated_own(
+    quarter: int, year: int, lider_ids: set,
+) -> bool:
+    """True iff every required sales leader has validated own row."""
+    if not lider_ids:
+        return True
+    for lider_id in lider_ids:
         own = LiderVendasQuarterAppraisal.query.filter_by(
-            lider_vendas_id=lider.id, quarter=quarter, year=year,
+            lider_vendas_id=lider_id, quarter=quarter, year=year,
         ).first()
         if own is None or own.status not in _LIDER_VALIDATED_OWN:
             return False
     return True
 
 
+def _required_lider_ids_for_appraisal(appraisal: Appraisal) -> set:
+    """Sales leaders responsible for current-company EV validations.
+
+    EVs flagged as left_company stay commissionable, but RevOps owns
+    their approval instead of Sales Leadership.
+    """
+    rows = (
+        db.session.query(User.team_id)
+        .join(EvValidation, EvValidation.ev_id == User.id)
+        .filter(
+            EvValidation.appraisal_id == appraisal.id,
+            User.role == UserRole.EV,
+            User.active.is_(True),
+            User.left_company.is_(False),
+            User.team_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    team_ids = [team_id for (team_id,) in rows if team_id is not None]
+    if not team_ids:
+        return set()
+    teams = Team.query.filter(
+        Team.id.in_(team_ids),
+        Team.leader_id.isnot(None),
+    ).all()
+    return {team.leader_id for team in teams}
+
+
+def _auto_approve_left_company_validations(appraisal: Appraisal) -> int:
+    """Mark departed EV validations as done when RevOps releases the cycle."""
+    rows = (
+        EvValidation.query
+        .join(User, EvValidation.ev_id == User.id)
+        .filter(
+            EvValidation.appraisal_id == appraisal.id,
+            EvValidation.status == ValidationStatus.PENDING,
+            User.role == UserRole.EV,
+            User.left_company.is_(True),
+        )
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    for validation in rows:
+        validation.status = ValidationStatus.AUTO_APPROVED
+        validation.resolved_at = now
+        validation.resolution_comment = (
+            "Autoaprovado: EV saiu da empresa; aprovacao fica com RevOps."
+        )
+    return len(rows)
+
+
 def maybe_auto_advance_appraisal_after_validation(appraisal: Appraisal):
     """Hook called after an EvValidation is approved/resolved or after a
     Líder advances their own LiderVendasQuarterAppraisal. Auto-transitions
-    the global Appraisal from VALIDATING → LIDER_REVIEW iff:
+    the global Appraisal out of VALIDATING iff:
 
       1. Every EvValidation on the appraisal is APPROVED/AUTO_APPROVED/
          RESOLVED.
-      2. Every Líder has moved their own LiderVendasQuarterAppraisal past
-         VALIDATING for this (quarter, year).
+      2. Every required Líder has moved their own
+         LiderVendasQuarterAppraisal past VALIDATING for this
+         (quarter, year). If none are required, it goes to REVOPS_REVIEW.
 
-    Both conditions are required so the Líderes get a chance to validate
-    own before the global review gate opens. Returns True iff the
-    appraisal advanced in this call.
+    Required leaders get a chance to validate own before the global
+    review gate opens. Returns True iff the appraisal advanced in this
+    call.
     """
     if appraisal.status != AppraisalStatus.VALIDATING:
         return False
@@ -361,7 +433,14 @@ def maybe_auto_advance_appraisal_after_validation(appraisal: Appraisal):
         return False
     if not all(v.status in _VALIDATION_DONE for v in rows):
         return False
-    if not _all_lideres_validated_own(appraisal.quarter, appraisal.year):
+
+    required_lider_ids = _required_lider_ids_for_appraisal(appraisal)
+    if not required_lider_ids:
+        transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+        return True
+    if not _required_lideres_validated_own(
+        appraisal.quarter, appraisal.year, required_lider_ids,
+    ):
         return False
 
     transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)

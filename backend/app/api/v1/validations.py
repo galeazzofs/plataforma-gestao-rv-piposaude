@@ -27,6 +27,13 @@ def list_validations():
     # EVs/CNs only see their own
     if user.role in (UserRole.EV, UserRole.CN):
         query = query.filter(EvValidation.ev_id == user.id)
+    elif user.role == UserRole.LIDER_VENDAS:
+        team_member_ids = [
+            u.id for u in User.query.filter_by(
+                team_id=user.team_id, active=True, left_company=False,
+            ).all()
+        ]
+        query = query.filter(EvValidation.ev_id.in_(team_member_ids))
 
     appraisal_id = request.args.get("appraisal_id")
     if appraisal_id:
@@ -126,6 +133,14 @@ def resolve_validation(validation_id):
     data = request.get_json() or {}
     resolution_comment = data.get("resolution_comment", "")
     user = g.current_user
+    if user.role == UserRole.LIDER_VENDAS:
+        ev = db.session.get(User, validation.ev_id)
+        if (
+            ev is None
+            or ev.left_company
+            or str(ev.team_id) != str(user.team_id)
+        ):
+            return jsonify({"error": {"code": "FORBIDDEN"}}), 403
 
     old_status = validation.status.value
     validation.status = ValidationStatus.RESOLVED

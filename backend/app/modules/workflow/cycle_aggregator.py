@@ -163,7 +163,10 @@ def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
     team_blocks = []
     for team in teams:
         members = User.query.filter_by(team_id=team.id, active=True).all()
-        ev_ids = [m.id for m in members if m.role == UserRole.EV]
+        ev_ids = [
+            m.id for m in members
+            if m.role == UserRole.EV and not m.left_company
+        ]
         cn_ids = [m.id for m in members if m.role == UserRole.CN]
 
         team_blocks.append({

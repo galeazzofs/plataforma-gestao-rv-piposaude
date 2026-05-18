@@ -30,14 +30,18 @@ def auto_approve_expired_validations():
             validation.resolved_at = datetime.now(timezone.utc)
             count += 1
 
-        # If all validations are now done, advance to LIDER_REVIEW
+        # If all validations are now done, advance through the workflow.
+        # Departed-EV-only appraisals go straight to REVOPS_REVIEW.
         remaining_pending = EvValidation.query.filter(
             EvValidation.appraisal_id == appraisal.id,
             EvValidation.status == ValidationStatus.PENDING,
         ).count()
 
         if remaining_pending == 0:
-            appraisal.status = AppraisalStatus.LIDER_REVIEW
+            from app.modules.workflow.state_machine import (
+                maybe_auto_advance_appraisal_after_validation,
+            )
+            maybe_auto_advance_appraisal_after_validation(appraisal)
 
     db.session.flush()
     return count

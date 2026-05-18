@@ -139,7 +139,11 @@
                            :font "inherit" :color "inherit" :text-align "left"}
                    :on-click #(swap! open? not)}
           [:div
-           [:div.name {:style {:font-size "14px"}} (:ev_name ev)]
+           [:div.name {:style {:font-size "14px"}}
+            (:ev_name ev)
+            (when (:ev_left_company ev)
+              [:span.badge.badge-review {:style {:margin-left "8px"}}
+               "Saiu"])]
            [:div.muted {:style {:font-size "12px" :margin-top "4px"}}
             (str (:policies_count ev) " apólices · "
                  (:nf_count ev) " NFs · atingimento "

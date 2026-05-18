@@ -66,7 +66,9 @@ def list_policies():
         query = active_ev_policies_query().filter(Policy.ev_id == user.id)
     elif user.role == UserRole.LIDER_VENDAS:
         team_member_ids = [
-            u.id for u in User.query.filter_by(team_id=user.team_id, active=True).all()
+            u.id for u in User.query.filter_by(
+                team_id=user.team_id, active=True, left_company=False,
+            ).all()
         ]
         query = active_ev_policies_query().filter(Policy.ev_id.in_(team_member_ids))
     else:
@@ -268,6 +270,7 @@ def _serialize_policy(policy, detail=False):
         "numero_apolice": policy.numero_apolice,
         "ev_id": str(policy.ev_id) if policy.ev_id else None,
         "ev_name": policy.ev.name if policy.ev else None,
+        "ev_left_company": bool(getattr(policy.ev, "left_company", False)) if policy.ev else False,
         "client_id": str(policy.client_id) if policy.client_id else None,
         "client_name": policy.client.name if policy.client else None,
         "benefit_type": policy.benefit_type.value if policy.benefit_type else None,

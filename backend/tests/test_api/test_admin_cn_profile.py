@@ -57,6 +57,47 @@ def test_admin_user_crud_persists_cn_profile(client, db_session):
     db_session.commit()
 
 
+def test_admin_user_crud_persists_left_company_flag(client, db_session):
+    suffix = uuid.uuid4().hex[:8]
+    admin = User(
+        email=f"admin-left-company-{suffix}@piposaude.com",
+        name="Admin Left Company",
+        role=UserRole.ADMIN,
+        active=True,
+    )
+    db_session.add(admin)
+    db_session.flush()
+
+    response = client.post(
+        "/api/v1/admin/users",
+        headers=_auth(admin),
+        json={
+            "email": f"departed-ev-{suffix}@piposaude.com",
+            "name": "Departed EV",
+            "role": "EV",
+            "left_company": True,
+        },
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert data["left_company"] is True
+
+    update = client.patch(
+        f"/api/v1/admin/users/{data['id']}",
+        headers=_auth(admin),
+        json={"left_company": False},
+    )
+
+    assert update.status_code == 200
+    assert update.get_json()["data"]["left_company"] is False
+
+    created = db_session.get(User, data["id"])
+    created.active = False
+    admin.active = False
+    db_session.commit()
+
+
 def test_team_members_include_cn_profile(client, db_session):
     suffix = uuid.uuid4().hex[:8]
     admin = User(

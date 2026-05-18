@@ -26,11 +26,14 @@
    {:value "M" :label "M"}
    {:value "G+" :label "G+"}])
 
-(defn- empty-form [] {:name "" :email "" :role "" :team_id "" :nivel "" :porte ""})
+(defn- empty-form []
+  {:name "" :email "" :role "" :team_id "" :nivel "" :porte ""
+   :left_company false})
 
 (defn- form-from-user [user-data]
   (merge (empty-form)
-         (select-keys (or user-data {}) [:name :email :role :team_id :nivel :porte])
+         (select-keys (or user-data {})
+                      [:name :email :role :team_id :nivel :porte :left_company])
          (when (:team_id user-data) {:team_id (str (:team_id user-data))})))
 
 (defn- initials [name]
@@ -59,13 +62,25 @@
              [inputs/input {:label "E-mail" :value (:email @form) :type "email" :required true
                             :on-change #(swap! form assoc :email %)}]
              [inputs/select {:label "Role" :value (:role @form) :options role-options :required true
-                             :on-change #(swap! form assoc :role %)}]
+                             :on-change #(swap! form (fn [f]
+                                                       (assoc f
+                                                              :role %
+                                                              :left_company (and (= % "EV")
+                                                                                 (:left_company f)))))}]
              [inputs/select {:label "Time"
                              :value (or (:team_id @form) "")
                              :options (into [{:value "" :label "Sem time"}]
                                             (map #(hash-map :value (str (:id %)) :label (:name %))
                                                  (or teams [])))
                              :on-change #(swap! form assoc :team_id %)}]
+             (when (= (:role @form) "EV")
+               [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                                :font-size "13px" :color "var(--fg-2)"}}
+                [:input {:type "checkbox"
+                         :checked (boolean (:left_company @form))
+                         :on-change #(swap! form assoc :left_company
+                                            (.. % -target -checked))}]
+                [:span "EV saiu da empresa"]])
              (when (= (:role @form) "CN")
                [:div.form-grid.-tight
                 [inputs/select {:label "Nivel do CN"
@@ -95,7 +110,10 @@
                                               (update :porte #(when-not (str/blank? %) %)))
                                   payload (if (= (:role payload) "CN")
                                             payload
-                                            (assoc payload :nivel nil :porte nil))]
+                                            (assoc payload :nivel nil :porte nil))
+                                  payload (if (= (:role payload) "EV")
+                                            payload
+                                            (assoc payload :left_company false))]
                               (if editing?
                                 (rf/dispatch [:revops/update-user (:id user-data) (dissoc payload :email)])
                                 (rf/dispatch [:revops/create-user payload])))
@@ -128,7 +146,7 @@
          {:current-route route :user user
           :crumbs ["plataforma rv" "configuração" "usuários"]
           :title "Usuários"
-          :subtitle (str (count users) " ativo" (when (not= 1 (count users)) "s"))
+          :subtitle (str (count users) " registro" (when (not= 1 (count users)) "s"))
           :header-actions
           [[:div.search
             [layout/icon "search" {:width 14 :height 14}]
@@ -162,16 +180,17 @@
              [:th "Perfil"]
              [:th "CN"]
              [:th "Time"]
+             [:th "Empresa"]
              [:th "Status"]
              [:th.right "Ações"]]]
            [:tbody
             (cond
               loading?
-              [:tr [:td {:col-span 7 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 8 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? shown)
-              [:tr [:td {:col-span 7 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 8 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhum usuário encontrado"]]
 
               :else
@@ -187,7 +206,12 @@
                  [:td [:span.badge.badge-locked (:role u)]]
                  [:td (or (cn-profile-label u) "·")]
                  [:td (or (:team_name u) "·")]
-                 [:td [:span.badge.badge-approved "Ativo"]]
+                 [:td (if (:left_company u)
+                        [:span.badge.badge-review "Saiu"]
+                        [:span.badge.badge-approved "Atual"])]
+                 [:td (if (:active u)
+                        [:span.badge.badge-approved "Ativo"]
+                        [:span.badge.badge-locked "Inativo"])]
                  [:td.right
                   [:button.btn.btn-ghost.btn-sm
                    {:on-click #(do (reset! editing-user u) (reset! modal-open? true))}

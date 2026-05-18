@@ -111,6 +111,18 @@ def transition(appraisal_id):
     user = g.current_user
     old_status = appraisal.status.value
 
+    if (
+        appraisal.status == AppraisalStatus.VALIDATING
+        and new_status == AppraisalStatus.REVOPS_REVIEW
+        and user.role != UserRole.ADMIN
+    ):
+        return jsonify({
+            "error": {
+                "code": "FORBIDDEN",
+                "message": "Only RevOps can approve departed-EV appraisals.",
+            },
+        }), 403
+
     kwargs = {}
     if new_status == AppraisalStatus.VALIDATING:
         kwargs["validation_deadline"] = data.get("validation_deadline")
@@ -452,6 +464,7 @@ def _build_appraisal_detail(appraisal):
         ev_summary.append({
             "ev_id": str(ev_id),
             "ev_name": ev.name if ev else "—",
+            "ev_left_company": bool(getattr(ev, "left_company", False)) if ev else False,
             "achievement_pct": (
                 float(ach_curr.achievement_pct * 100)
                 if ach_curr and ach_curr.achievement_pct is not None else None
@@ -513,6 +526,9 @@ def _build_appraisal_detail(appraisal):
     totals = {
         "total_commission": sum(s["total_commission"] for s in ev_summary),
         "ev_count": len(ev_summary),
+        "left_company_ev_count": sum(
+            1 for s in ev_summary if s.get("ev_left_company")
+        ),
         "policy_count": sum(s["policies_count"] for s in ev_summary),
         "matched_nf_count": sum(s["nf_count"] for s in ev_summary),
         "unmatched_count": len(unmatched),

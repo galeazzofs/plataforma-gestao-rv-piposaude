@@ -26,8 +26,8 @@ def seed():
         # ==========================================
         # TEAMS
         # ==========================================
-        team_vendas_1 = Team(name="Vendas 1")
-        team_vendas_2 = Team(name="Vendas 2")
+        team_vendas_1 = Team(name="Time P/M")
+        team_vendas_2 = Team(name="Time G+")
         db.session.add_all([team_vendas_1, team_vendas_2])
         db.session.flush()
 
@@ -221,11 +221,11 @@ def seed():
         print(f"  - Fernando Galeazzo (fernando.galeazzo@piposaude.com.br) — ADMIN")
         print(f"\nOther users:")
         print(f"  - Frederico Lofredo — FINANCE")
-        print(f"  - Felipe Valença — LIDER_VENDAS (Vendas 1)")
-        print(f"  - João Silva — EV (Vendas 1)")
-        print(f"  - Maria Santos — EV (Vendas 1)")
-        print(f"  - Pedro Oliveira — EV (Vendas 2)")
-        print(f"  - Ana Costa — CN (Vendas 2)")
+        print(f"  - Felipe Valença — LIDER_VENDAS (Time P/M)")
+        print(f"  - João Silva — EV (Time P/M)")
+        print(f"  - Maria Santos — EV (Time P/M)")
+        print(f"  - Pedro Oliveira — EV (Time G+)")
+        print(f"  - Ana Costa — CN (Time G+)")
         print(f"\nQ1/2026: 9 policies, 4 goals, commission table v1")
 
 

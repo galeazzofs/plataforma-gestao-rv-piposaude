@@ -9,7 +9,7 @@
  (fn [{:keys [db]} _]
    {:db   (assoc-in db [:admin :users-loading?] true)
     :http {:method     :get
-           :url        ep/users
+           :url        (str ep/users "?active=all")
            :on-success [:revops/users-loaded]
            :on-failure [:revops/users-error]}}))
 

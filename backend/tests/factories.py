@@ -27,7 +27,7 @@ class BaseFactory(factory.alchemy.SQLAlchemyModelFactory):
 class TeamFactory(BaseFactory):
     class Meta:
         model = Team
-    name = factory.Sequence(lambda n: f"Time Vendas {n}")
+    name = factory.Sequence(lambda n: f"Time P/M {n}")
 
 
 class UserFactory(BaseFactory):

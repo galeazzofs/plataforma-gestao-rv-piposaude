@@ -15,7 +15,9 @@ def get_team():
     if not user.team_id:
         return jsonify({"data": []})
 
-    members = User.query.filter_by(team_id=user.team_id, active=True).all()
+    members = User.query.filter_by(
+        team_id=user.team_id, active=True, left_company=False,
+    ).all()
     return jsonify({
         "data": [
             {
@@ -25,6 +27,7 @@ def get_team():
                 "role": m.role.value if m.role else None,
                 "team_id": str(m.team_id) if m.team_id else None,
                 "active": m.active,
+                "left_company": bool(m.left_company),
             }
             for m in members
         ]
@@ -40,7 +43,7 @@ def get_ev_detail(ev_id):
 
     # Verify that the requested EV belongs to the lider de vendas's team
     ev = db.session.get(User, ev_id)
-    if ev is None or str(ev.team_id) != str(user.team_id):
+    if ev is None or ev.left_company or str(ev.team_id) != str(user.team_id):
         return jsonify({"error": {"code": "NOT_FOUND", "message": "EV not found or not in your team"}}), 404
 
     policies = Policy.query.filter_by(ev_id=ev_id).all()
@@ -53,6 +56,7 @@ def get_ev_detail(ev_id):
                 "name": ev.name,
                 "email": ev.email,
                 "role": ev.role.value if ev.role else None,
+                "left_company": bool(ev.left_company),
             },
             "policies": [
                 {

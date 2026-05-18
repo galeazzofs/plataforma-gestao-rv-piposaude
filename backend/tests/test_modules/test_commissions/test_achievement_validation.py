@@ -89,3 +89,17 @@ def test_validator_ignores_inactive_evs(db_session):
     # Even without achievement, inactive EV's policies are excluded
     missing = validate_achievements_for_appraisal(1, 2026)
     assert missing == []
+
+
+def test_validator_includes_departed_evs_still_commissionable(db_session):
+    from app.modules.commissions.calculator import validate_achievements_for_appraisal
+
+    departed = _ev("departed@x")
+    departed.active = False
+    departed.left_company = True
+    db.session.flush()
+    _policy(departed, "T1", date(2026, 1, 15), client_name="C1")
+
+    missing = validate_achievements_for_appraisal(1, 2026)
+    assert len(missing) == 1
+    assert "Q1/2026" in missing[0]
