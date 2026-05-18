@@ -98,6 +98,47 @@ def test_admin_user_crud_persists_left_company_flag(client, db_session):
     db_session.commit()
 
 
+def test_delete_user_hides_user_from_default_admin_list(client, db_session):
+    suffix = uuid.uuid4().hex[:8]
+    admin = User(
+        email=f"admin-delete-user-{suffix}@piposaude.com",
+        name="Admin Delete User",
+        role=UserRole.ADMIN,
+        active=True,
+    )
+    user = User(
+        email=f"delete-user-{suffix}@piposaude.com",
+        name="Delete User",
+        role=UserRole.EV,
+        active=True,
+    )
+    db_session.add_all([admin, user])
+    db_session.flush()
+
+    delete_response = client.delete(
+        f"/api/v1/admin/users/{user.id}",
+        headers=_auth(admin),
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.get_json()["data"]["active"] is False
+
+    list_response = client.get("/api/v1/admin/users", headers=_auth(admin))
+
+    assert list_response.status_code == 200
+    ids = {row["id"] for row in list_response.get_json()["data"]}
+    assert str(user.id) not in ids
+
+    all_response = client.get("/api/v1/admin/users?active=all", headers=_auth(admin))
+
+    assert all_response.status_code == 200
+    all_rows = {row["id"]: row for row in all_response.get_json()["data"]}
+    assert all_rows[str(user.id)]["active"] is False
+
+    admin.active = False
+    db_session.commit()
+
+
 def test_team_members_include_cn_profile(client, db_session):
     suffix = uuid.uuid4().hex[:8]
     admin = User(

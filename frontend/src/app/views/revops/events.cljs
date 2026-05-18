@@ -4,14 +4,17 @@
 
 ;; ---- Users ----
 
+(defn fetch-users-fx [db]
+  {:db   (assoc-in db [:admin :users-loading?] true)
+   :http {:method     :get
+          :url        ep/users
+          :on-success [:revops/users-loaded]
+          :on-failure [:revops/users-error]}})
+
 (rf/reg-event-fx
  :revops/fetch-users
  (fn [{:keys [db]} _]
-   {:db   (assoc-in db [:admin :users-loading?] true)
-    :http {:method     :get
-           :url        (str ep/users "?active=all")
-           :on-success [:revops/users-loaded]
-           :on-failure [:revops/users-error]}}))
+   (fetch-users-fx db)))
 
 (rf/reg-event-db
  :revops/users-loaded
