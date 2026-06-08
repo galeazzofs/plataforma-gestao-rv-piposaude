@@ -427,27 +427,20 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
             _set_nf_status(nf, 'UNMATCHED')
             continue
 
-        matched = None
-        for policy in candidates:
-            if policy.id in locked_policy_ids:
-                continue
-            if (
-                policy.first_payment_real
-                and nf.data_recebimento
-                and nf.data_recebimento < policy.first_payment_real
-            ):
-                continue
-            matched = policy
-            break
+        # The 12-month clock is COUNT-based ONLY (see Pass 2): a policy earns
+        # until it has 12 paid Comissão months, then APOLICE_FINALIZADA. The
+        # vigência DATE (first_payment_real) does NOT gate a match — NFs are
+        # never dropped as PRE_VIGENCIA/EXPIRED by calendar date. Only the count
+        # of paid months out of 12 decides whether an NF still earns. Match to
+        # the first non-locked candidate.
+        matched = next(
+            (p for p in candidates if p.id not in locked_policy_ids), None
+        )
 
         if matched is None:
-            best = candidates[0]
-            if (not best.first_payment_real
-                    or (nf.data_recebimento
-                        and nf.data_recebimento < best.first_payment_real)):
-                _set_nf_status(nf, 'PRE_VIGENCIA', best.id)
-            else:
-                _set_nf_status(nf, 'EXPIRED', best.id)
+            # Every matching policy already has a final (locked) commission for
+            # this month — nothing to recompute for this NF this run.
+            _set_nf_status(nf, 'UNMATCHED')
             continue
 
         matched_policies[matched.id] = matched
@@ -462,10 +455,18 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
 
         for ym in sorted(by_month):
             month_rows = by_month[ym]
-            if (
-                policy.commission_status == CommissionStatus.SETTLED
-                or (policy.installments_paid or 0) >= 12
-            ):
+            # Finalizada is COUNT-based and keyed SOLELY on installments_paid,
+            # which step 2 reset to the baseline derived from LOCKED history
+            # (initial_installments_paid + locked Comissão months). Do NOT also
+            # gate on commission_status == SETTLED: that flag is mutable and
+            # _sync_policy_status rewrites it at the end of every run, so it goes
+            # stale at the 11/12 edge — a prior run reaches 12/12 → SETTLED, this
+            # run resets installments to 11, and trusting the flag would finalize
+            # the 12th parcela that should still be PAID (the result would then
+            # oscillate MATCHED↔FINALIZADA across re-runs). The 12th parcela's
+            # month must show the commission; the policy only turns finalizada
+            # for months AFTER that parcela is paid in a LOCKED apuração.
+            if (policy.installments_paid or 0) >= 12:
                 for nf in month_rows:
                     _set_nf_status(nf, APOLICE_FINALIZADA, policy.id)
                 policy.commission_status = CommissionStatus.SETTLED
