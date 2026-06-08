@@ -137,22 +137,28 @@ def test_happy_path_matches_and_calculates_commission(db_session):
 # ── Vigência edge cases ───────────────────────────────────────
 
 
-def test_pre_vigencia_when_nf_before_first_payment(db_session):
+def test_nf_before_first_payment_still_matches(db_session):
+    """Count-based clock: first_payment_real never gates a match. An NF dated
+    BEFORE the policy's recorded first payment is still MATCHED and counts —
+    the only stop is the 12/12 cap (APOLICE_FINALIZADA). The vigência date is
+    bookkeeping, not a commissionability gate."""
     from app.modules.commissions.calculator import run_monthly_appraisal
 
     ev, policy, nf = _setup_basic_scenario()
-    policy.first_payment_real = date(2026, 6, 1)  # later than NF
+    policy.first_payment_real = date(2026, 6, 1)  # later than the NF
     db.session.flush()
 
     run_monthly_appraisal(1, 2026)
 
     db.session.refresh(nf)
-    assert nf.match_status == 'PRE_VIGENCIA'
+    assert nf.match_status == 'MATCHED'
 
     comm = Commission.query.filter_by(
         policy_id=policy.id, month=1, year=2026
     ).first()
-    assert comm is None
+    assert comm is not None and comm.total_actual == Decimal('60.00')
+    db.session.refresh(policy)
+    assert policy.installments_paid == 1
 
 
 def test_nf_long_after_first_payment_still_pays(db_session):

@@ -30,6 +30,7 @@ EDITABLE_FIELDS = {
     "commission_paid_legacy",
     "total_paid_comissao",
     "total_paid_agenciamento",
+    "commission_status",
 }
 
 
@@ -43,6 +44,11 @@ def _coerce_field(field, value):
         return value
     if field == "segment":
         return Segment(value)
+    if field == "commission_status":
+        # Only CANCELLED is a "sticky" manual override — update_policy_statuses
+        # re-derives PROJECTED/IN_PAYMENT/SETTLED from the payment state, so
+        # un-cancelling can pass any non-CANCELLED value (the UI sends PROJECTED).
+        return CommissionStatus(value)
     if field == "initial_installments_paid":
         return int(value)
     if field in ("commission_paid_legacy", "total_paid_comissao", "total_paid_agenciamento"):

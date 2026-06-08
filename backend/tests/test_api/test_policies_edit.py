@@ -144,6 +144,52 @@ def test_put_policy_updates_first_payment_real_and_segment(client, fresh_actors)
     assert p.is_locked is True
 
 
+def test_put_policy_cancel_and_uncancel(client, fresh_actors):
+    """commission_status=CANCELLED sticks (policy drops out of apuração);
+    un-cancelling with PROJECTED lets update_policy_statuses re-derive the real
+    status from the payment state."""
+    admin, ev, client_obj = fresh_actors
+    p = _make_policy(ev.id, client_obj.id, "CANCEL")
+    p.first_payment_real = date(2025, 6, 1)
+    p.installments_paid = 3
+    p.initial_installments_paid = 3
+    db.session.commit()
+
+    # Cancel — sticks even though there's an active payment state.
+    resp = client.put(
+        f"/api/v1/policies/{p.id}",
+        json={"commission_status": "CANCELLED"},
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 200
+    db.session.expire(p)
+    assert p.commission_status == CommissionStatus.CANCELLED
+    assert p.is_locked is True
+
+    # Un-cancel — PROJECTED is a reset sentinel; status helper re-derives
+    # IN_PAYMENT (first payment + installments > 0).
+    resp = client.put(
+        f"/api/v1/policies/{p.id}",
+        json={"commission_status": "PROJECTED"},
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 200
+    db.session.expire(p)
+    assert p.commission_status == CommissionStatus.IN_PAYMENT
+
+
+def test_put_policy_rejects_invalid_commission_status(client, fresh_actors):
+    admin, ev, client_obj = fresh_actors
+    p = _make_policy(ev.id, client_obj.id, "BADSTATUS")
+
+    resp = client.put(
+        f"/api/v1/policies/{p.id}",
+        json={"commission_status": "NOPE"},
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 400
+
+
 def test_get_policies_applies_active_ev_filter(client, fresh_actors):
     """GET /policies as ADMIN returns ALL policies (active + inactive EVs).
     EV/CN/LIDER_VENDAS roles get only active EV policies (covered elsewhere)."""

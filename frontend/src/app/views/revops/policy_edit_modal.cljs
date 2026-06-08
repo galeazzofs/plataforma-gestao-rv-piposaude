@@ -18,7 +18,8 @@
      :client_id                 (or (:client_id policy) "")
      :commission_paid_legacy    (or (:commission_paid_legacy policy) "")
      :total_paid_comissao       (or (:total_paid_comissao policy) "")
-     :total_paid_agenciamento   (or (:total_paid_agenciamento policy) "")}))
+     :total_paid_agenciamento   (or (:total_paid_agenciamento policy) "")
+     :cancelled                 (= (:commission_status policy) "CANCELLED")}))
 
 (defn- payload [form]
   (into {} (remove (fn [[_ v]] (or (nil? v) (= "" v))) form)))
@@ -95,15 +96,32 @@
                :value (str (:total_paid_agenciamento @form))
                :on-change #(swap! form assoc :total_paid_agenciamento %)}]]
 
+            [:label {:style {:display "flex" :align-items "flex-start" :gap "10px"
+                             :cursor "pointer"}}
+             [:input {:type "checkbox"
+                      :checked (boolean (:cancelled @form))
+                      :style {:margin-top "3px" :width "16px" :height "16px"
+                              :cursor "pointer"}
+                      :on-change #(swap! form assoc :cancelled (.. % -target -checked))}]
+             [:div {:style {:display "flex" :flex-direction "column" :gap "2px"}}
+              [:span {:style {:font-size "14px" :color "var(--fg-1)"}} "Apólice cancelada"]
+              [:span {:style {:font-size "12px" :color "var(--fg-3)"}}
+               "Fica de fora da apuração — não gera comissão."]]]
+
             [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"
                            :padding-top "12px"
                            :border-top "1px solid var(--border-subtle)"}}
              [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
              [btn/button {:variant :primary
                           :on-click (fn []
-                                      (rf/dispatch [:revops/update-policy
-                                                    (:id policy)
-                                                    (payload @form)])
-                                      (reset! last-id nil)
-                                      (on-close))}
+                                      (let [orig-cancelled? (= (:commission_status policy) "CANCELLED")
+                                            now-cancelled?   (boolean (:cancelled @form))
+                                            base             (payload (dissoc @form :cancelled))
+                                            p                (if (not= now-cancelled? orig-cancelled?)
+                                                               (assoc base :commission_status
+                                                                      (if now-cancelled? "CANCELLED" "PROJECTED"))
+                                                               base)]
+                                        (rf/dispatch [:revops/update-policy (:id policy) p])
+                                        (reset! last-id nil)
+                                        (on-close)))}
               [layout/icon "check" {:width 14 :height 14}] "Salvar"]]])]))))

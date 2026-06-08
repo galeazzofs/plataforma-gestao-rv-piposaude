@@ -682,3 +682,36 @@ class TestCountBasedClock:
         assert Commission.query.filter_by(policy_id=policy.id).first() is None
         nf = FinancialImport.query.filter_by(month=5, year=2026).first()
         assert nf.match_status == "APOLICE_FINALIZADA"
+
+    def test_twelfth_parcela_pays_despite_stale_settled_flag(self, db_session):
+        """The month that pays the 12th (last) parcela must show the apólice +
+        commission (MATCHED), not be dropped as APOLICE_FINALIZADA.
+
+        Reproduces the 11/12-edge bug: a prior run reached 12/12 and set
+        commission_status=SETTLED; the next run resets installments_paid to the
+        baseline (11), but the stale SETTLED flag used to short-circuit the
+        finalizada gate and drop the 12th parcela. The gate is now count-based,
+        so the parcela is paid. Re-running must be idempotent (no oscillation
+        back to APOLICE_FINALIZADA)."""
+        _seed_pct_table(db_session)
+        ev, client, policy, batch = self._legacy_policy(
+            db_session, initial_paid=11, fpr=date(2025, 2, 1),
+            apolice="AP-EDGE", ticket="T-EDGE", email="edge@x")
+        # Stale flag left by a previous run that briefly hit 12/12.
+        policy.commission_status = CommissionStatus.SETTLED
+        db_session.add(FinancialImport(
+            nf_valor_liquido=Decimal("10000"), nf_mes_recebimento="2026-05",
+            month=5, year=2026, import_batch_id=batch.id,
+            cliente_mae="Clk Co", operadora="Bradesco", produto="Saude",
+            numero_apolice="AP-EDGE", tipo_receita="Comissão",
+            status_recebimento="RECEBIDO", data_recebimento=date(2026, 5, 15),
+        ))
+        db_session.flush()
+
+        for _ in range(2):  # second pass proves no MATCHED↔FINALIZADA oscillation
+            run_monthly_appraisal(5, 2026, validate_achievements=False)
+            nf = FinancialImport.query.filter_by(month=5, year=2026).first()
+            assert nf.match_status == "MATCHED"
+            assert Commission.query.filter_by(policy_id=policy.id).first() is not None
+            db_session.refresh(policy)
+            assert policy.installments_paid == 12
