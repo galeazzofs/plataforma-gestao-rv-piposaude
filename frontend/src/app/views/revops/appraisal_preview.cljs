@@ -66,47 +66,54 @@
    label [count-pill n tone]])
 
 (defn- controls [form loading?]
-  [:div.card {:style {:padding "18px 20px" :margin-bottom "16px"}}
-   [:div {:style {:display "flex" :align-items "flex-end" :gap "12px"
-                  :flex-wrap "wrap"}}
-    [:div {:style {:min-width "120px"}}
+  [:div.card.appraisal-control-card
+   [:div.appraisal-control-row
+    [:div
+     [:div.card-asof "rascunho mensal"]
+     [:h3 "Competência da prévia"]
+     [:div.card-sub "Use os dados financeiros já importados para validar o mês antes do fechamento."]]
+    [:div.appraisal-control-fields
      [inputs/select
       {:label "Mês" :value (:month @form)
        :options (month-options)
-       :on-change #(swap! form assoc :month %)}]]
-    [:div {:style {:min-width "120px"}}
+       :on-change #(swap! form assoc :month %)}]
      [inputs/select
       {:label "Ano" :value (:year @form)
        :options (year-options)
-       :on-change #(swap! form assoc :year %)}]]
-    [:button.btn.btn-primary
-     {:disabled loading?
-      :on-click #(rf/dispatch [:revops/run-preview
-                               {:month (:month @form) :year (:year @form)}])}
-     (if loading?
-       "Calculando…"
-       [:<> [layout/icon "refresh" {:width 14 :height 14}] " Rodar prévia"])]]
-   [:div.muted {:style {:font-size "12px" :margin-top "10px" :max-width "640px"}}
-    "A prévia apura só o mês escolhido com os dados já importados. "
-    "Nada é gravado: nenhuma comissão final, nenhuma mudança em apólices "
-    "(relógio de 12 meses, status, primeiro mês de comissão) e ninguém é "
-    "notificado. Para apurar de verdade, use o fluxo da apuração."]])
+       :on-change #(swap! form assoc :year %)}]
+     [:button.btn.btn-primary
+      {:disabled loading?
+       :on-click #(rf/dispatch [:revops/run-preview
+                                {:month (:month @form) :year (:year @form)}])}
+      (if loading?
+        "Calculando…"
+        [:<> [layout/icon "refresh" {:width 14 :height 14}] " Rodar prévia"])]]]
+   [:div.appraisal-facts
+    [:span.appraisal-fact
+     [layout/icon "calendar" {:width 13 :height 13}]
+     (str "Competência " (month-label (:month @form) (:year @form)))]
+    [:span.appraisal-fact "somente leitura"]
+    [:span.appraisal-fact "não altera apólices"]]])
 
 (defn- kpis [totals]
   [:div.kpi-grid
    [:div.kpi
-    [:div.kpi-label "comissão total"]
+    [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "comissão total"]
     [:div.kpi-value [:span.currency "R$"]
-     (or (fmt-int (:total_commission totals)) "·")]]
+     (or (fmt-int (:total_commission totals)) "·")]
+    [:div.kpi-foot "valor estimado"]]
    [:div.kpi
-    [:div.kpi-label "EVs"]
-    [:div.kpi-value (str (or (:ev_count totals) 0))]]
+    [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs"]
+    [:div.kpi-value (str (or (:ev_count totals) 0))]
+    [:div.kpi-foot "com comissão no mês"]]
    [:div.kpi
-    [:div.kpi-label "apólices"]
-    [:div.kpi-value (str (or (:policy_count totals) 0))]]
+    [:div.kpi-label [layout/icon "doc" {:width 14 :height 14}] "apólices"]
+    [:div.kpi-value (str (or (:policy_count totals) 0))]
+    [:div.kpi-foot "incluídas na memória"]]
    [:div.kpi
-    [:div.kpi-label "NFs OK"]
-    [:div.kpi-value (str (or (:matched_nf_count totals) 0))]]])
+    [:div.kpi-label [layout/icon "check" {:width 14 :height 14}] "NFs OK"]
+    [:div.kpi-value (str (or (:matched_nf_count totals) 0))]
+    [:div.kpi-foot "matcheadas"]]])
 
 (defn- result-view [result active-tab]
   (let [ev-summary  (or (:ev_summary result) [])
@@ -117,29 +124,25 @@
         missing     (or (:missing_achievements result) [])
         totals      (or (:totals result) {})]
     [:<>
-     [:div.callout {:style {:border-left "3px solid var(--warning-default)"
-                            :margin-bottom "16px"}}
+     [:div.callout.-warning {:style {:margin-bottom "16px"}}
       [layout/icon "info" {:width 20 :height 20}]
       [:div {:style {:flex 1}}
-       [:strong (str "Rascunho · " (month-label (:month result) (:year result)))]
+       [:strong (str "Rascunho de " (month-label (:month result) (:year result)))]
        [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
-        "Estes números não foram salvos. Reflete a apuração com os dados "
-        "importados até agora."]]]
+        "Números calculados sem salvar comissão, status de apólice ou notificações."]]]
 
      (when (review/period-empty? totals)
        [review/empty-period-hint (:month result) (:year result)
         (:financial_data_periods result)])
 
      (when (seq missing)
-       [:div.callout {:style {:border-left "3px solid var(--danger-default)"
-                              :margin-bottom "16px"}}
+       [:div.callout.-danger {:style {:margin-bottom "16px"}}
         [layout/icon "alert" {:width 20 :height 20}]
         [:div {:style {:flex 1}}
          [:strong "Atingimentos faltando — apurados como 0%"]
          [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
-          "Estes EVs estão sem atingimento no trimestre da venda (gongo), "
-          "então saíram no piso da tabela. Preencha em Atingimento EV antes "
-          "da apuração de verdade:"]
+          "Estes EVs estão sem atingimento usado pela regra do gongo, então "
+          "saíram no piso da tabela. Preencha em Atingimento EV antes do fechamento:"]
          [:div {:style {:font-family "var(--font-mono)" :font-size "12px"
                         :color "var(--fg-1)" :margin-top "6px"}}
           (str/join " · " missing)]]])
@@ -175,8 +178,8 @@
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "admin" "prévia mensal"]
-          :title "Prévia Mensal"
-          :subtitle "Rascunho da Comissão EV com os dados já importados — sem salvar nada"}
+          :title "Prévia da competência"
+          :subtitle "Rascunho mensal da Comissão EV, sem gravação"}
 
          [controls form loading?]
 
@@ -186,7 +189,7 @@
                                       :color "var(--fg-3)"}} "Calculando prévia…"]]
 
            error
-           [:div.callout {:style {:border-left "3px solid var(--danger-default)"}}
+           [:div.callout.-danger
             [layout/icon "alert" {:width 20 :height 20}]
             [:div {:style {:flex 1}}
              [:strong "Não foi possível gerar a prévia"]
@@ -196,10 +199,10 @@
            (nil? result)
            [:div.card
             [:div.empty {:style {:padding "48px" :text-align "center"}}
-             [:h4 "Nenhuma prévia ainda"]
+             [:div.empty-illus [layout/icon "calendar" {:width 40 :height 40}]]
+             [:h4 "Prévia ainda não gerada"]
              [:p {:style {:color "var(--fg-3)"}}
-              "Escolha o mês e clique em “Rodar prévia” para ver como a "
-              "Comissão EV está com os dados importados até agora."]]]
+              "A competência selecionada ainda não tem um rascunho calculado nesta sessão."]]]
 
            :else
            [result-view result active-tab])]))))

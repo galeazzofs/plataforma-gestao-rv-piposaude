@@ -18,6 +18,7 @@ WRITABLE_SETTINGS = {
     "hubspot_sync_interval_minutes",
     "default_quarterly_target",
     "default_commission_table_version",
+    "financial_client_aliases",
     "perk_match_strict",
 }
 

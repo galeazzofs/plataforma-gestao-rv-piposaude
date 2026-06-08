@@ -35,6 +35,74 @@
       (str (nth meses (dec m)) "/" year)
       (str "·/" (or year "·")))))
 
+(def ^:private status-labels
+  {"DRAFT"         "Rascunho"
+   "CALCULATING"   "Calculando"
+   "VALIDATING"    "Com EVs"
+   "LIDER_REVIEW"  "Revisão líder"
+   "REVOPS_REVIEW" "Revisão RevOps"
+   "LOCKED"        "Fechada"})
+
+(defn- status-label [status]
+  (get status-labels status (or status "·")))
+
+(defn- status-class [status]
+  (case status
+    "DRAFT"         "badge-draft"
+    "CALCULATING"   "badge-calc"
+    "VALIDATING"    "badge-validating"
+    "LIDER_REVIEW"  "badge-review"
+    "REVOPS_REVIEW" "badge-review"
+    "LOCKED"        "badge-paid"
+    "badge-locked"))
+
+(defn- status->badge [status]
+  [:span {:class (str "badge " (status-class status))}
+   (status-label status)])
+
+(defn- count-pill [n tone]
+  [:span {:style {:background (case tone
+                                :danger  "var(--danger-lightest)"
+                                :warning "var(--warning-lightest)"
+                                :success "var(--success-lightest)"
+                                "var(--bg-2)")
+                  :color (case tone
+                           :danger  "var(--danger-text)"
+                           :warning "var(--warning-text)"
+                           :success "var(--success-text)"
+                           "var(--fg-3)")
+                  :font-family "var(--font-mono)" :font-size "11px"
+                  :padding "1px 7px" :border-radius "var(--r-pill)"
+                  :margin-left "6px"}}
+   n])
+
+(defn- tab-button [active-tab k label n tone]
+  [:button {:type "button"
+            :class (str "tab" (when (= @active-tab k) " active"))
+            :role "tab" :aria-selected (str (= @active-tab k))
+            :on-click #(reset! active-tab k)}
+   label [count-pill n tone]])
+
+(defn- match-status-label [status]
+  (case status
+    "MATCHED" "Matcheada"
+    "UNMATCHED" "Não matcheada"
+    "EXPIRED" "Fora de vigência"
+    "UNSUPPORTED_PRODUCT" "Não suportado"
+    "APOLICE_FINALIZADA" "Apólice finalizada"
+    (or status "·")))
+
+(defn- match-status->badge [status]
+  [:span {:class (str "badge "
+                      (case status
+                        "MATCHED" "badge-approved"
+                        "UNMATCHED" "badge-contested"
+                        "EXPIRED" "badge-review"
+                        "UNSUPPORTED_PRODUCT" "badge-locked"
+                        "APOLICE_FINALIZADA" "badge-paid"
+                        "badge-review"))}
+   (match-status-label status)])
+
 (defn period-empty?
   "True when the period has no imported NFs of any match status."
   [totals]
@@ -49,8 +117,7 @@
   months that actually carry financial data (apuração is per-month now)."
   [month year periods]
   (when (seq periods)
-    [:div.callout {:style {:border-left "3px solid var(--warning-default)"
-                           :margin-bottom "16px"}}
+    [:div.callout.-warning {:style {:margin-bottom "16px"}}
      [layout/icon "info" {:width 20 :height 20}]
      [:div {:style {:flex 1}}
       [:strong (str "Nenhuma NF importada para " (month-label month year))]
@@ -89,7 +156,7 @@
          [:td.num.muted (:data_recebimento r)]
          [:td (:tipo_receita r)]
          [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "·"))]
-         [:td [:span.badge.badge-review (or (:match_status r) "·")]]
+         [:td [match-status->badge (:match_status r)]]
          (when show-finalizada-mes?
            [:td.num.muted (or (:apolice_finalizada_mes r) "·")])]))]]))
 
@@ -238,6 +305,34 @@
               ^{:key (:ev_id ev)}
               [ev-row ev @tipo-filter @op-filter])])]))))
 
+;; ── Monthly review summary ────────────────────────────────
+
+(defn- brief-item [{:keys [label value tone]}]
+  [:div {:class (str "appraisal-brief-item"
+                     (when tone (str " -" (name tone))))}
+   [:span.appraisal-brief-label label]
+   [:strong value]])
+
+(defn- review-brief [appraisal totals unmatched expired finalizadas nao-sup]
+  [:div.card.appraisal-review-brief
+   [:div.appraisal-brief-main
+    [:div.appraisal-brief-label "competência mensal"]
+    [:div.appraisal-brief-title (month-label (:month appraisal) (:year appraisal))]
+    [status->badge (:status appraisal)]
+    [:div.card-sub "Resumo operacional antes de liberar ou fechar a Comissão EV."]]
+   [:div.appraisal-brief-grid
+    [brief-item {:label "NFs OK"
+                 :value (str (or (:matched_nf_count totals) 0))
+                 :tone :success}]
+    [brief-item {:label "não matcheadas"
+                 :value (str (count unmatched))
+                 :tone :danger}]
+    [brief-item {:label "fora de vigência"
+                 :value (str (count expired))
+                 :tone :warning}]
+    [brief-item {:label "finalizadas / não suportado"
+                 :value (str (+ (count finalizadas) (count nao-sup)))}]]])
+
 ;; ── Contestation panel (issue #36) ────────────────────────
 
 (defn- contestation-panel [appraisal user]
@@ -256,7 +351,7 @@
         (cond
           ;; Open contestation — show note + resolution form for admins
           has?
-          [:div.callout {:style {:border-left "3px solid var(--danger-default)"}}
+          [:div.callout.-danger
            [layout/icon "alert" {:width 20 :height 20}]
            [:div {:style {:flex 1}}
             [:strong "Contestação aberta"]
@@ -285,7 +380,7 @@
 
           ;; Resolution closed — small acknowledgement
           (and (not has?) res-note)
-          [:div.callout {:style {:border-left "3px solid var(--success-default)"}}
+          [:div.callout.-success
            [layout/icon "check" {:width 20 :height 20}]
            [:div {:style {:flex 1}}
             [:strong "Contestação resolvida"]
@@ -295,7 +390,7 @@
 
           ;; Can contest — show button + textarea (toggled)
           can-contest?
-          [:div.callout
+          [:div.callout.-neutral
            [layout/icon "info" {:width 20 :height 20}]
            [:div {:style {:flex 1}}
             [:strong "Contestar valor"]
@@ -358,8 +453,10 @@
         [layout/page-shell
          {:current-route route-name :user user
           :crumbs ["plataforma rv" "admin" "apurações" (month-label (:month appraisal) (:year appraisal))]
-          :title (str "Apuração · " (month-label (:month appraisal) (:year appraisal)))
-          :subtitle "Revisão da memória de cálculo · ajustes antes da validação"
+          :title (str "Revisão · " (month-label (:month appraisal) (:year appraisal)))
+          :subtitle (if (:status appraisal)
+                      (str "Competência mensal · " (status-label (:status appraisal)))
+                      "Competência mensal")
           :header-actions
           [[:button.btn.btn-secondary
             {:on-click #(rf/dispatch [:navigate :revops/appraisal])}
@@ -381,82 +478,48 @@
 
          ;; Atingimentos faltando — apurados como 0% (não bloqueia a apuração)
          (when-let [missing (seq (:missing_achievements appraisal))]
-           [:div.callout {:style {:border-left "3px solid var(--warning-default)"}}
+           [:div.callout.-warning
             [layout/icon "alert" {:width 20 :height 20}]
             [:div {:style {:flex 1}}
              [:strong "Atingimentos faltando — apurados como 0%"]
              [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
-              "Estes EVs estão sem atingimento no trimestre da venda (gongo) e "
+              "Estes EVs estão sem atingimento usado pela regra do gongo e "
               "saíram no piso da tabela. Preencha em Atingimento EV e recalcule:"]
              [:div {:style {:font-family "var(--font-mono)" :font-size "12px"
                             :color "var(--fg-1)" :margin-top "6px"}}
               (str/join " · " missing)]]])
 
+         [review-brief appraisal totals unmatched expired apolices-finalizadas nao-sup]
+
          ;; KPIs row
          [:div.kpi-grid
           [:div.kpi
-           [:div.kpi-label "comissão total"]
+           [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "comissão total"]
            [:div.kpi-value [:span.currency "R$"]
-            (or (fmt-int (:total_commission totals)) "·")]]
+            (or (fmt-int (:total_commission totals)) "·")]
+           [:div.kpi-foot "valor da competência"]]
           [:div.kpi
-           [:div.kpi-label "EVs"]
-           [:div.kpi-value (str (or (:ev_count totals) 0))]]
+           [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs"]
+           [:div.kpi-value (str (or (:ev_count totals) 0))]
+           [:div.kpi-foot "com comissão"]]
           [:div.kpi
-           [:div.kpi-label "apólices"]
-           [:div.kpi-value (str (or (:policy_count totals) 0))]]
+           [:div.kpi-label [layout/icon "doc" {:width 14 :height 14}] "apólices"]
+           [:div.kpi-value (str (or (:policy_count totals) 0))]
+           [:div.kpi-foot "na memória"]]
           [:div.kpi
-           [:div.kpi-label "NFs OK"]
-           [:div.kpi-value (str (or (:matched_nf_count totals) 0))]]]
+           [:div.kpi-label [layout/icon "check" {:width 14 :height 14}] "NFs OK"]
+           [:div.kpi-value (str (or (:matched_nf_count totals) 0))]
+           [:div.kpi-foot "matcheadas"]]]
 
          ;; Tabs card
          [:div.card {:style {:padding 0}}
           [:div {:style {:padding "0 24px"}}
            [:div.tabs {:role "tablist" :aria-label "Visões de apuração"}
-            [:button {:type "button"
-                      :class (str "tab" (when (= @active-tab :por-ev) " active"))
-                      :role "tab" :aria-selected (str (= @active-tab :por-ev))
-                      :on-click #(reset! active-tab :por-ev)}
-             "Por EV "
-             [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count ev-summary)]]
-            [:button {:type "button"
-                      :class (str "tab" (when (= @active-tab :unmatched) " active"))
-                      :role "tab" :aria-selected (str (= @active-tab :unmatched))
-                      :on-click #(reset! active-tab :unmatched)}
-             "Não matcheadas "
-             [:span {:style {:background "var(--danger-lightest)" :color "var(--danger-text)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count unmatched)]]
-            [:button {:type "button"
-                      :class (str "tab" (when (= @active-tab :expired) " active"))
-                      :role "tab" :aria-selected (str (= @active-tab :expired))
-                      :on-click #(reset! active-tab :expired)}
-             "Fora de vigência "
-             [:span {:style {:background "var(--warning-lightest)" :color "var(--warning-text)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count expired)]]
-            [:button {:type "button"
-                      :class (str "tab" (when (= @active-tab :apolices-finalizadas) " active"))
-                      :role "tab" :aria-selected (str (= @active-tab :apolices-finalizadas))
-                      :on-click #(reset! active-tab :apolices-finalizadas)}
-             "Apólices finalizadas "
-             [:span {:style {:background "var(--success-lightest)" :color "var(--success-text)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count apolices-finalizadas)]]
-            [:button {:type "button"
-                      :class (str "tab" (when (= @active-tab :nao-sup) " active"))
-                      :role "tab" :aria-selected (str (= @active-tab :nao-sup))
-                      :on-click #(reset! active-tab :nao-sup)}
-             "Não suportado "
-             [:span {:style {:background "var(--bg-2)" :color "var(--fg-3)"
-                             :font-family "var(--font-mono)" :font-size "11px"
-                             :padding "1px 7px" :border-radius "var(--r-pill)" :margin-left "6px"}}
-              (count nao-sup)]]]]
+            [tab-button active-tab :por-ev "Por EV" (count ev-summary) :neutral]
+            [tab-button active-tab :unmatched "Não matcheadas" (count unmatched) :danger]
+            [tab-button active-tab :expired "Fora de vigência" (count expired) :warning]
+            [tab-button active-tab :apolices-finalizadas "Apólices finalizadas" (count apolices-finalizadas) :success]
+            [tab-button active-tab :nao-sup "Não suportado" (count nao-sup) :neutral]]]
           [:div {:style {:padding "20px 24px"}}
            (case @active-tab
              :por-ev    [por-ev-tab ev-summary]

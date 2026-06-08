@@ -7,7 +7,7 @@
             [app.ds.buttons :as btn]
             [app.auth.subs]))
 
-;; Apurações — list + active stepper, mirroring the design's "Apurações" screen.
+;; Apuração EV mensal — cockpit de competências, prévia e fechamento.
 
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
@@ -16,36 +16,113 @@
   ["Janeiro" "Fevereiro" "Março" "Abril" "Maio" "Junho"
    "Julho" "Agosto" "Setembro" "Outubro" "Novembro" "Dezembro"])
 
+(def ^:private meses-curtos
+  ["Jan" "Fev" "Mar" "Abr" "Mai" "Jun" "Jul" "Ago" "Set" "Out" "Nov" "Dez"])
+
+(defn- safe-int [v]
+  (cond
+    (number? v) v
+    (string? v) (let [n (js/parseInt v 10)]
+                  (when-not (js/isNaN n) n))
+    :else nil))
+
 (defn- month-options []
   (vec (map-indexed (fn [i m] {:value (str (inc i)) :label m}) meses)))
 
 (defn- month-label [month year]
-  (let [m (cond (number? month) month
-                (string? month) (js/parseInt month)
-                :else nil)]
+  (let [m (safe-int month)]
     (if (and m (<= 1 m 12))
       (str (nth meses (dec m)) "/" year)
       (str "·/" (or year "·")))))
 
-(defn- status->badge [status]
+(defn- month-short [month]
+  (let [m (safe-int month)]
+    (if (and m (<= 1 m 12))
+      (nth meses-curtos (dec m))
+      "·")))
+
+(defn- current-month []
+  (inc (.getMonth (js/Date.))))
+
+(defn- current-year []
+  (.getFullYear (js/Date.)))
+
+(defn- year-options []
+  (let [cy (current-year)]
+    (vec (for [y [(dec cy) cy (inc cy)]]
+           {:value (str y) :label (str y)}))))
+
+(defn- available-year-options [appraisals]
+  (->> (concat [(current-year)] (map :year appraisals))
+       (map safe-int)
+       (remove nil?)
+       distinct
+       (sort >)
+       (mapv (fn [y] {:value (str y) :label (str y)}))))
+
+(def ^:private status-labels
+  {"DRAFT"         "Rascunho"
+   "CALCULATING"   "Calculando"
+   "VALIDATING"    "Com EVs"
+   "LIDER_REVIEW"  "Revisão líder"
+   "REVOPS_REVIEW" "Revisão RevOps"
+   "LOCKED"        "Fechada"})
+
+(defn- status-label [status]
+  (get status-labels status (or status "·")))
+
+(defn- status-class [status]
   (case status
-    "DRAFT"         [:span.badge.badge-draft "Draft"]
-    "CALCULATING"   [:span.badge.badge-calc "Calculating"]
-    "VALIDATING"    [:span.badge.badge-validating "Validating"]
-    "LIDER_REVIEW"  [:span.badge.badge-review "Líder Review"]
-    "REVOPS_REVIEW" [:span.badge.badge-review "RevOps Review"]
-    "LOCKED"        [:span.badge.badge-locked "Locked"]
-    [:span.badge.badge-locked (or status "·")]))
+    "DRAFT"         "badge-draft"
+    "CALCULATING"   "badge-calc"
+    "VALIDATING"    "badge-validating"
+    "LIDER_REVIEW"  "badge-review"
+    "REVOPS_REVIEW" "badge-review"
+    "LOCKED"        "badge-paid"
+    "badge-locked"))
+
+(defn- status->badge [status]
+  [:span {:class (str "badge " (status-class status))}
+   (status-label status)])
 
 (def ^:private steps
   ["DRAFT" "CALCULATING" "VALIDATING" "LIDER_REVIEW" "REVOPS_REVIEW" "LOCKED"])
 (def ^:private step-labels
-  {"DRAFT"         "Draft"
-   "CALCULATING"   "Calculating"
-   "VALIDATING"    "Validating"
-   "LIDER_REVIEW"  "Líder Review"
-   "REVOPS_REVIEW" "RevOps Review"
-   "LOCKED"        "Locked"})
+  {"DRAFT"         "Rascunho"
+   "CALCULATING"   "Calculando"
+   "VALIDATING"    "Com EVs"
+   "LIDER_REVIEW"  "Líder"
+   "REVOPS_REVIEW" "RevOps"
+   "LOCKED"        "Fechada"})
+
+(defn- next-action-copy [status]
+  (case status
+    "DRAFT"
+    {:title "Calcular competência"
+     :body "Rode a apuração mensal para montar a memória de cálculo dos EVs."}
+
+    "CALCULATING"
+    {:title "Abrir revisão"
+     :body "Confira matches, valores e exceções antes de liberar a validação."}
+
+    "LIDER_REVIEW"
+    {:title "Revisão de liderança"
+     :body "Acompanhe ajustes dos líderes e mantenha as exceções visíveis."}
+
+    "REVOPS_REVIEW"
+    {:title "Resolver pendências"
+     :body "Trate contestações ou ajustes antes de devolver para os EVs."}
+
+    "VALIDATING"
+    {:title "Acompanhar EVs"
+     :body "A competência já está disponível para validação dos EVs."}
+
+    "LOCKED"
+    {:title "Competência fechada"
+     :body "A memória fica disponível para consulta e auditoria."}
+
+    {:title "Revisar competência"
+     :body "Abra a memória de cálculo para ver o estado atual."}))
 
 (defn- stepper [current]
   (let [idx (max 0 (.indexOf (clj->js steps) (or current "DRAFT")))]
@@ -72,17 +149,18 @@
                      {:background "var(--success-dark)"})}])])]))
 
 (defn- new-appraisal-modal [_]
-  (let [form (r/atom {:month "1" :year "2026"})]
+  (let [form (r/atom {:month (str (current-month))
+                      :year  (str (current-year))})]
     (fn [{:keys [open? on-close]}]
-      [modal/modal {:open? open? :on-close on-close :title "Nova Apuração" :size :sm}
+      [modal/modal {:open? open? :on-close on-close :title "Nova competência mensal" :size :sm}
        [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
         [inputs/select
-         {:label "Mês" :value (:month @form)
+         {:label "Mês da competência" :value (:month @form)
           :options (month-options)
           :on-change #(swap! form assoc :month %)}]
         [inputs/select
          {:label "Ano" :value (:year @form)
-          :options [{:value "2026" :label "2026"} {:value "2025" :label "2025"}]
+          :options (year-options)
           :on-change #(swap! form assoc :year %)}]
         [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
          [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
@@ -90,56 +168,108 @@
                       :on-click (fn []
                                   (rf/dispatch [:revops/create-appraisal @form])
                                   (on-close))}
-          "Criar"]]]])))
+          "Criar competência"]]]])))
 
-(defn- active-card [active]
+(defn- metric [{:keys [label value tone]}]
+  [:div.appraisal-metric
+   [:div.lab label]
+   [:div {:class (str "num" (when tone (str " -" (name tone))))}
+    value]])
+
+(defn- active-card [active on-new]
   (if-not active
     [:div.card
-     [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
-                    :font-family "var(--font-mono)" :font-size "13px"}}
-      "Nenhuma apuração em andamento"]]
+     [:div.card-head
+      [:div
+       [:div.card-asof "competência mensal"]
+       [:h2 {:style {:font-family "var(--font-display)" :font-weight 600
+                     :font-size "24px" :letter-spacing 0 :margin-top "2px"}}
+        "Nenhuma competência aberta"]
+       [:div.card-sub "Crie a competência do mês quando os dados financeiros estiverem importados."]]
+      [:div.card-actions
+       [:button.btn.btn-secondary
+        {:on-click #(rf/dispatch [:navigate :revops/appraisal-preview])}
+        [layout/icon "trend" {:width 14 :height 14}] "Prévia"]
+       [:button.btn.btn-primary
+        {:on-click on-new}
+        [layout/icon "plus" {:width 14 :height 14}] "Criar"]]]]
     (let [period (month-label (:month active) (:year active))
-          status (:status active)]
+          status (:status active)
+          next-copy (next-action-copy status)]
       [:div.card
        [:div.card-head
         [:div
-         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                        :color "var(--fg-3)" :text-transform "lowercase"}}
-          "apuração ativa"]
-         [:h2 {:style {:font-family "var(--font-display)" :font-weight 600 :font-size "24px" :margin-top "2px"}}
-          (str period " · em revisão")]]
+         [:div.card-asof "competência em aberto"]
+         [:h2 {:style {:font-family "var(--font-display)" :font-weight 600
+                       :font-size "24px" :letter-spacing 0 :margin-top "2px"}}
+          period]
+         [:div.card-sub (str "Fluxo mensal da Comissão EV · " (status-label status))]]
         [:div.card-actions
          [status->badge status]
          [:button.btn.btn-primary.btn-sm
           {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id active)}]])}
-          "Revisar valores " [layout/icon "arrow-right" {:width 12 :height 12}]]]]
-       [stepper status]
-       [:div.form-grid.-four
-        {:style {:border-top "1px solid var(--border-subtle)" :padding-top "16px"}}
-        [:div
-         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                        :color "var(--fg-3)" :text-transform "lowercase"}}
-          "EVs apurados"]
-         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-          (str (or (:ev_count active) "·"))]]
-        [:div
-         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                        :color "var(--fg-3)" :text-transform "lowercase"}}
-          "comissão total"]
-         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-          (if-let [amt (fmt-int (:total_amount active))] (str "R$ " amt) "·")]]
-        [:div
-         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                        :color "var(--fg-3)" :text-transform "lowercase"}}
-          "divergências"]
-         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--warning-dark)"}}
-          (str (or (:contestation_count active) "·"))]]
-        [:div
-         [:div {:style {:font-family "var(--font-mono)" :font-size "11px"
-                        :color "var(--fg-3)" :text-transform "lowercase"}}
-          "prazo p/ encerrar"]
-         [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
-          (or (:days_remaining active) "·")]]]])))
+          "Abrir revisão" [layout/icon "arrow-right" {:width 12 :height 12}]]]]
+       [:div.appraisal-active-main
+        [stepper status]
+        [:div.appraisal-next-box
+         [:div.lab "próxima ação"]
+         [:strong (:title next-copy)]
+         [:span (:body next-copy)]]]
+       [:div.appraisal-metric-strip
+        [metric {:label "EVs apurados"
+                 :value (str (or (:ev_count active) "·"))}]
+        [metric {:label "comissão total"
+                 :value (if-let [amt (fmt-int (:total_amount active))] (str "R$ " amt) "·")}]
+        [metric {:label "contestações"
+                 :value (str (or (:contestation_count active) "0"))
+                 :tone :warning}]
+        [metric {:label "dias para fechar"
+                 :value (str (or (:days_remaining active) "·"))}]]])))
+
+(defn- appraisal-for-month [appraisals year month]
+  (first (filter #(and (= (safe-int (:year %)) year)
+                       (= (safe-int (:month %)) month))
+                 appraisals)))
+
+(defn- monthly-cell [appraisals active-id year month]
+  (let [a       (appraisal-for-month appraisals year month)
+        locked? (= "LOCKED" (:status a))
+        active? (= active-id (:id a))
+        classes (str "appraisal-period-cell"
+                     (when a " has-data")
+                     (when active? " is-active")
+                     (when locked? " is-locked")
+                     (when-not a " is-empty"))]
+    (if a
+      [:button {:type "button"
+                :class classes
+                :on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id (:id a)}]])}
+       [:span.appraisal-period-month (month-short month)]
+       [:span.appraisal-period-status (status-label (:status a))]
+       [:span.appraisal-period-total
+        (if-let [amt (fmt-int (:total_amount a))]
+          (str "R$ " amt)
+          "sem total")]]
+      [:div {:class classes}
+       [:span.appraisal-period-month (month-short month)]
+       [:span.appraisal-period-status "Sem apuração"]
+       [:span.appraisal-period-total "prévia disponível"]])))
+
+(defn- monthly-rail [appraisals active focus-year year-options on-year-change]
+  [:div.card.appraisal-period-card
+   [:div.appraisal-period-head
+    [:div.appraisal-period-title
+     [:h3 "Competências do ano"]
+     [:div.card-sub "Acesso rápido às apurações mensais dos EVs."]]
+    [:div {:style {:width "132px"}}
+     [inputs/select
+      {:label "Ano" :value (str focus-year)
+       :options year-options
+       :on-change on-year-change}]]]
+   [:div.appraisal-period-grid
+    (for [month (range 1 13)]
+      ^{:key (str focus-year "-" month)}
+      [monthly-cell appraisals (:id active) focus-year month])]])
 
 (defn- delete-btn [id]
   [:button.btn.btn-danger.btn-sm
@@ -147,7 +277,7 @@
                 (.stopPropagation e)
                 (when (js/confirm "Tem certeza? Isso vai apagar a apuração e resetar todos os matches de NFs.")
                   (rf/dispatch [:revops/delete-appraisal id])))}
-   "Deletar"])
+   "Excluir"])
 
 (defn- step-actions [{:keys [status id] :as _row}]
   (case status
@@ -155,40 +285,40 @@
     [:<>
      [:button.btn.btn-primary.btn-sm
       {:on-click #(rf/dispatch [:revops/run-appraisal id])}
-      "Iniciar"]
+      "Calcular"]
      [delete-btn id]]
 
     "CALCULATING"
     [:<>
      [:button.btn.btn-primary.btn-sm
       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
-      "Revisar"]
+      "Abrir revisão"]
      [delete-btn id]]
 
     "LIDER_REVIEW"
     [:<>
      [:button.btn.btn-primary.btn-sm
       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
-      "Revisar"]
+      "Abrir revisão"]
      [delete-btn id]]
 
     "REVOPS_REVIEW"
     [:<>
      [:button.btn.btn-primary.btn-sm
       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
-      "Revisar"]
+      "Abrir revisão"]
      [delete-btn id]]
 
     "VALIDATING"
     [:button.btn.btn-secondary.btn-sm
      {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
-     "Acompanhar"]
+     "Acompanhar EVs"]
 
     "LOCKED"
     [:<>
      [:button.btn.btn-ghost.btn-sm
       {:on-click #(rf/dispatch [:navigate [:revops/appraisal-review {:id id}]])}
-      "Ver"]
+      "Ver memória"]
      [delete-btn id]]
 
     [:button.btn.btn-ghost.btn-sm
@@ -197,38 +327,46 @@
 
 (defn appraisal-page []
   (rf/dispatch [:revops/fetch-appraisals])
-  (let [modal-open? (r/atom false)]
+  (let [modal-open? (r/atom false)
+        focus-year  (r/atom nil)]
     (fn []
       (let [appraisals @(rf/subscribe [:revops/appraisals])
             user       @(rf/subscribe [:auth/current-user])
             route      @(rf/subscribe [:current-route-name])
             sorted     (->> appraisals (sort-by (juxt :year :month) #(compare %2 %1)))
-            active     (first (filter #(not= (:status %) "LOCKED") sorted))]
+            active     (first (filter #(not= (:status %) "LOCKED") sorted))
+            year-opts  (available-year-options sorted)
+            shown-year (or (safe-int @focus-year)
+                           (safe-int (:year active))
+                           (current-year))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "admin" "apurações"]
-          :title "Apurações"
-          :subtitle "Controle do fluxo de cálculo e aprovação"
+          :title "Apuração EV mensal"
+          :subtitle "Competências mensais, prévia e fechamento dos EVs"
           :header-actions
           [[:button.btn.btn-secondary
             {:on-click #(rf/dispatch [:navigate :revops/appraisal-preview])}
             [layout/icon "trend" {:width 14 :height 14}] "Prévia mensal"]
            [:button.btn.btn-primary
             {:on-click #(reset! modal-open? true)}
-            [layout/icon "plus" {:width 14 :height 14}] "Nova apuração"]]}
+            [layout/icon "plus" {:width 14 :height 14}] "Nova competência"]]}
 
-         [active-card active]
+         [active-card active #(reset! modal-open? true)]
+
+         [monthly-rail sorted active shown-year year-opts #(reset! focus-year %)]
 
          [:div.card {:style {:padding 0}}
           [:div {:style {:padding "24px 24px 16px"}}
-           [:h3 "Histórico"]
+           [:h3 "Histórico mensal"]
            [:div.card-sub
-            (str (count sorted) " apuraç" (if (= 1 (count sorted)) "ão" "ões") " criada"
-                 (when (not= 1 (count sorted)) "s"))]]
+            (str (count sorted) " competência"
+                 (when (not= 1 (count sorted)) "s")
+                 " criada" (when (not= 1 (count sorted)) "s"))]]
           [:table.table
            [:thead
             [:tr
-             [:th "Período"]
+             [:th "Competência"]
              [:th "Status"]
              [:th.center "EVs"]
              [:th.right "Total"]
@@ -248,7 +386,7 @@
                   (when (:has_contestation a)
                     [:span.badge.badge-review
                      {:style {:margin-left "6px"}}
-                     "⚠ contestação"])]
+                     "contestação"])]
                  [:td.center.num (str (or (:ev_count a) "·"))]
                  [:td.right.strong-num (str "R$ " (or (fmt-int (:total_amount a)) "·"))]
                  [:td.num.muted (or (:created_at_short a) "·")]

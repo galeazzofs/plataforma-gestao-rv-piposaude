@@ -31,12 +31,17 @@ from app.models import (
     EvQuarterAchievement,
     FinancialImport,
     Perk,
+    PlatformSetting,
     User,
 )
 from app.models.client import normalize_client_name
 from app.modules.policies.filters import ev_policies_query
 from app.modules.financial.matcher import (
-    build_policy_index, normalize_apolice_number, fallback_match_key,
+    build_policy_index,
+    client_names_compatible,
+    fallback_match_key,
+    is_unreliable_apolice_number,
+    normalize_apolice_number,
 )
 from app.modules.commissions.pct_lookup import lookup_commission_pct
 from app.modules.financial.monthly_engine import (
@@ -102,6 +107,116 @@ BENEFIT_MAP = {'saude': 'SAUDE', 'odonto': 'ODONTO', 'vida': 'VIDA'}
 
 APOLICE_FINALIZADA = "APOLICE_FINALIZADA"
 RECEITA_NAO_COMISSIONAVEL = "RECEITA_NAO_COMISSIONAVEL"
+FINANCIAL_CLIENT_ALIASES_SETTING = "financial_client_aliases"
+
+
+def _normalize_client_label(value):
+    if value is None:
+        return ""
+    return normalize_client_name(str(value))
+
+
+def _financial_client_aliases():
+    """Configured aliases for financial imports.
+
+    Expected setting shape:
+      {"Yamaha": ["GRUPO YAMAHA BRASIL"]}
+
+    The map is treated bidirectionally so admins can write either the imported
+    name or the HubSpot client name as the key.
+    """
+    raw = PlatformSetting.get(FINANCIAL_CLIENT_ALIASES_SETTING, {})
+    if not isinstance(raw, dict):
+        return {}
+
+    aliases = defaultdict(set)
+    for source, targets in raw.items():
+        source_normalized = _normalize_client_label(source)
+        if not source_normalized:
+            continue
+        if isinstance(targets, str):
+            target_values = [targets]
+        elif isinstance(targets, list):
+            target_values = targets
+        else:
+            continue
+
+        for target in target_values:
+            target_normalized = _normalize_client_label(target)
+            if not target_normalized or target_normalized == source_normalized:
+                continue
+            aliases[source_normalized].add(target_normalized)
+            aliases[target_normalized].add(source_normalized)
+
+    return aliases
+
+
+def _unique_unlocked_policies(policies, locked_policy_ids):
+    seen = set()
+    result = []
+    for policy in policies:
+        if policy.id in locked_policy_ids or policy.id in seen:
+            continue
+        seen.add(policy.id)
+        result.append(policy)
+    return result
+
+
+def _fallback_index_candidates(
+    fallback_index,
+    client_names,
+    benefit,
+    operadora,
+    locked_policy_ids,
+):
+    candidates = []
+    for client_name in client_names:
+        if not client_name:
+            continue
+        candidates.extend(
+            fallback_index.get(
+                fallback_match_key(client_name, benefit, operadora),
+                [],
+            )
+        )
+    return _unique_unlocked_policies(candidates, locked_policy_ids)
+
+
+def _same_fallback_dimensions(policy, benefit, operadora):
+    if policy.benefit_type is None:
+        return False
+    policy_key = fallback_match_key(
+        "", policy.benefit_type.value, policy.partner_operator,
+    )
+    nf_key = fallback_match_key("", benefit, operadora)
+    return policy_key[1:] == nf_key[1:]
+
+
+def _partial_client_fallback_candidates(
+    policies,
+    nf_client_name,
+    benefit,
+    operadora,
+    locked_policy_ids,
+):
+    candidates = []
+    for policy in policies:
+        client = policy.client
+        if (
+            policy.id in locked_policy_ids
+            or client is None
+            or not is_unreliable_apolice_number(policy.numero_apolice)
+            or not _same_fallback_dimensions(policy, benefit, operadora)
+        ):
+            continue
+
+        policy_client_name = (
+            client.name_normalized or _normalize_client_label(client.name)
+        )
+        if client_names_compatible(nf_client_name, policy_client_name):
+            candidates.append(policy)
+
+    return _unique_unlocked_policies(candidates, locked_policy_ids)
 
 
 def _locked_period_pairs():
@@ -232,6 +347,7 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
         fallback_index[fallback_match_key(
             client.name_normalized, p.benefit_type.value, p.partner_operator,
         )].append(p)
+    client_aliases = _financial_client_aliases()
 
     # -- 4. Pass 1 --- Find candidate policies ------------------------
     nfs = FinancialImport.query.filter_by(
@@ -265,24 +381,47 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
         candidates = policy_index.get(apolice_key, []) if apolice_key else []
 
         if not candidates:
-            # Fallback for policies whose numero_apolice is wrong/blank in the
-            # sync: match on (Cliente Mãe, Benefício, Operadora). Only when the
-            # tuple resolves to exactly ONE live policy — an ambiguous tuple
-            # (same client+benefit+operadora on several policies) is left
-            # UNMATCHED rather than risk crediting the wrong policy/EV.
-            fb_key = fallback_match_key(
-                normalize_client_name(nf.cliente_mae or ''),
-                benefit, nf.operadora,
+            # Fallbacks run strongest to loosest. Each must resolve to exactly
+            # one live policy before it can credit an EV.
+            nf_client_name = normalize_client_name(nf.cliente_mae or '')
+            fb_candidates = _fallback_index_candidates(
+                fallback_index,
+                [nf_client_name],
+                benefit,
+                nf.operadora,
+                locked_policy_ids,
             )
-            fb_candidates = [
-                p for p in fallback_index.get(fb_key, [])
-                if p.id not in locked_policy_ids
-            ]
             if len(fb_candidates) == 1:
                 candidates = fb_candidates
             elif len(fb_candidates) > 1:
                 _set_nf_status(nf, 'UNMATCHED')
                 continue
+            else:
+                alias_candidates = _fallback_index_candidates(
+                    fallback_index,
+                    client_aliases.get(nf_client_name, set()),
+                    benefit,
+                    nf.operadora,
+                    locked_policy_ids,
+                )
+                if len(alias_candidates) == 1:
+                    candidates = alias_candidates
+                elif len(alias_candidates) > 1:
+                    _set_nf_status(nf, 'UNMATCHED')
+                    continue
+                else:
+                    partial_candidates = _partial_client_fallback_candidates(
+                        policies_for_index,
+                        nf_client_name,
+                        benefit,
+                        nf.operadora,
+                        locked_policy_ids,
+                    )
+                    if len(partial_candidates) == 1:
+                        candidates = partial_candidates
+                    elif len(partial_candidates) > 1:
+                        _set_nf_status(nf, 'UNMATCHED')
+                        continue
 
         if not candidates:
             _set_nf_status(nf, 'UNMATCHED')

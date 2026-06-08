@@ -6,7 +6,7 @@ import pytest
 from app.models import (
     User, UserRole, Client, Policy, Segment, BenefitType,
     CommissionStatus, Commission, FinancialImport, ImportBatch,
-    Perk, EvQuarterAchievement, CommissionPctTable,
+    Perk, EvQuarterAchievement, CommissionPctTable, PlatformSetting,
 )
 from app.modules.commissions.calculator import run_monthly_appraisal
 from app.extensions import db
@@ -511,6 +511,99 @@ class TestApoliceFallbackMatch:
 
         assert Commission.query.filter_by(policy_id=good.id).first() is not None
         assert Commission.query.filter_by(policy_id=blank.id).first() is None
+
+    def test_partial_client_fallback_recovers_yamaha_group_name(self, db_session):
+        """Real-data shape: NF says "Yamaha", HubSpot policy says
+        "GRUPO YAMAHA BRASIL", and the synced apolice field is unusable text.
+        The fallback can safely match because benefit+operadora leave one
+        candidate only."""
+        _seed_pct_table(db_session)
+        ev, client, policy = self._ev_client_policy(
+            db_session,
+            numero_apolice="Aguardando avaliacao do time de Seguranca",
+            ticket="T-YAMAHA-SUL",
+            client_name="GRUPO YAMAHA BRASIL",
+            operadora="Sulamerica",
+        )
+        self._nf(
+            db_session,
+            ev_id=ev.id,
+            numero_apolice="67059",
+            cliente_mae="Yamaha",
+            operadora="Sulamerica",
+            produto="Saude",
+        )
+
+        run_monthly_appraisal(5, 2026, validate_achievements=False)
+
+        nf = FinancialImport.query.filter_by(month=5, year=2026).first()
+        assert nf.match_status == "MATCHED"
+        assert nf.policy_id == policy.id
+        assert Commission.query.filter_by(policy_id=policy.id).first() is not None
+
+    def test_client_alias_setting_recovers_non_partial_name(self, db_session):
+        _seed_pct_table(db_session)
+        PlatformSetting.set(
+            "financial_client_aliases",
+            {"YMH": ["GRUPO YAMAHA BRASIL"]},
+        )
+        ev, client, policy = self._ev_client_policy(
+            db_session,
+            numero_apolice="Aguardando apolice",
+            ticket="T-YAMAHA-ALIAS",
+            client_name="GRUPO YAMAHA BRASIL",
+            operadora="Sulamerica",
+        )
+        self._nf(
+            db_session,
+            ev_id=ev.id,
+            numero_apolice="67059",
+            cliente_mae="YMH",
+            operadora="Sulamerica",
+            produto="Saude",
+        )
+
+        run_monthly_appraisal(5, 2026, validate_achievements=False)
+
+        nf = FinancialImport.query.filter_by(month=5, year=2026).first()
+        assert nf.match_status == "MATCHED"
+        assert nf.policy_id == policy.id
+
+    def test_partial_client_fallback_requires_unique_candidate(self, db_session):
+        _seed_pct_table(db_session)
+        ev, client, p1 = self._ev_client_policy(
+            db_session,
+            numero_apolice="Aguardando apolice",
+            ticket="T-YAMAHA-1",
+            client_name="GRUPO YAMAHA BRASIL",
+            operadora="Sulamerica",
+        )
+        p2 = Policy(
+            hubspot_ticket_id="T-YAMAHA-2", numero_apolice="Nao possuimos",
+            ev_id=ev.id, client_id=client.id, segment=Segment.P,
+            benefit_type=BenefitType.SAUDE, mrr_projected=Decimal("5000"),
+            closed_date=date(2026, 1, 20),
+            commission_status=CommissionStatus.PROJECTED,
+            first_payment_real=None, installments_paid=0,
+            initial_installments_paid=0, partner_operator="Sulamerica",
+        )
+        db_session.add(p2)
+        db_session.flush()
+        self._nf(
+            db_session,
+            ev_id=ev.id,
+            numero_apolice="67059",
+            cliente_mae="Yamaha",
+            operadora="Sulamerica",
+            produto="Saude",
+        )
+
+        run_monthly_appraisal(5, 2026, validate_achievements=False)
+
+        nf = FinancialImport.query.filter_by(month=5, year=2026).first()
+        assert nf.match_status == "UNMATCHED"
+        assert Commission.query.filter_by(policy_id=p1.id).first() is None
+        assert Commission.query.filter_by(policy_id=p2.id).first() is None
 
 
 class TestCountBasedClock:

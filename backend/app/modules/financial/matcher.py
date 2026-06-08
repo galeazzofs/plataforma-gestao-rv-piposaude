@@ -10,6 +10,19 @@ import unicodedata
 from collections import defaultdict
 from datetime import date
 
+_GENERIC_CLIENT_TOKENS = {
+    "brasil",
+    "company",
+    "corp",
+    "eireli",
+    "grupo",
+    "holding",
+    "inc",
+    "ltda",
+    "sa",
+    "servicos",
+}
+
 
 def normalize(s):
     """Lowercase + strip accents + trim spaces. Empty string for None.
@@ -120,6 +133,63 @@ def fallback_match_key(client_name_normalized, benefit, operadora):
         (benefit or "").strip().upper(),
         normalize(operadora or ""),
     )
+
+
+def _client_tokens(client_name_normalized):
+    return {
+        token
+        for token in re.split(r"[^a-z0-9]+", (client_name_normalized or ""))
+        if len(token) >= 4 and token not in _GENERIC_CLIENT_TOKENS
+    }
+
+
+def client_names_compatible(left_normalized, right_normalized):
+    """Return True when two normalized client names are safely compatible.
+
+    This is intentionally stricter than generic fuzzy matching: after removing
+    corporate filler tokens, every distinctive token from the shorter name must
+    exist in the longer one. Example: "yamaha" matches "grupo yamaha brasil",
+    but tiny or generic names do not create a match by themselves.
+    """
+    left = (left_normalized or "").strip()
+    right = (right_normalized or "").strip()
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+
+    left_tokens = _client_tokens(left)
+    right_tokens = _client_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+
+    smaller, larger = (
+        (left_tokens, right_tokens)
+        if len(left_tokens) <= len(right_tokens)
+        else (right_tokens, left_tokens)
+    )
+    return smaller.issubset(larger)
+
+
+def is_unreliable_apolice_number(raw):
+    """Whether the policy apolice field is clearly not a usable number.
+
+    Loose client-name fallback is only allowed for these policies, which keeps
+    a real but different apolice number from being silently overridden.
+    """
+    if raw is None:
+        return True
+
+    normalized = normalize(raw)
+    if not normalized:
+        return True
+    if any(marker in normalized for marker in ("aguard", "nao", "possui", "sem ")):
+        return True
+
+    numbers = parse_apolice_numbers(raw)
+    if not numbers:
+        return True
+    return all(not any(ch.isdigit() for ch in number) for number in numbers)
 
 
 def build_policy_index(policies):
