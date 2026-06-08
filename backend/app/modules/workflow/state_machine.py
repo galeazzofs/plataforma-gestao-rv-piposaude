@@ -27,16 +27,16 @@ _VALIDATION_DONE = (
 )
 
 
-def start_appraisal(quarter, year, created_by):
+def start_appraisal(month, year, created_by):
     """Create a new appraisal in DRAFT status."""
-    existing = Appraisal.query.filter_by(quarter=quarter, year=year).first()
+    existing = Appraisal.query.filter_by(month=month, year=year).first()
     if existing:
         raise InvalidTransitionError(
-            f"Appraisal for Q{quarter}/{year} already exists (status: {existing.status.value})"
+            f"Appraisal for {month:02d}/{year} already exists (status: {existing.status.value})"
         )
 
     appraisal = Appraisal(
-        quarter=quarter,
+        month=month,
         year=year,
         status=AppraisalStatus.DRAFT,
         created_by=created_by,
@@ -93,8 +93,13 @@ def transition_appraisal(appraisal, new_status, **kwargs):
     if new_status == AppraisalStatus.CALCULATING:
         # Run the synchronous calculator. Status stays in CALCULATING —
         # RevOps reviews and releases manually via "Liberar para Validação".
-        from app.modules.commissions.calculator import run_quarterly_appraisal
-        run_quarterly_appraisal(appraisal.quarter, appraisal.year)
+        # Missing achievements do NOT block the apuração: affected policies fall
+        # back to 0% and the gaps surface as a warning in the review payload, so
+        # RevOps can fill them and recalculate before locking.
+        from app.modules.commissions.calculator import run_monthly_appraisal
+        run_monthly_appraisal(
+            appraisal.month, appraisal.year, validate_achievements=False
+        )
 
     if new_status == AppraisalStatus.VALIDATING:
         deadline = kwargs.get("validation_deadline")
@@ -108,7 +113,7 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         appraisal.approved_by_finance = kwargs.get("approved_by")
         # Mark all non-final commissions of this apuração as final
         Commission.query.filter_by(
-            quarter=appraisal.quarter,
+            month=appraisal.month,
             year=appraisal.year,
             is_final=False,
         ).update({"is_final": True}, synchronize_session=False)
@@ -119,7 +124,7 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             recompute_policy_paid_totals_for_apuracao,
         )
         recompute_policy_paid_totals_for_apuracao(
-            appraisal.quarter, appraisal.year
+            appraisal.month, appraisal.year
         )
 
     # Reset reminder state on every transition: a fresh action zeroes
@@ -135,7 +140,8 @@ def transition_appraisal(appraisal, new_status, **kwargs):
     _emit_appraisal_slack(appraisal, old_status, new_status)
 
     if new_status == AppraisalStatus.LOCKED:
-        _maybe_lock_attached_cycle(appraisal.quarter, appraisal.year)
+        # The cycle stays quarterly; map this monthly appraisal to its quarter.
+        _maybe_lock_attached_cycle((appraisal.month - 1) // 3 + 1, appraisal.year)
 
     return appraisal
 
@@ -264,7 +270,7 @@ def _emit_appraisal_slack(appraisal: Appraisal,
                           new_status: AppraisalStatus):
     """Emit Slack notifications for each meaningful Appraisal transition.
     All sends are graceful (never raise)."""
-    quarter, year = appraisal.quarter, appraisal.year
+    month, year = appraisal.month, appraisal.year
 
     # CALCULATING → VALIDATING: DM each EV with an EvValidation row.
     if (old_status == AppraisalStatus.CALCULATING
@@ -283,7 +289,7 @@ def _emit_appraisal_slack(appraisal: Appraisal,
                 _safe_slack(
                     "notify_validating_released",
                     lambda u=ev: slack.notify_validating_released(
-                        u, "ev_quarter", quarter, year,
+                        u, "ev_quarter", month, year,
                     ),
                 )
 
@@ -301,7 +307,7 @@ def _emit_appraisal_slack(appraisal: Appraisal,
         _safe_slack(
             "notify_lider_approved",
             lambda: _import_slack().notify_lider_approved(
-                quarter, year, attribution,
+                month, year, attribution,
             ),
         )
 
@@ -312,7 +318,7 @@ def _emit_appraisal_slack(appraisal: Appraisal,
             and new_status == AppraisalStatus.LOCKED):
         _safe_slack(
             "notify_revops_approved",
-            lambda: _import_slack().notify_revops_approved(quarter, year),
+            lambda: _import_slack().notify_revops_approved(month, year),
         )
 
 
@@ -439,7 +445,7 @@ def maybe_auto_advance_appraisal_after_validation(appraisal: Appraisal):
         transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
         return True
     if not _required_lideres_validated_own(
-        appraisal.quarter, appraisal.year, required_lider_ids,
+        (appraisal.month - 1) // 3 + 1, appraisal.year, required_lider_ids,
     ):
         return False
 
@@ -465,7 +471,7 @@ def maybe_dm_lider_team_validated(appraisal: Appraisal, team_id) -> bool:
     _safe_slack(
         "notify_team_validated_for_lider",
         lambda: _import_slack().notify_team_validated_for_lider(
-            lider, appraisal.quarter, appraisal.year,
+            lider, appraisal.month, appraisal.year,
         ),
     )
     return True

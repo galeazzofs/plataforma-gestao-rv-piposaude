@@ -54,7 +54,7 @@ def test_validating_released_dms_user(db_session):
     kwargs = mock.call_args.kwargs
     assert kwargs["channel"] == "U-EV-1"
     assert "Comissão EV" in kwargs["text"]
-    assert "Q1/2030" in kwargs["text"]
+    assert "01/2030" in kwargs["text"]
     # Privacy contract: no R$ or numeric commission value in the body
     assert "R$" not in kwargs["text"]
 
@@ -68,7 +68,7 @@ def test_team_validated_for_lider_dms_lider(db_session):
 
     kwargs = mock.call_args.kwargs
     assert kwargs["channel"] == "U-LIDER-1"
-    assert "Q2/2030" in kwargs["text"]
+    assert "02/2030" in kwargs["text"]
 
 
 def test_lider_approved_posts_to_ops_channel(db_session):
@@ -79,7 +79,7 @@ def test_lider_approved_posts_to_ops_channel(db_session):
     kwargs = mock.call_args.kwargs
     assert kwargs["channel"] == "#ops-channel"
     assert "Carla Silva" in kwargs["text"]
-    assert "Q3/2030" in kwargs["text"]
+    assert "03/2030" in kwargs["text"]
     assert "R$" not in kwargs["text"]
 
 
@@ -90,7 +90,7 @@ def test_revops_approved_posts_to_finance_channel(db_session):
 
     kwargs = mock.call_args.kwargs
     assert kwargs["channel"] == "#finance-channel"
-    assert "Q4/2030" in kwargs["text"]
+    assert "04/2030" in kwargs["text"]
 
 
 def test_contestation_opened_omits_value(db_session):
@@ -101,7 +101,7 @@ def test_contestation_opened_omits_value(db_session):
     kwargs = mock.call_args.kwargs
     assert kwargs["channel"] == "#ops-channel"
     assert "Pedro" in kwargs["text"]
-    assert "Q1/2030" in kwargs["text"]
+    assert "01/2030" in kwargs["text"]
     assert "R$" not in kwargs["text"]
 
 
@@ -113,7 +113,7 @@ def test_contestation_resolved_dms_contestant(db_session):
 
     kwargs = mock.call_args.kwargs
     assert kwargs["channel"] == "U-PEDRO"
-    assert "Q1/2030" in kwargs["text"]
+    assert "01/2030" in kwargs["text"]
 
 
 def test_cycle_locked_fans_out_to_channel_and_lideres(db_session):

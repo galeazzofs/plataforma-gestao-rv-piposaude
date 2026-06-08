@@ -17,11 +17,11 @@ class AppraisalStatus(str, enum.Enum):
 class Appraisal(db.Model):
     __tablename__ = "appraisals"
     __table_args__ = (
-        db.UniqueConstraint("quarter", "year", name="uq_appraisal_quarter_year"),
+        db.UniqueConstraint("month", "year", name="uq_appraisal_month_year"),
     )
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
-    quarter = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1–12
     year = db.Column(db.Integer, nullable=False)
     cycle_id = db.Column(
         GUID, db.ForeignKey("quarterly_cycles.id"), nullable=True, index=True,
@@ -51,7 +51,7 @@ class Appraisal(db.Model):
     validations = db.relationship("EvValidation", back_populates="appraisal")
 
     def __repr__(self):
-        return f"<Appraisal Q{self.quarter}/{self.year} ({self.status})>"
+        return f"<Appraisal {self.month:02d}/{self.year} ({self.status})>"
 
     @property
     def is_locked(self):

@@ -110,13 +110,20 @@ def _filter_policies_by_period(
 def _filter_fi_by_period(
     query, year: int | None, quarter: int | None, year_floor: int | None = None
 ):
-    """Filter a FinancialImport query by its quarter+year columns."""
+    """Filter a FinancialImport query by its month+year columns.
+
+    The dashboard period selector is still a calendar quarter; map it to the
+    three financial months it spans (FinancialImport is keyed by month now)."""
     if year_floor is not None:
         query = query.filter(FinancialImport.year >= year_floor)
     elif year is not None:
         query = query.filter(FinancialImport.year == year)
     if quarter is not None:
-        query = query.filter(FinancialImport.quarter == quarter)
+        start_month = (quarter - 1) * 3 + 1
+        query = query.filter(
+            FinancialImport.month >= start_month,
+            FinancialImport.month <= start_month + 2,
+        )
     return query
 
 
@@ -189,8 +196,8 @@ def _policy_projection_start_month(p: Policy, fallback: date) -> str:
 
 def _locked_appraisal_pairs() -> set[tuple[int, int]]:
     return {
-        (q, y)
-        for q, y in db.session.query(Appraisal.quarter, Appraisal.year)
+        (m, y)
+        for m, y in db.session.query(Appraisal.month, Appraisal.year)
         .filter(Appraisal.status == AppraisalStatus.LOCKED)
         .all()
     }
@@ -234,7 +241,7 @@ def _finance_rows_for_policies(policy_ids: set[str], locked_pairs: set[tuple[int
             month=row.nf_mes_recebimento,
             amount=row.nf_valor_liquido,
             revenue_type=row.tipo_receita,
-            is_locked=(row.quarter, row.year) in locked_pairs,
+            is_locked=(row.month, row.year) in locked_pairs,
         ))
     return result
 
@@ -251,7 +258,7 @@ def _locked_realized_by_month(locked_pairs: set[tuple[int, int]]) -> dict[str, D
     )
     by_month: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for row in rows:
-        if (row.quarter, row.year) not in locked_pairs:
+        if (row.month, row.year) not in locked_pairs:
             continue
         if classify_revenue_type(row.tipo_receita) is None:
             continue
@@ -792,7 +799,7 @@ def list_approval():
 
     query = Appraisal.query.filter_by(
         status=AppraisalStatus.REVOPS_REVIEW
-    ).order_by(Appraisal.year.desc(), Appraisal.quarter.desc())
+    ).order_by(Appraisal.year.desc(), Appraisal.month.desc())
 
     items, meta = paginate_query(query, page, per_page)
 
@@ -801,7 +808,7 @@ def list_approval():
             "items": [
                 {
                     "id": str(a.id),
-                    "quarter": a.quarter,
+                    "month": a.month,
                     "year": a.year,
                     "status": a.status.value,
                     "validation_deadline": a.validation_deadline.isoformat() if a.validation_deadline else None,
@@ -818,19 +825,32 @@ def list_approval():
 @finance_dashboard_bp.route("/export")
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def export_commissions():
-    """Export commissions to CSV for a given quarter/year."""
+    """Export commissions to CSV for a period — a single month, or a calendar
+    quarter (mapped to its three months) for the Finance views."""
+    month = request.args.get("month", type=int)
     quarter = request.args.get("quarter", type=int)
     year = request.args.get("year", type=int)
 
-    if not quarter or not year:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year required"}}), 400
+    if not year or (not month and not quarter):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "year and (month or quarter) required"}}), 400
 
-    commissions = Commission.query.filter_by(quarter=quarter, year=year).all()
+    query = Commission.query.filter_by(year=year)
+    if month:
+        query = query.filter(Commission.month == month)
+        period_label = f"{month:02d}"
+    else:
+        start_month = (quarter - 1) * 3 + 1
+        query = query.filter(
+            Commission.month >= start_month,
+            Commission.month <= start_month + 2,
+        )
+        period_label = f"Q{quarter}"
+    commissions = query.all()
 
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "commission_id", "ev_id", "ev_name", "policy_id", "quarter", "year",
+        "commission_id", "ev_id", "ev_name", "policy_id", "month", "year",
         "segment", "achievement_pct", "commission_pct",
         "monthly_estimated", "total_estimated",
         "monthly_actual", "total_actual", "is_final",
@@ -840,7 +860,7 @@ def export_commissions():
         ev_name = c.ev.name if c.ev else ""
         writer.writerow([
             str(c.id), str(c.ev_id), ev_name, str(c.policy_id),
-            c.quarter, c.year, c.segment,
+            c.month, c.year, c.segment,
             str(c.achievement_pct) if c.achievement_pct else "",
             str(c.commission_pct) if c.commission_pct else "",
             str(c.monthly_estimated) if c.monthly_estimated else "",
@@ -851,7 +871,7 @@ def export_commissions():
         ])
 
     csv_data = output.getvalue()
-    filename = f"commissions_Q{quarter}_{year}.csv"
+    filename = f"commissions_{period_label}_{year}.csv"
 
     return Response(
         csv_data,

@@ -12,6 +12,16 @@
 ;; Admin / RevOps dashboard. Renders only data from re-frame subs; empty
 ;; states stand in until the API has values.
 
+(def ^:private meses-abbr
+  ["Jan" "Fev" "Mar" "Abr" "Mai" "Jun" "Jul" "Ago" "Set" "Out" "Nov" "Dez"])
+
+(defn- month-abbr [month]
+  (let [m (cond (number? month) month (string? month) (js/parseInt month) :else nil)]
+    (when (and m (<= 1 m 12)) (nth meses-abbr (dec m)))))
+
+(defn- month-label [month year]
+  (str (or (month-abbr month) "·") "/" (or year "·")))
+
 (defn- status->badge [status]
   (case status
     "DRAFT"         [:span.badge.badge-draft "Draft"]
@@ -31,7 +41,7 @@
 
 (defn- appraisal-row [{:keys [a]}]
   [:tr
-   [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
+   [:td.name.num (month-label (:month a) (:year a))]
    [:td [status->badge (:status a)]]
    [:td.center.num (str (or (:ev_count a) "·"))]
    [:td.right.strong-num (or (fmt/fmt-brl-int (:total_amount a)) "·")]
@@ -84,7 +94,7 @@
           active        (first (filter #(not= (:status %) "LOCKED") (or appraisals [])))
           contest-open  (count (filter #(= (:status %) "CONTESTED") (or contestations [])))
           recent        (->> (or appraisals [])
-                             (sort-by (juxt :year :quarter) #(compare %2 %1))
+                             (sort-by (juxt :year :month) #(compare %2 %1))
                              (take 4))
           recent-events (->> (or (:items audit-log) []) (take 5))
           synced        (:records_synced sync-status)]
@@ -104,7 +114,7 @@
          [:div.kpi-label [layout/icon "cog" {:width 14 :height 14}] "apuração ativa"]
          [:div.kpi-value
           (if active
-            [:<> "Q" (:quarter active) [:span.frac (str "/" (mod (or (:year active) 0) 100))]]
+            [:<> (or (month-abbr (:month active)) "·") [:span.frac (str "/" (mod (or (:year active) 0) 100))]]
             "·")]
          [:div.kpi-foot
           (when active [status->badge (:status active)])
@@ -141,7 +151,7 @@
          [:div.callout
           [layout/icon "info" {:width 20 :height 20}]
           [:div {:style {:flex 1}}
-           [:strong (str "Apuração Q" (:quarter active) "/" (:year active) " está em revisão")]
+           [:strong (str "Apuração " (month-label (:month active) (:year active)) " está em revisão")]
            [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
             "Os cálculos foram concluídos. RevOps precisa validar os valores antes de enviar para os EVs."]]
           [:button.btn.btn-primary.btn-sm

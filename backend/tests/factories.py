@@ -73,14 +73,14 @@ class CommissionFactory(BaseFactory):
         model = Commission
     policy_id = factory.LazyAttribute(lambda o: PolicyFactory().id)
     ev_id = factory.LazyAttribute(lambda o: UserFactory().id)
-    quarter = 1
+    month = 1
     year = 2026
 
 
 class AppraisalFactory(BaseFactory):
     class Meta:
         model = Appraisal
-    quarter = 1
+    month = 1
     year = 2026
     status = AppraisalStatus.DRAFT
     created_by = factory.LazyAttribute(lambda o: UserFactory(role=UserRole.ADMIN).id)

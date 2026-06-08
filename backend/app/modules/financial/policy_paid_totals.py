@@ -5,7 +5,7 @@ from FinancialImport rows:
 - total_paid_comissao       = Σ NF amounts where tipo_receita matches "comiss"
 - total_paid_agenciamento   = Σ NF amounts where tipo_receita matches "agenc"
 
-Only matched FIs whose (quarter, year) corresponds to a LOCKED Appraisal
+Only matched FIs whose (month, year) corresponds to a LOCKED Appraisal
 contribute. Recomputed from scratch each time so the operation is idempotent
 — locking the same apuração twice (or recomputing after a fix) produces
 identical totals, never doubled.
@@ -22,8 +22,8 @@ from app.extensions import db
 from app.models import Appraisal, AppraisalStatus, FinancialImport, Policy
 
 
-def recompute_policy_paid_totals_for_apuracao(quarter: int, year: int) -> int:
-    """Recompute total_paid_* on every policy with a matched NF in (quarter, year).
+def recompute_policy_paid_totals_for_apuracao(month: int, year: int) -> int:
+    """Recompute total_paid_* on every policy with a matched NF in (month, year).
 
     Returns the number of policies updated. The caller is responsible for the
     enclosing transaction — we flush but do not commit.
@@ -32,7 +32,7 @@ def recompute_policy_paid_totals_for_apuracao(quarter: int, year: int) -> int:
     impacted_rows = (
         db.session.query(FinancialImport.policy_id)
         .filter(
-            FinancialImport.quarter == quarter,
+            FinancialImport.month == month,
             FinancialImport.year == year,
             FinancialImport.match_status == "MATCHED",
             FinancialImport.policy_id.isnot(None),
@@ -44,10 +44,10 @@ def recompute_policy_paid_totals_for_apuracao(quarter: int, year: int) -> int:
     if not impacted_policy_ids:
         return 0
 
-    # 2. Collect the (quarter, year) pairs of every LOCKED appraisal — those
+    # 2. Collect the (month, year) pairs of every LOCKED appraisal — those
     # are the periods whose FIs count toward the running totals.
     locked_pairs = (
-        db.session.query(Appraisal.quarter, Appraisal.year)
+        db.session.query(Appraisal.month, Appraisal.year)
         .filter(Appraisal.status == AppraisalStatus.LOCKED)
         .all()
     )
@@ -55,9 +55,9 @@ def recompute_policy_paid_totals_for_apuracao(quarter: int, year: int) -> int:
         # If we're transitioning the first apuração ever to LOCKED, the row
         # hasn't been flushed yet by the caller. Include the current pair
         # explicitly so the recompute reflects the in-flight transition.
-        locked_pairs = [(quarter, year)]
-    elif (quarter, year) not in locked_pairs:
-        locked_pairs.append((quarter, year))
+        locked_pairs = [(month, year)]
+    elif (month, year) not in locked_pairs:
+        locked_pairs.append((month, year))
     locked_pairs = list(set(locked_pairs))
 
     # 3. One grouped query: per-policy totals, split by tipo_receita.
@@ -70,7 +70,7 @@ def recompute_policy_paid_totals_for_apuracao(quarter: int, year: int) -> int:
         .filter(
             FinancialImport.policy_id.in_(impacted_policy_ids),
             FinancialImport.match_status == "MATCHED",
-            tuple_(FinancialImport.quarter, FinancialImport.year).in_(locked_pairs),
+            tuple_(FinancialImport.month, FinancialImport.year).in_(locked_pairs),
         )
         .group_by(FinancialImport.policy_id, FinancialImport.tipo_receita)
         .all()

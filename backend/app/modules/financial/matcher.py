@@ -101,6 +101,27 @@ def parse_apolice_numbers(raw):
     return result
 
 
+def fallback_match_key(client_name_normalized, benefit, operadora):
+    """Composite key for the (Cliente Mãe, Benefício, Operadora) fallback.
+
+    Used to match an NF to a policy when the policy's numero_apolice is
+    missing or corrupted in the HubSpot sync (e.g. stored as scientific
+    notation '1,10E+16', a free-text note, or blank) so the apolice-number
+    match can never land.
+
+    `client_name_normalized` must ALREADY be normalized with
+    normalize_client_name (so the NF side and the policy side — which stores
+    Client.name_normalized — produce identical keys). `benefit` is the
+    canonical SAUDE/ODONTO/VIDA. `operadora` is normalized here, accent/case/
+    space-insensitive, on both sides.
+    """
+    return (
+        (client_name_normalized or "").strip(),
+        (benefit or "").strip().upper(),
+        normalize(operadora or ""),
+    )
+
+
 def build_policy_index(policies):
     """Build O(1) lookup index by apolice number.
 

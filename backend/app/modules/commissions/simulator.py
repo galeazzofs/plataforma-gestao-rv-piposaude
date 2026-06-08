@@ -17,7 +17,7 @@ CN_BASES: dict[str, Decimal] = {
 
 VIDAS_META_FACTORS: dict[str, Decimal] = {
     "M": Decimal("375"),
-    "G+": Decimal("1000"),
+    "G+": Decimal("2000"),
 }
 
 _ZERO = Decimal("0")

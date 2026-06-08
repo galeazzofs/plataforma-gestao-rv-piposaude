@@ -7,7 +7,7 @@ from app.models import Policy, User, UserRole
 from app.models.client import Client
 from app.models.policy import CommissionStatus, Segment
 from app.api.middlewares import paginate_query, log_audit
-from app.modules.policies.filters import active_ev_policies_query, all_ev_policies_query
+from app.modules.policies.filters import ev_policies_query, all_ev_policies_query
 from app.modules.commissions.status import update_policy_statuses
 from app.extensions import db
 
@@ -63,14 +63,14 @@ def list_policies():
     if user.role in (UserRole.ADMIN, UserRole.FINANCE):
         query = all_ev_policies_query()
     elif user.role in (UserRole.EV, UserRole.CN):
-        query = active_ev_policies_query().filter(Policy.ev_id == user.id)
+        query = ev_policies_query().filter(Policy.ev_id == user.id)
     elif user.role == UserRole.LIDER_VENDAS:
         team_member_ids = [
             u.id for u in User.query.filter_by(
                 team_id=user.team_id, active=True, left_company=False,
             ).all()
         ]
-        query = active_ev_policies_query().filter(Policy.ev_id.in_(team_member_ids))
+        query = ev_policies_query().filter(Policy.ev_id.in_(team_member_ids))
     else:
         return jsonify({
             "error": {"code": "FORBIDDEN", "message": "Role not permitted"}

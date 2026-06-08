@@ -609,8 +609,8 @@ def test_delete_absent_policies_cascades_commissions(db_session):
     ev = _ev("delete-cascade-c@x")
     p_keep = _make_policy("CASC-KEEP", ev.id)
     p_drop = _make_policy("CASC-C", ev.id)
-    c_keep = Commission(policy_id=p_keep.id, ev_id=ev.id, quarter=1, year=2025)
-    c_drop = Commission(policy_id=p_drop.id, ev_id=ev.id, quarter=1, year=2025)
+    c_keep = Commission(policy_id=p_keep.id, ev_id=ev.id, month=1, year=2025)
+    c_drop = Commission(policy_id=p_drop.id, ev_id=ev.id, month=1, year=2025)
     db.session.add_all([c_keep, c_drop])
     db.session.flush()
     c_drop_id = c_drop.id
@@ -630,7 +630,7 @@ def test_delete_absent_policies_cascades_ev_validations(db_session):
     p_keep = _make_policy("CASC-V-KEEP", ev.id)
     p_drop = _make_policy("CASC-V-DROP", ev.id)
     appraisal = Appraisal(
-        quarter=1,
+        month=1,
         year=2099 + random.randint(0, 99999),
         status=AppraisalStatus.DRAFT,
         created_by=ev.id,
@@ -667,7 +667,7 @@ def test_delete_absent_policies_nulls_financial_imports(db_session):
         numero_apolice="X",
         nf_valor_liquido=Decimal("100.00"),
         nf_mes_recebimento="2025-01",
-        quarter=1,
+        month=1,
         year=2025,
     )
     db.session.add(fi)

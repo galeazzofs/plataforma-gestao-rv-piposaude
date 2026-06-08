@@ -78,8 +78,18 @@ def upsert_cn_goals():
             if goal is None:
                 goal = CnMonthlyGoal(cn_id=item["cn_id"], month=month, year=year)
                 db.session.add(goal)
-            goal.sao_target = _decimal_or_zero(item.get("sao_target"))
-            goal.vidas_target = _decimal_or_zero(item.get("vidas_target"))
+            sao_target = _decimal_or_zero(item.get("sao_target"))
+            goal.sao_target = sao_target
+            # Derive the lives target from the CN porte (SAO × factor) — the
+            # same rule the simulator uses — so it is never hand-typed.
+            cn = db.session.get(User, item["cn_id"])
+            porte = (cn.porte.value if (cn and hasattr(cn.porte, "value"))
+                     else (cn.porte if cn else None))
+            auto = vidas_meta_from_sao(sao_target, porte) if porte else None
+            goal.vidas_target = (
+                auto if (auto and auto > 0)
+                else _decimal_or_zero(item.get("vidas_target"))
+            )
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -363,14 +373,31 @@ def _decimal_or_zero(v):
 
 
 def _serialize_cn_row(cn, goal, month, year):
+    porte = cn.porte.value if hasattr(cn.porte, "value") else cn.porte
+    nivel = cn.nivel.value if hasattr(cn.nivel, "value") else cn.nivel
+    sao_target = goal.sao_target if goal else None
+    # Lives target is derived from porte (SAO × factor), like the simulator,
+    # so the UI shows it read-only instead of asking RevOps to type it.
+    vidas_auto = (
+        vidas_meta_from_sao(Decimal(str(sao_target)), porte)
+        if (sao_target is not None and porte) else None
+    )
+    if vidas_auto is not None and vidas_auto > 0:
+        vidas_target = str(vidas_auto)
+    elif goal:
+        vidas_target = str(goal.vidas_target)
+    else:
+        vidas_target = None
     return {
         "id": str(goal.id) if goal else None,
         "cn_id": str(cn.id),
         "cn_name": cn.name,
+        "nivel": nivel,
+        "porte": porte,
         "month": month,
         "year": year,
-        "sao_target": str(goal.sao_target) if goal else None,
-        "vidas_target": str(goal.vidas_target) if goal else None,
+        "sao_target": str(sao_target) if sao_target is not None else None,
+        "vidas_target": vidas_target,
     }
 
 

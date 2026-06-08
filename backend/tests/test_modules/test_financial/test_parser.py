@@ -1,4 +1,4 @@
-"""Tests for the new financial XLSX parser.
+"""Tests for the financial XLSX parser (per-year ingestion).
 
 Uses two fixtures:
 - synthetic_financial.xlsx — 6 known rows for precise assertions
@@ -18,25 +18,36 @@ SAMPLE = FIXTURES / "sample_financial.xlsx"
 # ── Synthetic XLSX (controlled values) ────────────────────────
 
 
-def test_synthetic_parses_3_valid_rows_for_q1_2026():
-    """Synthetic has 6 data rows. For Q1/2026:
-    - 2 RECEBIDO Saúde (positive + negative) → pass
-    - 1 RECEBIDO Mental → pass (not filtered by produto)
+def test_synthetic_parses_valid_rows_for_2026():
+    """Synthetic has 6 data rows. For year 2026, the parser keeps every
+    RECEBIDO commissionable row regardless of month:
+    - 3 RECEBIDO in 02/2026 (positive Saúde, negative Saúde, Mental)
+    - 1 RECEBIDO in 04/2026 (Hapvida)
     - 1 A RECEBER → filtered by status
-    - 1 Q2/2026 RECEBIDO → filtered by period
     - 1 RECEBIDO without cliente → filtered as garbage
-    Total passing: 3"""
-    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    Total passing: 4 (the month no longer filters)."""
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     assert result['stats']['total_lidas'] == 6
     assert result['stats']['descartadas_status'] == 1
-    assert result['stats']['descartadas_periodo'] == 1
+    assert result['stats']['descartadas_periodo'] == 0
     assert result['stats']['descartadas_vazias'] == 1
-    assert result['stats']['persistidas'] == 3
-    assert len(result['rows']) == 3
+    assert result['stats']['persistidas'] == 4
+    assert len(result['rows']) == 4
+
+
+def test_synthetic_keeps_all_months_of_the_year():
+    """A single parse pulls in every month — Feb AND April rows come through,
+    each carrying its own competência month in mes_recebimento."""
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
+    meses = sorted({r['mes_recebimento'] for r in result['rows']})
+    assert '2026-02' in meses
+    assert '2026-04' in meses
+    operadoras = {r['operadora'] for r in result['rows']}
+    assert 'Hapvida' in operadoras  # the April row is included
 
 
 def test_synthetic_keeps_negative_values():
-    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     nfs = [r['nf_valor_liquido'] for r in result['rows']]
     assert -200.00 in nfs
     assert 1000.00 in nfs
@@ -44,34 +55,32 @@ def test_synthetic_keeps_negative_values():
 
 def test_synthetic_keeps_mental_product():
     """Parser should NOT filter Mental/Fitness — calculator does it later."""
-    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     produtos = [r['produto'] for r in result['rows']]
     assert 'Mental' in produtos
 
 
-def test_synthetic_filters_by_quarter():
-    result_q1 = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
-    result_q2 = parse_financial_xlsx(str(SYNTHETIC), target_quarter=2, target_year=2026)
-    assert result_q1['stats']['persistidas'] == 3
-    assert result_q2['stats']['persistidas'] == 1
-    assert result_q2['rows'][0]['operadora'] == 'Hapvida'
+def test_synthetic_drops_other_years():
+    """A different year keeps nothing from this 2026-only fixture."""
+    result = parse_financial_xlsx(str(SYNTHETIC), 2025)
+    assert result['stats']['persistidas'] == 0
 
 
 def test_synthetic_parses_dates_as_date_objects():
-    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     for row in result['rows']:
         assert isinstance(row['data_recebimento'], date)
         assert row['data_recebimento'].year == 2026
 
 
 def test_synthetic_status_only_recebido():
-    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     assert all(r['status_recebimento'] == 'RECEBIDO' for r in result['rows'])
 
 
 def test_synthetic_extracts_mes_recebimento():
     """mes_recebimento is YYYY-MM format derived from data_recebimento."""
-    result = parse_financial_xlsx(str(SYNTHETIC), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     for row in result['rows']:
         assert len(row['mes_recebimento']) == 7
         assert row['mes_recebimento'].startswith('2026-')
@@ -83,7 +92,7 @@ def test_synthetic_extracts_mes_recebimento():
 def test_real_xlsx_format_parses_without_error():
     """Smoke test against the real spreadsheet subset — verifies header
     detection and column mapping work for the actual format."""
-    result = parse_financial_xlsx(str(SAMPLE), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SAMPLE), 2026)
     assert 'rows' in result
     assert 'stats' in result
     assert result['stats']['total_lidas'] > 0
@@ -91,7 +100,7 @@ def test_real_xlsx_format_parses_without_error():
 
 def test_real_xlsx_extracts_known_fields():
     """Every persisted row should have all required fields populated."""
-    result = parse_financial_xlsx(str(SAMPLE), target_quarter=1, target_year=2026)
+    result = parse_financial_xlsx(str(SAMPLE), 2026)
     for row in result['rows']:
         assert row['cliente_mae']
         assert row['nf_valor_liquido'] is not None
@@ -104,4 +113,4 @@ def test_real_xlsx_extracts_known_fields():
 
 def test_raises_on_missing_file():
     with pytest.raises((FileNotFoundError, ParseError)):
-        parse_financial_xlsx("/nonexistent/path.xlsx", 1, 2026)
+        parse_financial_xlsx("/nonexistent/path.xlsx", 2026)

@@ -18,9 +18,9 @@ def test_start_appraisal_creates_draft(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=1, year=2026, created_by=admin.id)
+    appraisal = start_appraisal(month=1, year=2026, created_by=admin.id)
     assert appraisal.status == AppraisalStatus.DRAFT
-    assert appraisal.quarter == 1
+    assert appraisal.month == 1
     assert appraisal.year == 2026
 
 
@@ -29,10 +29,10 @@ def test_transition_draft_to_calculating(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=1, year=2026, created_by=admin.id)
+    appraisal = start_appraisal(month=1, year=2026, created_by=admin.id)
     # Mock the calculator: this test is about the transition itself, not
     # about running a full apuracao (calculator is exercised in test_calculator_v2)
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     assert appraisal.status == AppraisalStatus.CALCULATING
 
@@ -42,7 +42,7 @@ def test_invalid_transition_raises(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=2, year=2026, created_by=admin.id)
+    appraisal = start_appraisal(month=2, year=2026, created_by=admin.id)
     try:
         # DRAFT → LOCKED is invalid (must traverse the full chain)
         transition_appraisal(appraisal, AppraisalStatus.LOCKED)
@@ -56,10 +56,10 @@ def test_full_chain_to_locked(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=3, year=2026, created_by=admin.id)
+    appraisal = start_appraisal(month=3, year=2026, created_by=admin.id)
     # Mock the calculator: this test is about transition validation, not about
     # running a real apuracao.
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
     transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
@@ -74,12 +74,12 @@ def test_lider_review_can_send_back_to_calculating(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=1, year=2027, created_by=admin.id)
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    appraisal = start_appraisal(month=1, year=2027, created_by=admin.id)
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
     transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     assert appraisal.status == AppraisalStatus.CALCULATING
 
@@ -89,13 +89,13 @@ def test_revops_review_can_send_back_to_calculating(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=2, year=2027, created_by=admin.id)
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    appraisal = start_appraisal(month=2, year=2027, created_by=admin.id)
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
     transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
     transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     assert appraisal.status == AppraisalStatus.CALCULATING
 
@@ -105,8 +105,8 @@ def test_locked_can_reopen_to_revops_review(db_session):
     db_session.add(admin)
     db_session.flush()
 
-    appraisal = start_appraisal(quarter=3, year=2027, created_by=admin.id)
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
+    appraisal = start_appraisal(month=3, year=2027, created_by=admin.id)
+    with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
     transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
@@ -123,9 +123,9 @@ def test_locked_can_reopen_to_revops_review(db_session):
         pass
 
 
-def test_lock_marks_all_quarter_commissions_as_final(db_session):
+def test_lock_marks_all_month_commissions_as_final(db_session):
     """When transitioning REVOPS_REVIEW → LOCKED, all non-final commissions
-    for the apuração's (quarter, year) get is_final=True."""
+    for the apuração's (month, year) get is_final=True."""
     admin = User(email="lock-admin@piposaude.com", name="Admin",
                  role=UserRole.ADMIN, active=True)
     db.session.add(admin)
@@ -153,14 +153,14 @@ def test_lock_marks_all_quarter_commissions_as_final(db_session):
     db.session.flush()
 
     appraisal = Appraisal(
-        quarter=4, year=2026, status=AppraisalStatus.REVOPS_REVIEW,
+        month=4, year=2026, status=AppraisalStatus.REVOPS_REVIEW,
         created_by=admin.id,
     )
     db.session.add(appraisal)
     db.session.flush()
 
     comm = Commission(
-        policy_id=policy.id, ev_id=ev.id, quarter=4, year=2026,
+        policy_id=policy.id, ev_id=ev.id, month=4, year=2026,
         segment="M", achievement_pct=Decimal("0.5"),
         commission_pct=Decimal("0.06"), commission_pct_version=1,
         monthly_actual=Decimal("100.00"), total_actual=Decimal("100.00"),

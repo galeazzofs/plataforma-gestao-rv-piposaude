@@ -4,6 +4,7 @@ from app.models import User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal, CnNive
 from app.modules.commissions.cn_calculator import (
     validate_cn_goals,
     run_cn_monthly_appraisal,
+    run_cn_monthly_appraisal_with_inputs,
     MissingGoalsError,
 )
 from app.extensions import db
@@ -99,3 +100,28 @@ class TestRunCnMonthlyAppraisal:
             CnMonthlyAppraisal.status == AppraisalStatus.LOCKED,
         ).count()
         assert locked == 1
+
+
+class TestRunWithInputs:
+    def test_uses_realizado_and_auto_vidas_meta_from_porte(self, db_session):
+        # Porte M ⇒ vidas meta auto = sao_target × 375. The stored
+        # vidas_target is deliberately wrong to prove the calculator derives
+        # the lives target from porte, exactly like the simulator does.
+        cn = _make_cn(db_session, name="Gina", nivel="CN1")
+        _make_goal(db_session, cn, month=8, year=2026,
+                   sao=Decimal("100"), vidas=Decimal("1"))
+
+        run_cn_monthly_appraisal_with_inputs(8, 2026, [
+            {"cn_id": str(cn.id),
+             "sao_realizado": "100",
+             "vidas_realizado": "37500"},
+        ])
+
+        a = CnMonthlyAppraisal.query.filter_by(
+            cn_id=cn.id, month=8, year=2026
+        ).first()
+        # auto vidas meta = 100 × 375 = 37500 ⇒ pct_vidas = 1.0
+        # score = 0.7×1.0 + 0.3×1.0 = 1.0 ⇒ mult 1.20
+        # CN1 base 2000 × 1.20 = 2400.00
+        assert a.pct_vidas == Decimal("1.0000")
+        assert a.commission_amount == Decimal("2400.00")

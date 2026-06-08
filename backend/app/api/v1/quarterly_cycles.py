@@ -97,3 +97,34 @@ def get_cycle(cycle_id):
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
 
     return jsonify({"data": build_cycle_payload(cycle)})
+
+
+@quarterly_cycles_bp.route("/<cycle_id>", methods=["DELETE"])
+@require_role(UserRole.ADMIN)
+def delete_cycle(cycle_id):
+    """Delete a quarterly cycle. LOCKED cycles are frozen and cannot be removed."""
+    cycle = db.session.get(QuarterlyCycle, cycle_id)
+    if cycle is None:
+        return jsonify({"error": {"code": "NOT_FOUND",
+                                  "message": "QuarterlyCycle not found"}}), 404
+
+    if cycle.status == QuarterlyCycleStatus.LOCKED:
+        return jsonify({
+            "error": {
+                "code": "CONFLICT",
+                "message": (
+                    f"QuarterlyCycle Q{cycle.quarter}/{cycle.year} is LOCKED "
+                    "and cannot be deleted."
+                ),
+            },
+        }), 409
+
+    quarter, year = cycle.quarter, cycle.year
+    log_audit(
+        "quarterly_cycles", cycle.id, "DELETE",
+        old_values={"quarter": quarter, "year": year,
+                    "status": cycle.status.value},
+    )
+    db.session.delete(cycle)
+    db.session.commit()
+    return jsonify({"data": {"id": cycle_id, "deleted": True}})

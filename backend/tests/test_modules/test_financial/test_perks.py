@@ -1,5 +1,4 @@
-"""Tests for perk_parser + persist_perk_rows + /upload-perks endpoint."""
-import io
+"""Tests for perk_parser + persist_perk_rows (per-year / per-competência)."""
 import uuid
 from decimal import Decimal
 
@@ -12,9 +11,7 @@ from app.models import (
     Appraisal, AppraisalStatus, AuditLog,
 )
 from app.modules.financial.perk_parser import parse_perk_xlsx, PerkParseError
-from app.modules.financial.processor import (
-    persist_perk_rows, UploadBlockedError,
-)
+from app.modules.financial.processor import persist_perk_rows
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -64,28 +61,29 @@ class TestParsePerkXlsx:
     def test_parses_basic_rows(self, admin_user):
         path = _make_xlsx([
             ["Acme", 1500.00, 1, 2026],
-            ["Zup", 2500.00, 2, 2026],
+            ["Zup", 2500.00, 1, 2026],
         ])
-        out = parse_perk_xlsx(path, target_quarter=1, target_year=2026)
+        out = parse_perk_xlsx(path, 2026)
         assert len(out['rows']) == 2
         assert out['stats']['persistidas'] == 2
         assert out['rows'][0]['amount'] == Decimal('1500')
 
-    def test_drops_rows_outside_target_period(self, admin_user):
+    def test_keeps_all_months_drops_other_years(self, admin_user):
         path = _make_xlsx([
-            ["Acme", 1000, 1, 2026],   # Q1/2026 — keep
-            ["Zup",  1000, 4, 2026],   # Q2 — drop
+            ["Acme", 1000, 1, 2026],   # month 1/2026 — keep
+            ["Zup",  1000, 4, 2026],   # month 4/2026 — keep (month no longer filters)
             ["BBB",  1000, 1, 2025],   # wrong year — drop
         ])
-        out = parse_perk_xlsx(path, target_quarter=1, target_year=2026)
-        assert len(out['rows']) == 1
-        assert out['stats']['descartadas_periodo'] == 2
+        out = parse_perk_xlsx(path, 2026)
+        assert len(out['rows']) == 2
+        assert {r['month'] for r in out['rows']} == {1, 4}
+        assert out['stats']['descartadas_periodo'] == 1
 
     def test_handles_brazilian_negative_format(self, admin_user):
         path = _make_xlsx([
             ["Acme", "(3.500,00)", 1, 2026],  # negative-in-parens BR format
         ])
-        out = parse_perk_xlsx(path, target_quarter=1, target_year=2026)
+        out = parse_perk_xlsx(path, 2026)
         assert len(out['rows']) == 1
         assert out['rows'][0]['amount'] == Decimal('3500')
 
@@ -95,7 +93,7 @@ class TestParsePerkXlsx:
             ["Zup",  "abc", 1, 2026],
             ["BBB",  100, 1, 2026],
         ])
-        out = parse_perk_xlsx(path, target_quarter=1, target_year=2026)
+        out = parse_perk_xlsx(path, 2026)
         assert len(out['rows']) == 1
         assert out['stats']['descartadas_vazias'] == 2
 
@@ -105,7 +103,7 @@ class TestParsePerkXlsx:
             headers=["Other", "Valor", "Mes", "Ano"],
         )
         with pytest.raises(PerkParseError):
-            parse_perk_xlsx(path, target_quarter=1, target_year=2026)
+            parse_perk_xlsx(path, 2026)
 
 
 # ── persist_perk_rows ────────────────────────────────────────────────────────
@@ -118,32 +116,31 @@ class TestPersistPerkRows:
         db.session.flush()
         return c
 
-    def test_creates_perks_with_exact_match(self, admin_user):
+    def test_creates_perks_with_per_row_month(self, admin_user):
         c = self._client("Acme Corp")
-        rows = [{
-            'client_name': 'Acme Corp',
-            'amount': Decimal('1000'),
-            'month': 1, 'quarter': 1, 'year': 2026,
-        }]
-        out = persist_perk_rows(rows, 1, 2026, "t.xlsx", admin_user.id)
+        rows = [
+            {'client_name': 'Acme Corp', 'amount': Decimal('1000'),
+             'month': 1, 'year': 2026},
+            {'client_name': 'Acme Corp', 'amount': Decimal('500'),
+             'month': 5, 'year': 2026},
+        ]
+        out = persist_perk_rows(rows, 2026, "t.xlsx", admin_user.id)
         db.session.commit()
 
-        perks = Perk.query.filter_by(quarter=1, year=2026).all()
-        assert len(perks) == 1
-        assert perks[0].client_id == c.id
-        assert perks[0].amount == Decimal('1000')
-        assert out['matched'] == 1
+        assert out['matched'] == 2
         assert out['missed'] == 0
-        assert out['partial_matches'] == []
+        assert Perk.query.filter_by(month=1, year=2026).count() == 1
+        assert Perk.query.filter_by(month=5, year=2026).count() == 1
+        assert all(p.client_id == c.id for p in Perk.query.all())
 
     def test_partial_match_logs_audit(self, admin_user):
-        c = self._client("Zup IT Services")
+        self._client("Zup IT Services")
         rows = [{
             'client_name': 'Zup',
             'amount': Decimal('500'),
-            'month': 1, 'quarter': 1, 'year': 2026,
+            'month': 1, 'year': 2026,
         }]
-        out = persist_perk_rows(rows, 1, 2026, "t.xlsx", admin_user.id)
+        out = persist_perk_rows(rows, 2026, "t.xlsx", admin_user.id)
         db.session.commit()
 
         assert out['matched'] == 1
@@ -153,49 +150,61 @@ class TestPersistPerkRows:
     def test_missed_clients_deduplicated(self, admin_user):
         rows = [
             {'client_name': 'Unknown',  'amount': Decimal('100'),
-             'month': 1, 'quarter': 1, 'year': 2026},
+             'month': 1, 'year': 2026},
             {'client_name': 'Unknown',  'amount': Decimal('200'),
-             'month': 2, 'quarter': 1, 'year': 2026},
+             'month': 2, 'year': 2026},
             {'client_name': 'Other',    'amount': Decimal('300'),
-             'month': 3, 'quarter': 1, 'year': 2026},
+             'month': 3, 'year': 2026},
         ]
-        out = persist_perk_rows(rows, 1, 2026, "t.xlsx", admin_user.id)
+        out = persist_perk_rows(rows, 2026, "t.xlsx", admin_user.id)
         assert out['missed'] == 3
         assert out['missed_clients'] == ['Other', 'Unknown']  # sorted, deduped
 
-    def test_replaces_existing_perks_for_period(self, admin_user):
-        c = self._client("Acme Corp")
-        # First upload
+    def test_replaces_only_months_present(self, admin_user):
+        self._client("Acme Corp")
+        # First upload — month 1.
         persist_perk_rows(
             [{'client_name': 'Acme Corp', 'amount': Decimal('100'),
-              'month': 1, 'quarter': 1, 'year': 2026}],
-            1, 2026, "first.xlsx", admin_user.id,
+              'month': 1, 'year': 2026}],
+            2026, "first.xlsx", admin_user.id,
         )
         db.session.commit()
-        # Second upload — different amount
+        # Second upload — month 1 again, different amount → replaces month 1.
         persist_perk_rows(
             [{'client_name': 'Acme Corp', 'amount': Decimal('999'),
-              'month': 1, 'quarter': 1, 'year': 2026}],
-            1, 2026, "second.xlsx", admin_user.id,
+              'month': 1, 'year': 2026}],
+            2026, "second.xlsx", admin_user.id,
         )
         db.session.commit()
 
-        perks = Perk.query.filter_by(quarter=1, year=2026).all()
+        perks = Perk.query.filter_by(month=1, year=2026).all()
         assert len(perks) == 1
         assert perks[0].amount == Decimal('999')
 
-    def test_blocks_when_appraisal_locked(self, admin_user):
-        ap = Appraisal(
-            quarter=1, year=2026,
-            status=AppraisalStatus.LOCKED,
-            created_by=admin_user.id,
+    def test_skips_and_preserves_locked_months(self, admin_user):
+        self._client("Acme Corp")
+        # Load month 1 while open.
+        persist_perk_rows(
+            [{'client_name': 'Acme Corp', 'amount': Decimal('100'),
+              'month': 1, 'year': 2026}],
+            2026, "first.xlsx", admin_user.id,
         )
-        db.session.add(ap)
+        db.session.commit()
+        db.session.add(Appraisal(
+            month=1, year=2026, status=AppraisalStatus.LOCKED,
+            created_by=admin_user.id,
+        ))
         db.session.commit()
 
-        with pytest.raises(UploadBlockedError):
-            persist_perk_rows(
-                [{'client_name': 'Acme', 'amount': Decimal('100'),
-                  'month': 1, 'quarter': 1, 'year': 2026}],
-                1, 2026, "t.xlsx", admin_user.id,
-            )
+        out = persist_perk_rows(
+            [{'client_name': 'Acme Corp', 'amount': Decimal('999'),
+              'month': 1, 'year': 2026}],
+            2026, "second.xlsx", admin_user.id,
+        )
+        db.session.commit()
+
+        assert out['skipped_locked'] == 1
+        assert out['matched'] == 0
+        perks = Perk.query.filter_by(month=1, year=2026).all()
+        assert len(perks) == 1
+        assert perks[0].amount == Decimal('100')  # original preserved

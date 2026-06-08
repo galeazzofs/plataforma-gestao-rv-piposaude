@@ -1,7 +1,7 @@
 """Tests for validate_achievements_for_appraisal.
 
 The validator checks that every (ev_id, gongo_quarter, gongo_year) combination
-required by the active-EV policies has a stored achievement record.
+required by the EV policies has a stored achievement record.
 """
 import pytest
 from datetime import date
@@ -78,7 +78,11 @@ def test_validator_returns_missing_for_uncovered_gongo_quarter(db_session):
     assert "Q4/2025" in missing[0]
 
 
-def test_validator_ignores_inactive_evs(db_session):
+def test_validator_includes_deactivated_evs(db_session):
+    """A deactivated EV who was never flagged left_company (the soft-delete
+    state) still has commissionable policies, so the validator must surface
+    her missing achievement instead of silently ignoring it. Previously her
+    policies were dropped entirely — the Bianca Kurban apuração bug."""
     from app.modules.commissions.calculator import validate_achievements_for_appraisal
 
     inactive = _ev("inact@x")
@@ -86,9 +90,10 @@ def test_validator_ignores_inactive_evs(db_session):
     db.session.flush()
     _policy(inactive, "T1", date(2026, 1, 15), client_name="C1")
 
-    # Even without achievement, inactive EV's policies are excluded
+    # Deactivated EV's policies still count → missing achievement is reported.
     missing = validate_achievements_for_appraisal(1, 2026)
-    assert missing == []
+    assert len(missing) == 1
+    assert "Q1/2026" in missing[0]
 
 
 def test_validator_includes_departed_evs_still_commissionable(db_session):

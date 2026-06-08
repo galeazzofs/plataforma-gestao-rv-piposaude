@@ -25,17 +25,10 @@
                    (str (or v 0) " " label)))]]]))
 
 (defn- upload-form []
-  (let [form (r/atom {:quarter 1 :year 2026 :file nil})]
+  (let [form (r/atom {:year 2026 :file nil})]
     (fn [{:keys [on-file kind]}]
       [:div {:style {:display "flex" :flex-direction "column" :gap "20px"}}
        [:div {:style {:display "flex" :gap "12px"}}
-        [:div {:style {:width "150px"}}
-         [inputs/select
-          {:label "Trimestre"
-           :value (str (:quarter @form))
-           :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
-                     {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
-           :on-change #(swap! form assoc :quarter (js/parseInt %))}]]
         [:div {:style {:width "150px"}}
          [inputs/select
           {:label "Ano"
@@ -53,13 +46,13 @@
                                 (when f
                                   (swap! form assoc :file f)
                                   (when on-file
-                                    (on-file f (:quarter @form) (:year @form))))))}]
+                                    (on-file f (:year @form))))))}]
         [layout/icon "upload" {:width 36 :height 36}]
         [:strong "Solte os arquivos aqui ou clique para selecionar"]
         [:p {:style {:font-size "12px" :max-width "340px"}}
          (case kind
-           :perks "Aceitamos XLSX com Cliente Pipo, Valor, Mês (Competência) e Ano. Re-upload substitui os subsídios existentes do trimestre."
-           "Aceitamos CSV, XLSX, PDF (NFs). Máx. 50MB por arquivo. Os campos serão validados antes do processamento.")]
+           :perks "Aceitamos XLSX com Cliente Pipo, Valor, Mês (Competência) e Ano. Cada linha entra no seu próprio mês; re-upload atualiza os meses abertos do ano."
+           "Aceitamos CSV, XLSX, PDF (NFs). Cada NF entra no seu próprio mês de recebimento. Máx. 50MB por arquivo.")]
         [:button.btn.btn-primary.btn-sm {:style {:margin-top "8px"}}
          "Selecionar arquivos"]]])))
 
@@ -82,7 +75,7 @@
        [:div.card
         [:div.card-head
          [:div [:h3 "Faturamento"]
-          [:div.card-sub "Planilha \"Consulta - Follow up Faturamento\". Re-upload do mesmo trimestre substitui as linhas existentes (exceto se a apuração já estiver Locked)."]]
+          [:div.card-sub "Planilha \"Consulta - Follow up Faturamento\". Cada NF entra no mês da sua data de recebimento. Re-upload do mesmo ano atualiza os meses abertos e preserva os meses já fechados (Locked)."]]
          (when result
            [:button.btn.btn-secondary.btn-sm
             {:on-click #(rf/dispatch [:revops/upload-reset])}
@@ -99,7 +92,7 @@
           :else
           [upload-form
            {:kind :financial
-            :on-file (fn [f q y] (rf/dispatch [:revops/upload-financial f q y]))}])]
+            :on-file (fn [f y] (rf/dispatch [:revops/upload-financial f y]))}])]
 
        ;; Subsídios / Perks
        [:div.card
@@ -127,4 +120,4 @@
           :else
           [upload-form
            {:kind :perks
-            :on-file (fn [f q y] (rf/dispatch [:revops/upload-perks f q y]))}])]])))
+            :on-file (fn [f y] (rf/dispatch [:revops/upload-perks f y]))}])]])))

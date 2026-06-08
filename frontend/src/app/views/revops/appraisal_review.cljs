@@ -23,9 +23,51 @@
     (let [n (if (string? v) (js/parseFloat v) v)]
       (when-not (js/isNaN n) (.toFixed n 1)))))
 
+(def ^:private meses
+  ["Janeiro" "Fevereiro" "Março" "Abril" "Maio" "Junho"
+   "Julho" "Agosto" "Setembro" "Outubro" "Novembro" "Dezembro"])
+
+(defn- month-label [month year]
+  (let [m (cond (number? month) month
+                (string? month) (js/parseInt month)
+                :else nil)]
+    (if (and m (<= 1 m 12))
+      (str (nth meses (dec m)) "/" year)
+      (str "·/" (or year "·")))))
+
+(defn period-empty?
+  "True when the period has no imported NFs of any match status."
+  [totals]
+  (zero? (+ (or (:matched_nf_count totals) 0)
+            (or (:unmatched_count totals) 0)
+            (or (:expired_count totals) 0)
+            (or (:nao_suportado_count totals) 0)
+            (or (:apolices_finalizadas_count totals) 0))))
+
+(defn empty-period-hint
+  "Callout shown when the apuração's month has no imported NFs, pointing at the
+  months that actually carry financial data (apuração is per-month now)."
+  [month year periods]
+  (when (seq periods)
+    [:div.callout {:style {:border-left "3px solid var(--warning-default)"
+                           :margin-bottom "16px"}}
+     [layout/icon "info" {:width 20 :height 20}]
+     [:div {:style {:flex 1}}
+      [:strong (str "Nenhuma NF importada para " (month-label month year))]
+      [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
+       "A apuração é mensal: ela só enxerga as NFs cujo recebimento caiu no "
+       "mês escolhido. Os dados financeiros que você importou estão nestes "
+       "meses — selecione um deles para apurar:"]
+      [:div {:style {:font-family "var(--font-mono)" :font-size "12px"
+                     :color "var(--fg-1)" :margin-top "6px"}}
+       (str/join " · "
+                 (for [p periods]
+                   (str (month-label (:month p) (:year p))
+                        " (" (:nf_count p) " NFs)")))]]]))
+
 ;; ── NF table for unmatched/expired/nao-suportado ──
 
-(defn- nf-table [rows]
+(defn nf-table [rows]
   (let [show-finalizada-mes? (boolean (some :apolice_finalizada_mes rows))
         col-span (if show-finalizada-mes? 8 7)]
     [:table.table
@@ -157,7 +199,7 @@
 
 ;; ── Por EV tab ────────────────────────────────────────────
 
-(defn- por-ev-tab []
+(defn por-ev-tab []
   (let [tipo-filter (r/atom "Todos")
         op-filter   (r/atom "Todas")]
     (fn [ev-summary]
@@ -315,8 +357,8 @@
             route-name @(rf/subscribe [:current-route-name])]
         [layout/page-shell
          {:current-route route-name :user user
-          :crumbs ["plataforma rv" "admin" "apurações" (str "Q" (or (:quarter appraisal) "·") "/" (or (:year appraisal) "·"))]
-          :title (str "Apuração · Q" (or (:quarter appraisal) "·") "/" (or (:year appraisal) "·"))
+          :crumbs ["plataforma rv" "admin" "apurações" (month-label (:month appraisal) (:year appraisal))]
+          :title (str "Apuração · " (month-label (:month appraisal) (:year appraisal)))
           :subtitle "Revisão da memória de cálculo · ajustes antes da validação"
           :header-actions
           [[:button.btn.btn-secondary
@@ -331,6 +373,24 @@
 
          ;; Contestation panel (issue #36)
          [contestation-panel appraisal user]
+
+         ;; Mês sem NFs importadas — aponta os meses que têm dados
+         (when (period-empty? totals)
+           [empty-period-hint (:month appraisal) (:year appraisal)
+            (:financial_data_periods appraisal)])
+
+         ;; Atingimentos faltando — apurados como 0% (não bloqueia a apuração)
+         (when-let [missing (seq (:missing_achievements appraisal))]
+           [:div.callout {:style {:border-left "3px solid var(--warning-default)"}}
+            [layout/icon "alert" {:width 20 :height 20}]
+            [:div {:style {:flex 1}}
+             [:strong "Atingimentos faltando — apurados como 0%"]
+             [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
+              "Estes EVs estão sem atingimento no trimestre da venda (gongo) e "
+              "saíram no piso da tabela. Preencha em Atingimento EV e recalcule:"]
+             [:div {:style {:font-family "var(--font-mono)" :font-size "12px"
+                            :color "var(--fg-1)" :margin-top "6px"}}
+              (str/join " · " missing)]]])
 
          ;; KPIs row
          [:div.kpi-grid

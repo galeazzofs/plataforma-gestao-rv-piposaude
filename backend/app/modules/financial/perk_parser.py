@@ -88,16 +88,13 @@ def _parse_month(raw):
         return None
 
 
-def _quarter_of(month):
-    return (month - 1) // 3 + 1
-
-
-def parse_perk_xlsx(filepath, target_quarter, target_year):
-    """Parse perk XLSX and return rows for the target quarter/year.
+def parse_perk_xlsx(filepath, target_year):
+    """Parse perk XLSX and return rows for the target year (each row keeps its
+    own competência month from the 'Mês' column).
 
     Returns:
         {
-          'rows': [{client_name, amount, month, quarter, year}],
+          'rows': [{client_name, amount, month, year}],
           'stats': {total_lidas, descartadas_periodo, descartadas_vazias, persistidas}
         }
     """
@@ -171,8 +168,7 @@ def parse_perk_xlsx(filepath, target_quarter, target_year):
             stats['descartadas_vazias'] += 1
             continue
 
-        q = _quarter_of(month)
-        if year != target_year or q != target_quarter:
+        if year != target_year:
             stats['descartadas_periodo'] += 1
             continue
 
@@ -180,7 +176,6 @@ def parse_perk_xlsx(filepath, target_quarter, target_year):
             'client_name': str(cliente).strip(),
             'amount': amount,
             'month': month,
-            'quarter': q,
             'year': year,
             '_row': r,
         })

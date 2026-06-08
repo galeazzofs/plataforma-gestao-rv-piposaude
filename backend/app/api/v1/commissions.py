@@ -72,10 +72,18 @@ def list_commissions():
     if ev_id:
         query = query.filter(Commission.ev_id == ev_id)
 
+    month = request.args.get("month", type=int)
     quarter = request.args.get("quarter", type=int)
     year = request.args.get("year", type=int)
-    if quarter:
-        query = query.filter(Commission.quarter == quarter)
+    if month:
+        query = query.filter(Commission.month == month)
+    elif quarter:
+        # Backward-compat: a calendar quarter spans three monthly commissions.
+        start_month = (quarter - 1) * 3 + 1
+        query = query.filter(
+            Commission.month >= start_month,
+            Commission.month <= start_month + 2,
+        )
     if year:
         query = query.filter(Commission.year == year)
 
@@ -178,7 +186,7 @@ def _serialize_commission(c):
         "id": str(c.id),
         "policy_id": str(c.policy_id),
         "ev_id": str(c.ev_id),
-        "quarter": c.quarter,
+        "month": c.month,
         "year": c.year,
         "segment": c.segment,
         "achievement_pct": str(c.achievement_pct) if c.achievement_pct else None,

@@ -28,7 +28,7 @@ def list_appraisals():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    query = Appraisal.query.order_by(Appraisal.year.desc(), Appraisal.quarter.desc())
+    query = Appraisal.query.order_by(Appraisal.year.desc(), Appraisal.month.desc())
 
     status = request.args.get("status")
     if status:
@@ -61,23 +61,26 @@ def create_appraisal():
     if not data:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "JSON body required"}}), 400
 
-    quarter = data.get("quarter")
+    month = data.get("month")
     year = data.get("year")
 
-    if not quarter or not year:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year required"}}), 400
+    if not month or not year:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "month and year required"}}), 400
 
     try:
-        quarter = int(quarter)
+        month = int(month)
         year = int(year)
     except (ValueError, TypeError):
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "quarter and year must be integers"}}), 400
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "month and year must be integers"}}), 400
+
+    if month < 1 or month > 12:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "month must be 1..12"}}), 400
 
     user = g.current_user
 
     try:
-        appraisal = start_appraisal(quarter=quarter, year=year, created_by=user.id)
-        log_audit("appraisals", appraisal.id, "CREATE", new_values={"quarter": quarter, "year": year})
+        appraisal = start_appraisal(month=month, year=year, created_by=user.id)
+        log_audit("appraisals", appraisal.id, "CREATE", new_values={"month": month, "year": year})
         db.session.commit()
     except InvalidTransitionError as e:
         db.session.rollback()
@@ -155,14 +158,14 @@ def delete_appraisal(appraisal_id):
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
 
-    quarter, year = appraisal.quarter, appraisal.year
+    month, year = appraisal.month, appraisal.year
 
-    # Delete ALL commissions for this quarter (including is_final when LOCKED)
-    Commission.query.filter_by(quarter=quarter, year=year).delete()
+    # Delete ALL commissions for this month (including is_final when LOCKED)
+    Commission.query.filter_by(month=month, year=year).delete()
 
     # Reset NF match status back to UNMATCHED
     FinancialImport.query.filter(
-        FinancialImport.quarter == quarter,
+        FinancialImport.month == month,
         FinancialImport.year == year,
     ).update({
         FinancialImport.match_status: 'UNMATCHED',
@@ -171,7 +174,7 @@ def delete_appraisal(appraisal_id):
     })
 
     log_audit("appraisals", appraisal.id, "DELETE",
-              old_values={"quarter": quarter, "year": year, "status": appraisal.status.value})
+              old_values={"month": month, "year": year, "status": appraisal.status.value})
 
     db.session.delete(appraisal)
     db.session.commit()
@@ -234,7 +237,7 @@ def contest_appraisal(appraisal_id):
     try:
         from app.modules.notifications.slack import notify_contestation_opened
         notify_contestation_opened(
-            appraisal.quarter, appraisal.year, g.current_user.name,
+            appraisal.month, appraisal.year, g.current_user.name,
         )
     except Exception as e:  # pragma: no cover — graceful failure
         import logging
@@ -297,7 +300,7 @@ def resolve_contestation(appraisal_id):
             contestant = db.session.get(User, contest_log.user_id)
             if contestant is not None:
                 notify_contestation_resolved(
-                    contestant, appraisal.quarter, appraisal.year,
+                    contestant, appraisal.month, appraisal.year,
                 )
     except Exception as e:  # pragma: no cover — graceful failure
         import logging
@@ -311,7 +314,7 @@ def resolve_contestation(appraisal_id):
 @workflow_bp.route("/<appraisal_id>/recalculate", methods=["POST"])
 @require_role(UserRole.ADMIN)
 def recalculate(appraisal_id):
-    """Re-run the calculator for this appraisal's (quarter, year).
+    """Re-run the calculator for this appraisal's (month, year).
 
     Allowed when appraisal is in CALCULATING / VALIDATING / LIDER_REVIEW / REVOPS_REVIEW.
     Blocked when LOCKED. Returns the enriched detail payload.
@@ -331,10 +334,14 @@ def recalculate(appraisal_id):
         }), 409
 
     from app.modules.commissions.calculator import (
-        run_quarterly_appraisal, MissingAchievementsError,
+        run_monthly_appraisal, MissingAchievementsError,
     )
     try:
-        run_quarterly_appraisal(appraisal.quarter, appraisal.year)
+        # Missing achievements don't block — they fall back to 0% and surface
+        # as a warning in the detail payload (same as the preview).
+        run_monthly_appraisal(
+            appraisal.month, appraisal.year, validate_achievements=False
+        )
         db.session.commit()
     except MissingAchievementsError as e:
         db.session.rollback()
@@ -349,13 +356,73 @@ def recalculate(appraisal_id):
     return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
 
 
+@workflow_bp.route("/preview", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def preview_appraisal():
+    """Read-only monthly draft of the EV commission apuração.
+
+    Runs the real monthly calculator against whatever financial data is
+    currently uploaded for (month, year), builds the same review payload
+    the CALCULATING screen renders, then rolls the whole transaction back.
+
+    Nothing is persisted: no Commission rows, no Policy mutations
+    (installments_paid / first_payment_real / commission_status), no NF
+    match_status changes, and no Slack notifications fire. This lets RevOps
+    sanity-check the apuração mid-month — e.g. as NFs land —
+    without opening an appraisal or touching any state.
+
+    Missing achievements do NOT block a draft (unlike the real apuração): the
+    affected policies fall back to 0% achievement and the gaps come back in
+    `missing_achievements` as a warning.
+
+    Body: { "month": 1..12, "year": int }
+    """
+    data = request.get_json() or {}
+    try:
+        month = int(data.get("month"))
+        year = int(data.get("year"))
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "month and year required (integers)"},
+        }), 400
+
+    if month not in range(1, 13):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "month must be 1..12"},
+        }), 400
+
+    from app.modules.commissions.calculator import (
+        run_monthly_appraisal, validate_achievements_for_appraisal,
+    )
+    try:
+        # Report (don't enforce) the achievement gaps, then run the real
+        # calculator with the gate disabled so a draft is always produced.
+        missing_achievements = validate_achievements_for_appraisal(month, year)
+        run_monthly_appraisal(month, year, validate_achievements=False)
+        detail = _build_period_detail(month, year)
+    finally:
+        # A preview must never persist. Nothing here was committed, so a full
+        # rollback discards everything the calculator flushed — commissions,
+        # policy clock mutations and NF match statuses all evaporate. The
+        # detail payload is already materialised into plain values above, so
+        # it survives the rollback.
+        db.session.rollback()
+
+    return jsonify({"data": {
+        "month": month, "year": year, "preview": True,
+        "missing_achievements": missing_achievements, **detail,
+    }})
+
+
 # ── Serializer ───────────────────────────────────────────────────────
 
 
 def _serialize_appraisal(appraisal, detail=False):
     data = {
         "id": str(appraisal.id),
-        "quarter": appraisal.quarter,
+        "month": appraisal.month,
         "year": appraisal.year,
         "status": appraisal.status.value,
         "validation_deadline": (
@@ -384,16 +451,28 @@ def _serialize_appraisal(appraisal, detail=False):
 
 
 def _build_appraisal_detail(appraisal):
-    """Build the rich review payload: ev_summary with nested policies and NFs,
-    plus unmatched / expired / nao_suportado tabs and totals."""
-    quarter, year = appraisal.quarter, appraisal.year
+    """Build the rich review payload for an appraisal, keyed on its period."""
+    return _build_period_detail(appraisal.month, appraisal.year)
 
-    commissions = Commission.query.filter_by(quarter=quarter, year=year).all()
+
+def _build_period_detail(month, year):
+    """Build the rich review payload: ev_summary with nested policies and NFs,
+    plus unmatched / expired / nao_suportado tabs and totals. Keyed purely on
+    (month, year) so it serves both a persisted appraisal and a throwaway
+    preview run."""
+    # Achievement stays quarterly: the per-EV achievement shown for a monthly
+    # appraisal is the achievement of the quarter that contains this month.
+    quarter = (month - 1) // 3 + 1
+    # Surface (don't enforce) the gongo-quarter achievements still missing, so
+    # the review can flag the EVs that were apurados at 0%.
+    from app.modules.commissions.calculator import validate_achievements_for_appraisal
+    missing_achievements = validate_achievements_for_appraisal(month, year)
+    commissions = Commission.query.filter_by(month=month, year=year).all()
     nfs_matched = FinancialImport.query.filter_by(
-        quarter=quarter, year=year, match_status='MATCHED',
+        month=month, year=year, match_status='MATCHED',
     ).all()
     nfs_finalized = FinancialImport.query.filter_by(
-        quarter=quarter, year=year, match_status='APOLICE_FINALIZADA',
+        month=month, year=year, match_status='APOLICE_FINALIZADA',
     ).all()
 
     nfs_by_policy = defaultdict(list)
@@ -479,7 +558,7 @@ def _build_appraisal_detail(appraisal):
     ev_summary.sort(key=lambda s: s["ev_name"])
 
     finalized_completion_months = _finalized_completion_months(
-        quarter, year, finalized_policy_ids, policies
+        month, year, finalized_policy_ids, policies
     )
 
     def _serialize_nf(nf):
@@ -504,19 +583,19 @@ def _build_appraisal_detail(appraisal):
 
     unmatched = [
         _serialize_nf(n) for n in FinancialImport.query.filter_by(
-            quarter=quarter, year=year, match_status='UNMATCHED',
+            month=month, year=year, match_status='UNMATCHED',
         ).all()
     ]
     expired = [
         _serialize_nf(n) for n in FinancialImport.query.filter(
-            FinancialImport.quarter == quarter,
+            FinancialImport.month == month,
             FinancialImport.year == year,
             FinancialImport.match_status.in_(['EXPIRED', 'PRE_VIGENCIA']),
         ).all()
     ]
     nao_suportado = [
         _serialize_nf(n) for n in FinancialImport.query.filter_by(
-            quarter=quarter, year=year, match_status='PRODUTO_NAO_SUPORTADO',
+            month=month, year=year, match_status='PRODUTO_NAO_SUPORTADO',
         ).all()
     ]
     apolices_finalizadas = [
@@ -544,7 +623,32 @@ def _build_appraisal_detail(appraisal):
         "expired": expired,
         "nao_suportado": nao_suportado,
         "apolices_finalizadas": apolices_finalizadas,
+        "missing_achievements": missing_achievements,
+        "financial_data_periods": _financial_data_periods(),
     }
+
+
+def _financial_data_periods():
+    """Every (year, month) that currently has RECEBIDO financial imports, with
+    NF counts. The apuração is keyed strictly on its own month, so when the
+    selected month comes back empty this tells the UI where the imported NFs
+    actually landed — e.g. all of a year's commission receipts often pile into
+    January (renewal season)."""
+    rows = (
+        db.session.query(
+            FinancialImport.year,
+            FinancialImport.month,
+            db.func.count(FinancialImport.id),
+        )
+        .filter(FinancialImport.status_recebimento == 'RECEBIDO')
+        .group_by(FinancialImport.year, FinancialImport.month)
+        .order_by(FinancialImport.year, FinancialImport.month)
+        .all()
+    )
+    return [
+        {"year": y, "month": m, "nf_count": c}
+        for (y, m, c) in rows
+    ]
 
 
 def _period_before(left: tuple[int, int], right: tuple[int, int]) -> bool:
@@ -553,15 +657,15 @@ def _period_before(left: tuple[int, int], right: tuple[int, int]) -> bool:
     return (left_y, left_q) < (right_y, right_q)
 
 
-def _locked_period_pairs_before(quarter: int, year: int) -> set[tuple[int, int]]:
-    current = (quarter, year)
+def _locked_period_pairs_before(month: int, year: int) -> set[tuple[int, int]]:
+    current = (month, year)
     appraisal_pairs = {
-        (q, y) for q, y in db.session.query(Appraisal.quarter, Appraisal.year)
+        (m, y) for m, y in db.session.query(Appraisal.month, Appraisal.year)
         .filter(Appraisal.status == AppraisalStatus.LOCKED)
         .all()
     }
     commission_pairs = {
-        (q, y) for q, y in db.session.query(Commission.quarter, Commission.year)
+        (m, y) for m, y in db.session.query(Commission.month, Commission.year)
         .filter(Commission.is_final.is_(True))
         .all()
     }
@@ -573,10 +677,10 @@ def _locked_period_pairs_before(quarter: int, year: int) -> set[tuple[int, int]]
 
 def _positive_locked_comissao_month_counts(
     policy_ids: set,
-    quarter: int,
+    month: int,
     year: int,
 ) -> dict:
-    pairs = _locked_period_pairs_before(quarter, year)
+    pairs = _locked_period_pairs_before(month, year)
     if not policy_ids or not pairs:
         return {}
 
@@ -587,7 +691,7 @@ def _positive_locked_comissao_month_counts(
 
     monthly = defaultdict(lambda: defaultdict(Decimal))
     for row in rows:
-        if (row.quarter, row.year) not in pairs:
+        if (row.month, row.year) not in pairs:
             continue
         if classify_revenue_type(row.tipo_receita) != COMISSAO:
             continue
@@ -602,7 +706,7 @@ def _positive_locked_comissao_month_counts(
 
 
 def _finalized_completion_months(
-    quarter: int,
+    month: int,
     year: int,
     policy_ids: set,
     policies: dict,
@@ -610,9 +714,9 @@ def _finalized_completion_months(
     if not policy_ids:
         return {}
 
-    prior_counts = _positive_locked_comissao_month_counts(policy_ids, quarter, year)
+    prior_counts = _positive_locked_comissao_month_counts(policy_ids, month, year)
     rows = FinancialImport.query.filter_by(
-        quarter=quarter,
+        month=month,
         year=year,
         match_status='MATCHED',
     ).filter(FinancialImport.policy_id.in_(policy_ids)).all()

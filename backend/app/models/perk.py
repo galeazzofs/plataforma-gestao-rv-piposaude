@@ -9,7 +9,7 @@ class Perk(db.Model):
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     client_id = db.Column(GUID, db.ForeignKey("clients.id"), nullable=False)
-    quarter = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1–12
     year = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Numeric(12, 2), nullable=False)
     import_batch_id = db.Column(

@@ -214,10 +214,9 @@
 
 (rf/reg-event-fx
  :revops/upload-financial
- (fn [{:keys [db]} [_ file quarter year]]
+ (fn [{:keys [db]} [_ file year]]
    (let [fd (js/FormData.)]
      (.append fd "file" file)
-     (.append fd "quarter" (str quarter))
      (.append fd "year" (str year))
      {:db   (-> db
                 (assoc-in [:admin :upload-loading?] true)
@@ -258,10 +257,9 @@
 
 (rf/reg-event-fx
  :revops/upload-perks
- (fn [{:keys [db]} [_ file quarter year]]
+ (fn [{:keys [db]} [_ file year]]
    (let [fd (js/FormData.)]
      (.append fd "file" file)
-     (.append fd "quarter" (str quarter))
      (.append fd "year" (str year))
      {:db   (-> db
                 (assoc-in [:admin :perk-upload-loading?] true)
@@ -409,6 +407,38 @@
  (fn [_ _]
    {:dispatch-n [[:revops/fetch-appraisals]
                  [:ui/show-toast {:type :success :message "Apuração deletada."}]]}))
+
+;; ---- Monthly preview (read-only draft of Comissão EV) ----
+
+(rf/reg-event-fx
+ :revops/run-preview
+ (fn [{:keys [db]} [_ {:keys [month year]}]]
+   {:db   (-> db
+              (assoc-in [:appraisal :preview :loading?] true)
+              (assoc-in [:appraisal :preview :error] nil))
+    :http {:method     :post
+           :url        ep/appraisal-preview
+           :body       {:month month :year year}
+           :on-success [:revops/preview-success]
+           :on-failure [:revops/preview-failure]}}))
+
+(rf/reg-event-db
+ :revops/preview-success
+ (fn [db [_ response]]
+   (-> db
+       (assoc-in [:appraisal :preview :result]   (:data response))
+       (assoc-in [:appraisal :preview :error]    nil)
+       (assoc-in [:appraisal :preview :loading?] false))))
+
+(rf/reg-event-fx
+ :revops/preview-failure
+ (fn [{:keys [db]} [_ resp]]
+   (let [msg (or (get-in resp [:error :message]) "Erro ao gerar a prévia")]
+     {:db (-> db
+              (assoc-in [:appraisal :preview :loading?] false)
+              (assoc-in [:appraisal :preview :error]    msg)
+              (assoc-in [:appraisal :preview :result]   nil))
+      :dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 ;; ---- Edit Policy (manual override) ----
 
@@ -747,6 +777,36 @@
  (fn [_ [_ resp]]
    (let [msg (or (get-in resp [:error :message]) "Erro ao abrir ciclo")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
+
+(rf/reg-event-fx
+ :revops/delete-quarterly-cycle
+ (fn [{:keys [db]} [_ id]]
+   {:db   (-> db
+              (update-in [:appraisal :quarterly-cycles]
+                         (fn [items] (filterv #(not= (:id %) id) (or items []))))
+              (update-in [:appraisal]
+                         (fn [a] (if (= (get-in a [:quarterly-cycle :id]) id)
+                                   (dissoc a :quarterly-cycle)
+                                   a))))
+    :http {:method     :delete
+           :url        (str "/quarterly-cycles/" id)
+           :on-success [:revops/quarterly-cycle-deleted]
+           :on-failure [:revops/quarterly-cycle-delete-error]}}))
+
+(rf/reg-event-fx
+ :revops/quarterly-cycle-deleted
+ (fn [_ _]
+   {:dispatch-n [[:revops/fetch-quarterly-cycles]
+                 [:ui/show-toast
+                  {:type :success :message "Ciclo trimestral excluído."}]]}))
+
+(rf/reg-event-fx
+ :revops/quarterly-cycle-delete-error
+ (fn [_ [_ resp]]
+   (let [msg (or (get-in resp [:error :message])
+                 "Erro ao excluir ciclo")]
+     {:dispatch-n [[:revops/fetch-quarterly-cycles]
+                   [:ui/show-toast {:type :error :message msg}]]})))
 
 ;; ---- Appraisal contestation (issue #36) ----
 

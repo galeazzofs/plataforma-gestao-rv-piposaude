@@ -150,3 +150,63 @@ def test_get_cycle_404(client, admin):
         headers=_auth_header(admin),
     )
     assert resp.status_code == 404
+
+
+def test_delete_cycle_open(client, admin):
+    cycle = QuarterlyCycle(
+        quarter=3, year=2031,
+        status=QuarterlyCycleStatus.OPEN, created_by=admin.id,
+    )
+    db.session.add(cycle)
+    db.session.flush()
+    cycle_id = str(cycle.id)
+
+    resp = client.delete(
+        f"/api/v1/quarterly-cycles/{cycle_id}",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["deleted"] is True
+    assert db.session.get(QuarterlyCycle, cycle_id) is None
+
+
+def test_delete_cycle_blocks_when_locked(client, admin):
+    cycle = QuarterlyCycle(
+        quarter=4, year=2031,
+        status=QuarterlyCycleStatus.LOCKED, created_by=admin.id,
+    )
+    db.session.add(cycle)
+    db.session.flush()
+    cycle_id = str(cycle.id)
+
+    resp = client.delete(
+        f"/api/v1/quarterly-cycles/{cycle_id}",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 409
+    assert resp.get_json()["error"]["code"] == "CONFLICT"
+    assert db.session.get(QuarterlyCycle, cycle_id) is not None
+
+
+def test_delete_cycle_404(client, admin):
+    fake_id = str(uuid.uuid4())
+    resp = client.delete(
+        f"/api/v1/quarterly-cycles/{fake_id}",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 404
+
+
+def test_delete_cycle_requires_admin(client, ev, admin):
+    cycle = QuarterlyCycle(
+        quarter=1, year=2032,
+        status=QuarterlyCycleStatus.OPEN, created_by=admin.id,
+    )
+    db.session.add(cycle)
+    db.session.flush()
+
+    resp = client.delete(
+        f"/api/v1/quarterly-cycles/{cycle.id}",
+        headers=_auth_header(ev),
+    )
+    assert resp.status_code == 403

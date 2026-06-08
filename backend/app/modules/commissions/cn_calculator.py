@@ -9,13 +9,24 @@ from app.extensions import db
 from app.models import (
     AppraisalStatus, User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
 )
-from app.modules.commissions.simulator import simulate_cn
+from app.modules.commissions.simulator import simulate_cn, vidas_meta_from_sao
 
 
 class MissingGoalsError(Exception):
     def __init__(self, missing: list[str]):
         self.missing = missing
         super().__init__(f"Missing CN goals: {missing}")
+
+
+def _vidas_meta_for(cn, goal):
+    """Lives target derived from the CN porte (SAO × factor), exactly like
+    the simulator. Falls back to the goal's stored vidas_target only when
+    porte is unset or the derived value is non-positive."""
+    porte = cn.porte.value if hasattr(cn.porte, "value") else cn.porte
+    auto = vidas_meta_from_sao(Decimal(str(goal.sao_target)), porte)
+    if auto and auto > 0:
+        return auto
+    return Decimal(str(goal.vidas_target))
 
 
 def validate_cn_goals(month: int, year: int) -> list[str]:
@@ -77,7 +88,7 @@ def run_cn_monthly_appraisal(month: int, year: int) -> dict:
             nivel=nivel,
             sao_meta=Decimal(str(goal.sao_target)),
             sao_realizado=Decimal("0"),
-            vidas_meta=Decimal(str(goal.vidas_target)),
+            vidas_meta=_vidas_meta_for(cn, goal),
             vidas_realizado=Decimal("0"),
         )
 
@@ -151,7 +162,7 @@ def run_cn_monthly_appraisal_with_inputs(
             nivel=nivel,
             sao_meta=Decimal(str(goal.sao_target)),
             sao_realizado=sao_realizado,
-            vidas_meta=Decimal(str(goal.vidas_target)),
+            vidas_meta=_vidas_meta_for(cn, goal),
             vidas_realizado=vidas_realizado,
         )
 

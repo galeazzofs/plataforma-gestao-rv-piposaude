@@ -155,6 +155,21 @@
     (or (first (filter #(= "OPEN" (:status %)) sorted))
         (first sorted))))
 
+(defn- delete-cycle-btn [cycle]
+  (let [{:keys [id quarter year status]} cycle
+        locked? (= "LOCKED" status)]
+    [:button.btn.btn-danger.btn-sm
+     {:disabled locked?
+      :title    (if locked?
+                  "Ciclos LOCKED não podem ser excluídos."
+                  "Excluir este ciclo trimestral.")
+      :on-click #(when (js/confirm
+                        (str "Tem certeza que deseja excluir o ciclo "
+                             "Q" quarter "/" year "? "
+                             "Esta ação não pode ser desfeita."))
+                   (rf/dispatch [:revops/delete-quarterly-cycle id]))}
+     "Excluir ciclo"]))
+
 (defn page []
   (rf/dispatch [:revops/fetch-quarterly-cycles])
   (fn []
@@ -182,7 +197,7 @@
                               (:status cycle)))
                  "Ciclo Trimestral")
         :subtitle "Visão unificada dos 5 componentes da apuração"
-        :header-actions nil}
+        :header-actions (when cycle (delete-cycle-btn cycle))}
 
        [header-banner cycles cycle suggestion]
 

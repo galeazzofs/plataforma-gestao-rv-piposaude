@@ -2,8 +2,15 @@
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [app.api.endpoints :as ep]
+            [app.views.cn.calc :as calc]
             [app.ds.layout :as layout]
             [app.auth.subs]))
+
+(defn- fmt-int [v]
+  (when (some? v)
+    (let [n (if (string? v) (js/parseFloat v) v)]
+      (when-not (js/isNaN n)
+        (.toLocaleString (js/Math.round n) "pt-BR")))))
 
 (rf/reg-event-fx
  :revops/fetch-cn-goals
@@ -65,7 +72,7 @@
          {:current-route route :user user
           :crumbs ["plataforma rv" "configuração" "metas CN"]
           :title "Metas Mensais · CN"
-          :subtitle "Defina SAO e vidas mensais por consultor"
+          :subtitle "Defina a meta SAO — a meta de vidas é calculada pelo porte"
           :header-actions
           [[:div.search
             [layout/icon "calendar" {:width 14 :height 14}]
@@ -75,11 +82,11 @@
              :on-click (fn []
                          (let [items (mapv (fn [[cn-id vals]]
                                              (let [row (first (filter #(= (:cn_id %) cn-id) goals))]
-                                               {:cn_id        cn-id
-                                                :sao_target   (or (:sao_target vals)
-                                                                  (:sao_target row) "0")
-                                                :vidas_target (or (:vidas_target vals)
-                                                                  (:vidas_target row) "0")}))
+                                               ;; Only SAO is sent — the backend derives the
+                                               ;; lives target from the CN porte (SAO × factor).
+                                               {:cn_id      cn-id
+                                                :sao_target (or (:sao_target vals)
+                                                                (:sao_target row) "0")}))
                                            @edits)]
                            (rf/dispatch [:revops/save-cn-goals
                                          {:month (:month @filter-state)
@@ -113,7 +120,7 @@
             [:tr
              [:th "CN"]
              [:th.right "Meta SAO (R$)"]
-             [:th.right "Meta Vidas"]]]
+             [:th.right "Meta Vidas (auto)"]]]
            [:tbody
             (cond
               (and loading? (empty? goals))
@@ -136,10 +143,10 @@
                     :placeholder "0"
                     :value (field-val row :sao_target)
                     :on-change #(swap! edits assoc-in [(:cn_id row) :sao_target] (.. % -target -value))}]]
-                 [:td.right
-                  [:input.field-input
-                   {:type "number" :inputMode "numeric"
-                    :style {:width "140px" :text-align "right" :padding "6px 10px"}
-                    :placeholder "0"
-                    :value (field-val row :vidas_target)
-                    :on-change #(swap! edits assoc-in [(:cn_id row) :vidas_target] (.. % -target -value))}]]]))]]]]))))
+                 [:td.right.num
+                  (let [sao   (calc/->num (field-val row :sao_target))
+                        vidas (calc/vidas-meta-from-sao sao (:porte row))]
+                    (cond
+                      (nil? (:porte row))     [:span.muted "defina o porte"]
+                      (and vidas (pos? vidas)) (fmt-int vidas)
+                      :else                    "·"))]]))]]]]))))

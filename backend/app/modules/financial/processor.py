@@ -16,67 +16,80 @@ class UploadBlockedError(Exception):
     """Raised when an upload is rejected because the apuração is LOCKED."""
 
 
-def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
-    """Persist rows for a given (quarter, year). Replaces any existing rows
-    for that period unless an apuração for it is already LOCKED.
-
-    Old batches that previously held rows for this period get their status
-    set to SUPERSEDED (preserving audit history without confusion).
-
-    Args:
-        rows: list of dicts from parse_financial_xlsx (cliente_mae, operadora,
-              produto, nf_valor_liquido, data_recebimento, mes_recebimento,
-              tipo_receita, status_recebimento, ...)
-        quarter: int 1-4
-        year: int
-        filename: original upload filename (audit only)
-        uploaded_by: User ID
-
-    Returns the new ImportBatch id.
-
-    Raises:
-        UploadBlockedError if there's a LOCKED apuração for (quarter, year).
-    """
-    appraisal = Appraisal.query.filter_by(quarter=quarter, year=year).first()
-    if appraisal and appraisal.status == AppraisalStatus.LOCKED:
-        raise UploadBlockedError(
-            f"Apuração de Q{quarter}/{year} já está LOCKED. Re-upload não permitido."
-        )
-
-    # Find batches whose rows are about to be deleted, mark them SUPERSEDED
-    superseded_batch_ids = {
-        bid for (bid,) in db.session.query(FinancialImport.import_batch_id)
-        .filter(FinancialImport.quarter == quarter,
-                FinancialImport.year == year)
-        .distinct()
+def _locked_months(year):
+    """Months (1-12) of `year` whose Appraisal is already LOCKED — their NFs
+    and perks must be preserved across a re-upload."""
+    return {
+        m for (m,) in db.session.query(Appraisal.month)
+        .filter(Appraisal.year == year, Appraisal.status == AppraisalStatus.LOCKED)
         .all()
     }
-    if superseded_batch_ids:
-        ImportBatch.query.filter(
-            ImportBatch.id.in_(superseded_batch_ids)
-        ).update({"status": "SUPERSEDED"}, synchronize_session=False)
 
-    # Delete existing rows for this period
-    FinancialImport.query.filter_by(quarter=quarter, year=year).delete()
-    db.session.flush()
+
+def persist_financial_rows(rows, year, filename, uploaded_by):
+    """Persist financial rows for a year, tagging each NF with its OWN
+    competência month (from mes_recebimento, 'YYYY-MM'). A single upload of a
+    multi-month export therefore populates every month.
+
+    Re-uploading a year refreshes its OPEN months and PRESERVES months whose
+    apuração is already LOCKED: those rows stay untouched and any file rows that
+    land on a locked month are skipped (counted in skipped_locked).
+
+    Args:
+        rows: list of dicts from parse_financial_xlsx.
+        year: int — the competência year being (re)loaded.
+        filename: original upload filename (audit only).
+        uploaded_by: User ID.
+
+    Returns {batch_id, persisted, skipped_locked}.
+    """
+    locked = _locked_months(year)
+    # Replace only the (non-locked) months actually present in this file, so
+    # both an incremental upload (one month) and a full re-upload work without
+    # wiping months the file doesn't carry.
+    months_in_file = {int(r['mes_recebimento'][5:7]) for r in rows}
+    months_to_replace = months_in_file - locked
+
+    if months_to_replace:
+        sup_q = db.session.query(FinancialImport.import_batch_id).filter(
+            FinancialImport.year == year,
+            FinancialImport.month.in_(months_to_replace),
+        )
+        superseded_batch_ids = {bid for (bid,) in sup_q.distinct().all()}
+        if superseded_batch_ids:
+            ImportBatch.query.filter(
+                ImportBatch.id.in_(superseded_batch_ids)
+            ).update({"status": "SUPERSEDED"}, synchronize_session=False)
+        FinancialImport.query.filter(
+            FinancialImport.year == year,
+            FinancialImport.month.in_(months_to_replace),
+        ).delete(synchronize_session=False)
+        db.session.flush()
 
     batch = ImportBatch(
         filename=filename,
         uploaded_by=uploaded_by,
-        nf_count=len(rows),
+        nf_count=0,
         perk_count=0,
         status="CONFIRMED",
     )
     db.session.add(batch)
     db.session.flush()
 
+    persisted = 0
+    skipped_locked = 0
     for row in rows:
-        fi = FinancialImport(
+        mes = row['mes_recebimento']  # 'YYYY-MM'
+        month = int(mes[5:7])
+        if month in locked:
+            skipped_locked += 1
+            continue
+        db.session.add(FinancialImport(
             import_batch_id=batch.id,
-            quarter=quarter,
+            month=month,
             year=year,
             nf_valor_liquido=row['nf_valor_liquido'],
-            nf_mes_recebimento=row['mes_recebimento'],
+            nf_mes_recebimento=mes,
             cliente_mae=row['cliente_mae'],
             operadora=row['operadora'],
             produto=row['produto'],
@@ -85,11 +98,12 @@ def persist_financial_rows(rows, quarter, year, filename, uploaded_by):
             status_recebimento=row['status_recebimento'],
             data_recebimento=row['data_recebimento'],
             match_status='UNMATCHED',
-        )
-        db.session.add(fi)
+        ))
+        persisted += 1
 
+    batch.nf_count = persisted
     db.session.flush()
-    return batch.id
+    return {"batch_id": batch.id, "persisted": persisted, "skipped_locked": skipped_locked}
 
 
 def _normalize(s):
@@ -99,26 +113,30 @@ def _normalize(s):
     return ''.join(c for c in decomposed if unicodedata.category(c) != 'Mn')
 
 
-def persist_perk_rows(rows, quarter, year, filename, uploaded_by):
-    """Persist perk/subsidy rows for a given (quarter, year).
+def persist_perk_rows(rows, year, filename, uploaded_by):
+    """Persist perk rows for a year, tagging each by its OWN competência month
+    (from the sheet's 'Mês' column). Refreshes OPEN months and PRESERVES LOCKED
+    months (their perks stay; file rows on locked months are skipped).
 
-    Replaces existing perks for that period. Matches client_name to Client
-    records by normalized name (exact then partial). The caller MUST wrap
-    this in try/except and rollback on exception (the route handler does so).
+    Matches client_name to Client records by normalized name (exact then
+    partial). The caller MUST wrap this in try/except and rollback on exception
+    (the route handler does so).
 
-    Returns dict with batch_id, matched, missed, missed_clients, partial_matches.
+    Returns dict with batch_id, matched, missed, skipped_locked, missed_clients,
+    partial_matches.
     """
     from app.models import AuditLog  # local import to avoid circular dependency
 
-    appraisal = Appraisal.query.filter_by(quarter=quarter, year=year).first()
-    if appraisal and appraisal.status == AppraisalStatus.LOCKED:
-        raise UploadBlockedError(
-            f"Apuração de Q{quarter}/{year} já está LOCKED. Upload de perks não permitido."
-        )
-
-    # Delete existing perks for this period
-    Perk.query.filter_by(quarter=quarter, year=year).delete()
-    db.session.flush()
+    locked = _locked_months(year)
+    # Replace only the (non-locked) months present in this file.
+    months_in_file = {r['month'] for r in rows}
+    months_to_replace = months_in_file - locked
+    if months_to_replace:
+        Perk.query.filter(
+            Perk.year == year,
+            Perk.month.in_(months_to_replace),
+        ).delete(synchronize_session=False)
+        db.session.flush()
 
     batch = ImportBatch(
         filename=filename,
@@ -136,10 +154,15 @@ def persist_perk_rows(rows, quarter, year, filename, uploaded_by):
 
     matched = 0
     missed = 0
+    skipped_locked = 0
     missed_clients = set()
     partial_matches = []
 
     for row in rows:
+        month = row['month']
+        if month in locked:
+            skipped_locked += 1
+            continue
         norm_name = _normalize(row['client_name'])
 
         # Exact match (single dict lookup)
@@ -165,7 +188,7 @@ def persist_perk_rows(rows, quarter, year, filename, uploaded_by):
 
         perk = Perk(
             client_id=client.id,
-            quarter=quarter,
+            month=month,
             year=year,
             amount=Decimal(str(row['amount'])),
             import_batch_id=batch.id,
@@ -181,17 +204,18 @@ def persist_perk_rows(rows, quarter, year, filename, uploaded_by):
             action="PARTIAL_MATCH",
             user_id=uploaded_by,
             new_values={
-                "quarter": quarter,
                 "year": year,
                 "matches": partial_matches,
             },
         ))
 
+    batch.perk_count = matched
     db.session.flush()
     return {
         'batch_id': batch.id,
         'matched': matched,
         'missed': missed,
+        'skipped_locked': skipped_locked,
         'missed_clients': sorted(missed_clients),
         'partial_matches': partial_matches,
     }

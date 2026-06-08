@@ -30,7 +30,7 @@ def test_cn_simulator_uses_current_cn_profile_and_auto_vidas_meta(client, db_ses
             "porte": "M",
             "sao_meta": "100",
             "sao_realizado": "100",
-            "vidas_realizado": "100000",
+            "vidas_realizado": "200000",
         },
     )
 
@@ -38,7 +38,7 @@ def test_cn_simulator_uses_current_cn_profile_and_auto_vidas_meta(client, db_ses
     data = response.get_json()["data"]
     assert data["nivel"] == "CN3"
     assert data["porte"] == "G+"
-    assert data["vidas_meta"] == "100000.00"
+    assert data["vidas_meta"] == "200000.00"
     assert data["pct_vidas"] == "1.0000"
     assert data["commission_amount"] == "3600.00"
 

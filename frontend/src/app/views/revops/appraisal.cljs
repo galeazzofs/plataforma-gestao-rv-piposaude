@@ -12,6 +12,21 @@
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
+(def ^:private meses
+  ["Janeiro" "Fevereiro" "Março" "Abril" "Maio" "Junho"
+   "Julho" "Agosto" "Setembro" "Outubro" "Novembro" "Dezembro"])
+
+(defn- month-options []
+  (vec (map-indexed (fn [i m] {:value (str (inc i)) :label m}) meses)))
+
+(defn- month-label [month year]
+  (let [m (cond (number? month) month
+                (string? month) (js/parseInt month)
+                :else nil)]
+    (if (and m (<= 1 m 12))
+      (str (nth meses (dec m)) "/" year)
+      (str "·/" (or year "·")))))
+
 (defn- status->badge [status]
   (case status
     "DRAFT"         [:span.badge.badge-draft "Draft"]
@@ -57,15 +72,14 @@
                      {:background "var(--success-dark)"})}])])]))
 
 (defn- new-appraisal-modal [_]
-  (let [form (r/atom {:quarter "1" :year "2026"})]
+  (let [form (r/atom {:month "1" :year "2026"})]
     (fn [{:keys [open? on-close]}]
       [modal/modal {:open? open? :on-close on-close :title "Nova Apuração" :size :sm}
        [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
         [inputs/select
-         {:label "Trimestre" :value (:quarter @form)
-          :options [{:value "1" :label "Q1"} {:value "2" :label "Q2"}
-                    {:value "3" :label "Q3"} {:value "4" :label "Q4"}]
-          :on-change #(swap! form assoc :quarter %)}]
+         {:label "Mês" :value (:month @form)
+          :options (month-options)
+          :on-change #(swap! form assoc :month %)}]
         [inputs/select
          {:label "Ano" :value (:year @form)
           :options [{:value "2026" :label "2026"} {:value "2025" :label "2025"}]
@@ -84,7 +98,7 @@
      [:div {:style {:padding "32px" :text-align "center" :color "var(--fg-3)"
                     :font-family "var(--font-mono)" :font-size "13px"}}
       "Nenhuma apuração em andamento"]]
-    (let [period (str "Q" (:quarter active) "/" (:year active))
+    (let [period (month-label (:month active) (:year active))
           status (:status active)]
       [:div.card
        [:div.card-head
@@ -126,40 +140,6 @@
           "prazo p/ encerrar"]
          [:div {:style {:font-family "var(--font-display)" :font-size "24px" :color "var(--fg-1)"}}
           (or (:days_remaining active) "·")]]]])))
-
-(defn- next-quarter [{:keys [quarter year]}]
-  (if (< quarter 4)
-    {:quarter (inc quarter) :year year}
-    {:quarter 1 :year (inc year)}))
-
-(defn- suggest-cycle
-  "Returns {:quarter Q :year Y} for the trimester we should suggest opening,
-   or nil if there's nothing to suggest."
-  [appraisals cycles]
-  (let [last-locked (->> appraisals
-                         (filter #(= "LOCKED" (:status %)))
-                         (sort-by (juxt :year :quarter) #(compare %2 %1))
-                         first)]
-    (when last-locked
-      (let [{:keys [quarter year] :as nq} (next-quarter last-locked)
-            already-open? (some #(and (= (:quarter %) quarter)
-                                      (= (:year %) year)
-                                      (= (:status %) "OPEN"))
-                                cycles)]
-        (when-not already-open? nq)))))
-
-(defn- cycle-suggestion-banner [{:keys [quarter year]}]
-  [:div.callout
-   {:style {:display "flex" :align-items "center" :gap "12px"}}
-   [layout/icon "info" {:width 20 :height 20}]
-   [:div {:style {:flex 1}}
-    [:strong (str "Q" quarter "/" year " pronto para apurar")]
-    [:div {:style {:font-size "13px" :color "var(--fg-3)"}}
-     "O trimestre anterior está fechado. Abra o ciclo trimestral para começar a apuração."]]
-   [:button.btn.btn-primary.btn-sm
-    {:on-click #(rf/dispatch [:revops/open-quarterly-cycle
-                              {:quarter quarter :year year}])}
-    (str "Abrir Q" quarter "/" year)]])
 
 (defn- delete-btn [id]
   [:button.btn.btn-danger.btn-sm
@@ -217,27 +197,26 @@
 
 (defn appraisal-page []
   (rf/dispatch [:revops/fetch-appraisals])
-  (rf/dispatch [:revops/fetch-quarterly-cycles])
   (let [modal-open? (r/atom false)]
     (fn []
       (let [appraisals @(rf/subscribe [:revops/appraisals])
-            cycles     @(rf/subscribe [:revops/quarterly-cycles])
             user       @(rf/subscribe [:auth/current-user])
             route      @(rf/subscribe [:current-route-name])
-            sorted     (->> appraisals (sort-by (juxt :year :quarter) #(compare %2 %1)))
-            active     (first (filter #(not= (:status %) "LOCKED") sorted))
-            suggestion (suggest-cycle appraisals (or cycles []))]
+            sorted     (->> appraisals (sort-by (juxt :year :month) #(compare %2 %1)))
+            active     (first (filter #(not= (:status %) "LOCKED") sorted))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "admin" "apurações"]
           :title "Apurações"
           :subtitle "Controle do fluxo de cálculo e aprovação"
           :header-actions
-          [[:button.btn.btn-primary
+          [[:button.btn.btn-secondary
+            {:on-click #(rf/dispatch [:navigate :revops/appraisal-preview])}
+            [layout/icon "trend" {:width 14 :height 14}] "Prévia mensal"]
+           [:button.btn.btn-primary
             {:on-click #(reset! modal-open? true)}
             [layout/icon "plus" {:width 14 :height 14}] "Nova apuração"]]}
 
-         (when suggestion [cycle-suggestion-banner suggestion])
          [active-card active]
 
          [:div.card {:style {:padding 0}}
@@ -263,7 +242,7 @@
               (for [a sorted]
                 ^{:key (:id a)}
                 [:tr
-                 [:td.name.num (str "Q" (:quarter a) "/" (:year a))]
+                 [:td.name.num (month-label (:month a) (:year a))]
                  [:td
                   [status->badge (:status a)]
                   (when (:has_contestation a)

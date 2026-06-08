@@ -16,6 +16,7 @@
    {:section "apuração"}
    {:key :revops/quarterly-cycle :label "Ciclo Trimestral"     :icon "calendar" :route :revops/quarterly-cycle}
    {:key :revops/appraisal       :label "Apurações"            :icon "cog"     :route :revops/appraisal}
+   {:key :revops/appraisal-preview :label "Prévia Mensal"      :icon "trend"   :route :revops/appraisal-preview}
    {:key :revops/cn-appraisal    :label "Apuração CN"          :icon "percent" :route :revops/cn-appraisal}
    {:key :revops/cn-goals        :label "Metas CN"             :icon "target"  :route :revops/cn-goals}
    {:key :revops/ev-bonus            :label "Bônus EV"          :icon "money"   :route :revops/ev-bonus}

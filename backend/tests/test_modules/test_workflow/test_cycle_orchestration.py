@@ -127,9 +127,9 @@ def test_cycle_does_not_lock_when_team_b_is_behind(db_session, two_teams_setup):
         s["quarter"], s["year"],
     )
     # Team B: still pending (no rows)
-    # Plus the shared Appraisal — not LOCKED yet
+    # Plus a monthly Appraisal of the quarter — not LOCKED yet
     appraisal = Appraisal(
-        quarter=s["quarter"], year=s["year"],
+        month=(s["quarter"] - 1) * 3 + 1, year=s["year"],
         status=AppraisalStatus.LIDER_REVIEW,
         created_by=s["admin"].id,
     )
@@ -144,12 +144,19 @@ def test_cycle_does_not_lock_when_team_b_is_behind(db_session, two_teams_setup):
 def test_cycle_locks_when_all_teams_complete(db_session, two_teams_setup):
     s = two_teams_setup
 
-    appraisal = Appraisal(
-        quarter=s["quarter"], year=s["year"],
-        status=AppraisalStatus.DRAFT,
-        created_by=s["admin"].id,
-    )
-    db.session.add(appraisal)
+    # The Comissão EV is apurada monthly; the quarter spans three monthly
+    # Appraisals (months 4,5,6 for Q2). The ev_quarter component only reaches
+    # LOCKED when all three are LOCKED.
+    start_month = (s["quarter"] - 1) * 3 + 1
+    appraisals = []
+    for m in (start_month, start_month + 1, start_month + 2):
+        a = Appraisal(
+            month=m, year=s["year"],
+            status=AppraisalStatus.DRAFT,
+            created_by=s["admin"].id,
+        )
+        db.session.add(a)
+        appraisals.append(a)
     db.session.flush()
 
     for team, ev_user, cn_user, lider in [
@@ -159,15 +166,16 @@ def test_cycle_locks_when_all_teams_complete(db_session, two_teams_setup):
         _lock_team_components(team, ev_user, cn_user, lider,
                               s["quarter"], s["year"])
 
-    # Walk the shared Appraisal to LOCKED. This triggers
+    # Walk each monthly Appraisal to LOCKED. The last LOCK triggers
     # _maybe_lock_attached_cycle inside transition_appraisal.
     from unittest.mock import patch
-    with patch("app.modules.commissions.calculator.run_quarterly_appraisal"):
-        transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
-    transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
-    transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
-    transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
-    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=s["admin"].id)
+    for appraisal in appraisals:
+        with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
+            transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+        transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+        transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
+        transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
+        transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=s["admin"].id)
 
     db.session.refresh(s["cycle"])
     assert s["cycle"].status == QuarterlyCycleStatus.LOCKED
@@ -234,16 +242,20 @@ def test_cycle_locks_from_cn_monthly_when_appraisal_already_locked(
     db.session.add_all([cn_a_row, cn_b_row])
     db.session.flush()
 
-    appraisal = Appraisal(
-        quarter=s["quarter"], year=s["year"],
-        status=AppraisalStatus.REVOPS_REVIEW,
-        created_by=s["admin"].id,
-    )
-    db.session.add(appraisal)
-    db.session.flush()
-    transition_appraisal(
-        appraisal, AppraisalStatus.LOCKED, approved_by=s["admin"].id,
-    )
+    # The Comissão EV spans three monthly Appraisals (months 4,5,6 for Q2);
+    # lock all three so ev_quarter is LOCKED and cn_b_row is the last gate.
+    start_month = (s["quarter"] - 1) * 3 + 1
+    for m in (start_month, start_month + 1, start_month + 2):
+        appraisal = Appraisal(
+            month=m, year=s["year"],
+            status=AppraisalStatus.REVOPS_REVIEW,
+            created_by=s["admin"].id,
+        )
+        db.session.add(appraisal)
+        db.session.flush()
+        transition_appraisal(
+            appraisal, AppraisalStatus.LOCKED, approved_by=s["admin"].id,
+        )
 
     # Cycle should still be OPEN — cn_b_row is the last gate.
     db.session.refresh(s["cycle"])

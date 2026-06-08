@@ -5,6 +5,7 @@
             ["recharts" :refer [ResponsiveContainer LineChart Line XAxis YAxis
                                 CartesianGrid Tooltip ReferenceLine ReferenceDot]]
             [app.api.endpoints :as ep]
+            [app.views.cn.calc :as calc]
             [app.ds.layout :as layout]
             [app.auth.subs]))
 
@@ -78,9 +79,6 @@
 
 ;; Helpers
 
-(def ^:private cn-bases {"CN1" 2000 "CN2" 2500 "CN3" 3000})
-(def ^:private porte-factors {"M" 375 "G+" 1000})
-
 (def ^:private curve-data
   [{:score 0   :mult 0.0 :label "0%"}
    {:score 20  :mult 0.0 :label "20%"}
@@ -96,14 +94,6 @@
    {:score 140 :mult 1.8 :label "140%"}
    {:score 140 :mult 2.1 :label "140%+"}
    {:score 160 :mult 2.1 :label "160%"}])
-
-(defn- ->num [v]
-  (cond
-    (number? v) v
-    (and (string? v) (seq (str/trim v)))
-    (let [n (js/parseFloat (str/replace (str/trim v) "," "."))]
-      (when-not (js/isNaN n) n))
-    :else nil))
 
 (defn- fmt-dec [v digits]
   (let [s (.toFixed (or v 0) digits)
@@ -129,20 +119,6 @@
                               #js {:minimumFractionDigits 2
                                    :maximumFractionDigits 2})))
 
-(defn- regua [score]
-  (cond
-    (< score 0.20) 0
-    (< score 0.40) 0.20
-    (< score 1.00) score
-    (< score 1.10) 1.20
-    (< score 1.40) 1.80
-    :else 2.10))
-
-(defn- vidas-meta-from-sao [sao-meta porte]
-  (let [factor (get porte-factors porte)]
-    (when (and factor (pos? (or sao-meta 0)))
-      (* sao-meta factor))))
-
 (defn- profile-from [user form]
   (if (= (:role user) "CN")
     {:nivel (:nivel user)
@@ -152,45 +128,26 @@
 
 (defn- enrich-form [user form]
   (let [{:keys [nivel porte]} (profile-from user form)
-        sao-meta (or (->num (:sao_meta form)) 0)
-        vidas-meta (or (vidas-meta-from-sao sao-meta porte) 0)]
+        sao-meta (or (calc/->num (:sao_meta form)) 0)
+        vidas-meta (or (calc/vidas-meta-from-sao sao-meta porte) 0)]
     (assoc form
            :nivel nivel
            :porte porte
            :vidas_meta vidas-meta)))
 
-(defn- calculate [{:keys [nivel sao_meta sao_realizado vidas_meta vidas_realizado]}]
-  (let [sao-meta (or (->num sao_meta) 0)
-        sao-realizado (or (->num sao_realizado) 0)
-        vidas-meta (or (->num vidas_meta) 0)
-        vidas-realizado (or (->num vidas_realizado) 0)
-        pct-sao (if (pos? sao-meta) (/ sao-realizado sao-meta) 0)
-        pct-vidas (if (pos? vidas-meta)
-                    (min (/ vidas-realizado vidas-meta) 1.5)
-                    0)
-        score (+ (* pct-sao 0.70) (* pct-vidas 0.30))
-        multiplicador (regua score)
-        base (get cn-bases nivel 0)]
-    {:pct_sao pct-sao
-     :pct_vidas pct-vidas
-     :score_final score
-     :multiplicador multiplicador
-     :commission_amount (* base multiplicador)
-     :base base}))
-
 (defn- validation-errors [form]
-  (let [sao-meta (->num (:sao_meta form))
-        sao-realizado (->num (:sao_realizado form))
-        vidas-meta (->num (:vidas_meta form))
-        vidas-realizado (->num (:vidas_realizado form))]
+  (let [sao-meta (calc/->num (:sao_meta form))
+        sao-realizado (calc/->num (:sao_realizado form))
+        vidas-meta (calc/->num (:vidas_meta form))
+        vidas-realizado (calc/->num (:vidas_realizado form))]
     (cond-> {}
       (not (pos? (or sao-meta 0)))
       (assoc :sao_meta "Informe uma meta maior que zero.")
       (neg? (or sao-realizado 0))
       (assoc :sao_realizado "Use zero ou um valor positivo.")
-      (not (contains? porte-factors (:porte form)))
+      (not (contains? calc/porte-factors (:porte form)))
       (assoc :porte "Cadastre o porte do CN para calcular a meta de vidas.")
-      (not (contains? cn-bases (:nivel form)))
+      (not (contains? calc/cn-bases (:nivel form)))
       (assoc :nivel "Cadastre o nivel do CN para calcular a comissao.")
       (not (pos? (or vidas-meta 0)))
       (assoc :vidas_meta "Meta de vidas automatica indisponivel.")
@@ -360,7 +317,7 @@
             cn-user? (= (:role user) "CN")
             vidas-meta (:vidas_meta effective-form)
             errors (validation-errors effective-form)
-            preview (calculate effective-form)
+            preview (calc/calculate effective-form)
             chart-result preview]
         [layout/page-shell
          {:current-route route
@@ -407,7 +364,7 @@
                  :help "define a meta automatica de vidas"
                  :error (:porte errors)
                  :options [{:value "M" :label "M, SAO x 375"}
-                           {:value "G+" :label "G+, SAO x 1000"}]
+                           {:value "G+" :label "G+, SAO x 2000"}]
                  :on-change #(swap! form assoc :porte %)}]])
             [:div.form-grid.-tight
              [field {:label "Meta SAO"
@@ -426,7 +383,7 @@
                                        (fmt-int vidas-meta))
                               :help (case (:porte effective-form)
                                       "M" "calculada como Meta SAO x 375"
-                                      "G+" "calculada como Meta SAO x 1000"
+                                      "G+" "calculada como Meta SAO x 2000"
                                       "cadastre o porte do CN")
                               :error (:vidas_meta errors)}]
              [field {:label "Vidas realizadas"
@@ -442,7 +399,7 @@
              [:span "vidas"]
               [:strong (case (:porte effective-form)
                          "M" "meta = SAO x 375"
-                         "G+" "meta = SAO x 1000"
+                         "G+" "meta = SAO x 2000"
                          "teto de 150%")]]
              [:div.sim-rule-row
               [:span "pagamento"]

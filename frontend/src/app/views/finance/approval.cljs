@@ -10,6 +10,13 @@
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
+(def ^:private meses-abbr
+  ["Jan" "Fev" "Mar" "Abr" "Mai" "Jun" "Jul" "Ago" "Set" "Out" "Nov" "Dez"])
+
+(defn- month-label [month year]
+  (let [m (cond (number? month) month (string? month) (js/parseInt month) :else nil)]
+    (str (if (and m (<= 1 m 12)) (nth meses-abbr (dec m)) "·") "/" (or year "·"))))
+
 (defn- pct-bar [pct fill-class]
   [:div.bar
    [:div {:class (str "bar-fill " fill-class)
@@ -78,7 +85,7 @@
                [:td
                 [:div.name (:ev_name row)]
                 (when (:ev_id row) [:div.muted (str "id " (:ev_id row))])]
-               [:td.num (str "Q" (:quarter row) "/" (:year row))]
+               [:td.num (month-label (:month row) (:year row))]
                [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_total row)) "·"))]
                [:td.center.num (str (or (:policies_count row) "·"))]
                [:td

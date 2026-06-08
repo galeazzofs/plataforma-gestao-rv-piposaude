@@ -8,14 +8,14 @@ class Commission(db.Model):
     __tablename__ = "commissions"
     __table_args__ = (
         db.UniqueConstraint(
-            "policy_id", "quarter", "year", name="uq_commission_policy_quarter_year"
+            "policy_id", "month", "year", name="uq_commission_policy_month_year"
         ),
     )
 
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     policy_id = db.Column(GUID, db.ForeignKey("policies.id"), nullable=False)
     ev_id = db.Column(GUID, db.ForeignKey("users.id"), nullable=False)
-    quarter = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1–12
     year = db.Column(db.Integer, nullable=False)
     segment = db.Column(db.String(10), nullable=True)
     achievement_pct = db.Column(db.Numeric(8, 4), nullable=True)
@@ -40,4 +40,4 @@ class Commission(db.Model):
     ev = db.relationship("User", foreign_keys=[ev_id])
 
     def __repr__(self):
-        return f"<Commission policy={self.policy_id} Q{self.quarter}/{self.year}>"
+        return f"<Commission policy={self.policy_id} {self.month:02d}/{self.year}>"

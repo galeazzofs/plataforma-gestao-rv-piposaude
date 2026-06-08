@@ -50,14 +50,18 @@ def _batch(admin):
 
 
 def _financial_row(
-    batch, amount, month, quarter, year, tipo="Comissao", policy_id=None
+    batch, amount, mes_recebimento, year, tipo="Comissao", policy_id=None
 ):
+    # FinancialImport is keyed by financial month now; derive it from the
+    # YYYY-MM receipt month so the dashboard's quarter selector (which maps a
+    # quarter to its three months) scopes rows correctly.
+    month = int(mes_recebimento.split("-")[1])
     row = FinancialImport(
         import_batch_id=batch.id,
         policy_id=policy_id,
         nf_valor_liquido=Decimal(str(amount)),
-        nf_mes_recebimento=month,
-        quarter=quarter,
+        nf_mes_recebimento=mes_recebimento,
+        month=month,
         year=year,
         tipo_receita=tipo,
         match_status="MATCHED",
@@ -138,8 +142,8 @@ def _ev_and_client():
 def test_dashboard_period_filter_scopes_paid_totals_and_monthly_series(client, db_session):
     admin = _admin()
     batch = _batch(admin)
-    _financial_row(batch, "100.00", "2026-01", 1, 2026, "Comissao")
-    _financial_row(batch, "250.00", "2026-04", 2, 2026, "Comissao")
+    _financial_row(batch, "100.00", "2026-01", 2026, "Comissao")
+    _financial_row(batch, "250.00", "2026-04", 2026, "Comissao")
 
     resp = client.get(
         "/api/v1/finance/dashboard?year=2026&quarter=1",
@@ -227,7 +231,6 @@ def test_dashboard_pending_import_replaces_projected_policy_month(
         batch,
         "80.00",
         "2026-01",
-        1,
         2026,
         "Comissao",
         policy_id=policy.id,
@@ -265,8 +268,10 @@ def test_dashboard_locked_apuracao_shows_realizado_and_recalibrates_projection(
         closed=date(2025, 11, 15),
         first_payment=date(2026, 1, 1),
     )
+    # The NF is received in 2026-01, so its financial month is 1; lock the
+    # month-1 apuração so this row counts as Realizado.
     db.session.add(Appraisal(
-        quarter=1,
+        month=1,
         year=2026,
         status=AppraisalStatus.LOCKED,
         created_by=admin.id,
@@ -275,7 +280,6 @@ def test_dashboard_locked_apuracao_shows_realizado_and_recalibrates_projection(
         batch,
         "80.00",
         "2026-01",
-        1,
         2026,
         "Comissao",
         policy_id=policy.id,

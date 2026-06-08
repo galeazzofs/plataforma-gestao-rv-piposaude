@@ -27,7 +27,7 @@ class FinancialImport(db.Model):
     policy_id = db.Column(GUID, db.ForeignKey("policies.id"), nullable=True)
     nf_valor_liquido = db.Column(db.Numeric(12, 2), nullable=False)
     nf_mes_recebimento = db.Column(db.String(7), nullable=False)  # YYYY-MM
-    quarter = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1–12 (financial month)
     year = db.Column(db.Integer, nullable=False)
     import_batch_id = db.Column(GUID, db.ForeignKey("import_batches.id"), nullable=False)
 

@@ -166,3 +166,18 @@
  :revops/quarterly-cycle-loading?
  (fn [db _]
    (get-in db [:appraisal :quarterly-cycle-loading?])))
+
+(rf/reg-sub
+ :revops/preview-result
+ (fn [db _]
+   (get-in db [:appraisal :preview :result])))
+
+(rf/reg-sub
+ :revops/preview-loading?
+ (fn [db _]
+   (get-in db [:appraisal :preview :loading?])))
+
+(rf/reg-sub
+ :revops/preview-error
+ (fn [db _]
+   (get-in db [:appraisal :preview :error])))

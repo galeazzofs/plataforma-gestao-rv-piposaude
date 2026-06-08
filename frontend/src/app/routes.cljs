@@ -41,6 +41,7 @@
      ["/commission-table"   {:name :revops/commission-table :role #{:ADMIN}}]
      ["/financial"          {:name :revops/financial        :role #{:ADMIN}}]
      ["/appraisal"          {:name :revops/appraisal        :role #{:ADMIN}}]
+     ["/appraisal-preview"  {:name :revops/appraisal-preview :role #{:ADMIN}}]
      ["/appraisal/:id/review" {:name :revops/appraisal-review :role #{:ADMIN}}]
      ["/quarterly-cycle"    {:name :revops/quarterly-cycle  :role #{:ADMIN}}]
      ["/cn-goals"           {:name :revops/cn-goals        :role #{:ADMIN}}]

@@ -19,7 +19,6 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from dateutil.relativedelta import relativedelta
 from sqlalchemy import tuple_
 
 from app.extensions import db
@@ -34,8 +33,11 @@ from app.models import (
     Perk,
     User,
 )
-from app.modules.policies.filters import active_ev_policies_query
-from app.modules.financial.matcher import build_policy_index, normalize_apolice_number
+from app.models.client import normalize_client_name
+from app.modules.policies.filters import ev_policies_query
+from app.modules.financial.matcher import (
+    build_policy_index, normalize_apolice_number, fallback_match_key,
+)
 from app.modules.commissions.pct_lookup import lookup_commission_pct
 from app.modules.financial.monthly_engine import (
     COMISSAO,
@@ -55,7 +57,7 @@ class MissingAchievementsError(Exception):
 # -- Pre-check ----------------------------------------------------------------
 
 
-def validate_achievements_for_appraisal(quarter, year):
+def validate_achievements_for_appraisal(month, year):
     """Verify every (ev_id, gongo_quarter, gongo_year) tuple needed by this
     apuracao has a stored achievement.
 
@@ -67,7 +69,7 @@ def validate_achievements_for_appraisal(quarter, year):
     Returns list of human-readable strings for missing combinations.
     Empty list = ok to proceed.
     """
-    policies = active_ev_policies_query().filter(
+    policies = ev_policies_query().filter(
         Policy.commission_status.notin_([
             CommissionStatus.CANCELLED,
             CommissionStatus.SETTLED,
@@ -104,12 +106,12 @@ RECEITA_NAO_COMISSIONAVEL = "RECEITA_NAO_COMISSIONAVEL"
 
 def _locked_period_pairs():
     appraisal_pairs = {
-        (q, y) for q, y in db.session.query(Appraisal.quarter, Appraisal.year)
+        (m, y) for m, y in db.session.query(Appraisal.month, Appraisal.year)
         .filter(Appraisal.status == AppraisalStatus.LOCKED)
         .all()
     }
     commission_pairs = {
-        (q, y) for q, y in db.session.query(Commission.quarter, Commission.year)
+        (m, y) for m, y in db.session.query(Commission.month, Commission.year)
         .filter(Commission.is_final.is_(True))
         .all()
     }
@@ -131,7 +133,7 @@ def _locked_positive_comissao_month_counts():
         .filter(
             FinancialImport.match_status == "MATCHED",
             FinancialImport.policy_id.isnot(None),
-            tuple_(FinancialImport.quarter, FinancialImport.year).in_(pairs),
+            tuple_(FinancialImport.month, FinancialImport.year).in_(pairs),
         )
         .group_by(
             FinancialImport.policy_id,
@@ -142,9 +144,9 @@ def _locked_positive_comissao_month_counts():
     )
 
     monthly = defaultdict(lambda: defaultdict(Decimal))
-    for policy_id, month, tipo, total in rows:
+    for policy_id, ym, tipo, total in rows:
         if classify_revenue_type(tipo) == COMISSAO:
-            monthly[policy_id][month] += total or Decimal("0")
+            monthly[policy_id][ym] += total or Decimal("0")
 
     return {
         policy_id: sum(1 for total in months.values() if total > 0)
@@ -156,18 +158,6 @@ def _set_nf_status(nf, status, policy_id=None, matched=False):
     nf.match_status = status
     nf.policy_id = policy_id
     nf.matched_at = datetime.now(timezone.utc) if matched else None
-
-
-def _window_end(policy):
-    if policy.first_payment_real is None:
-        return None
-    remaining_from_legacy = max(0, 12 - (policy.initial_installments_paid or 0))
-    return policy.first_payment_real + relativedelta(months=remaining_from_legacy)
-
-
-def _is_after_window(policy, nf):
-    end = _window_end(policy)
-    return bool(end and nf.data_recebimento and nf.data_recebimento > end)
 
 
 def _sync_policy_status(policy):
@@ -182,20 +172,26 @@ def _sync_policy_status(policy):
 # -- Main entry ---------------------------------------------------------------
 
 
-def run_quarterly_appraisal(quarter, year):
-    """Process all financial_imports for (quarter, year) and produce commissions.
+def run_monthly_appraisal(month, year, *, validate_achievements=True):
+    """Process all financial_imports for (month, year) and produce commissions.
 
     Implements spec 4.3:
       Comissao real = (Total liquido empresa - Perks empresa) x % comissao
+
+    The real apuração refuses to run with missing achievements. A read-only
+    preview passes validate_achievements=False so a draft can still be
+    produced — missing (ev, gongo-quarter) combos fall back to 0% achievement
+    — and the caller surfaces the gaps as a warning instead of a hard error.
     """
     # -- Pre-check ----------------------------------------------------
-    missing = validate_achievements_for_appraisal(quarter, year)
-    if missing:
-        raise MissingAchievementsError(missing)
+    if validate_achievements:
+        missing = validate_achievements_for_appraisal(month, year)
+        if missing:
+            raise MissingAchievementsError(missing)
 
     # -- 1. Wipe non-final commissions --------------------------------
     Commission.query.filter_by(
-        quarter=quarter, year=year, is_final=False
+        month=month, year=year, is_final=False
     ).delete()
     db.session.flush()
 
@@ -203,13 +199,13 @@ def run_quarterly_appraisal(quarter, year):
     locked_policy_ids = {
         pid for (pid,) in db.session.query(Commission.policy_id)
         .filter(
-            Commission.quarter == quarter,
+            Commission.month == month,
             Commission.year == year,
             Commission.is_final.is_(True),
         )
         .all()
     }
-    policies_for_index = active_ev_policies_query().filter(
+    policies_for_index = ev_policies_query().filter(
         Policy.commission_status != CommissionStatus.CANCELLED
     ).all()
     policies = [p for p in policies_for_index if p.id not in locked_policy_ids]
@@ -223,12 +219,23 @@ def run_quarterly_appraisal(quarter, year):
             (p.initial_installments_paid or 0) + locked_comissao_count.get(p.id, 0),
         )
 
-    # -- 3. Build matcher index ---------------------------------------
+    # -- 3. Build matcher indexes -------------------------------------
     policy_index = build_policy_index(policies_for_index)
+    # Fallback index for policies whose numero_apolice is missing/corrupted
+    # in the sync: keyed on (Cliente Mãe, Benefício, Operadora). Only tuples
+    # that resolve to exactly ONE policy are usable — see Pass 1.
+    fallback_index = defaultdict(list)
+    for p in policies_for_index:
+        client = p.client
+        if client is None or p.benefit_type is None:
+            continue
+        fallback_index[fallback_match_key(
+            client.name_normalized, p.benefit_type.value, p.partner_operator,
+        )].append(p)
 
     # -- 4. Pass 1 --- Find candidate policies ------------------------
     nfs = FinancialImport.query.filter_by(
-        quarter=quarter, year=year, status_recebimento='RECEBIDO'
+        month=month, year=year, status_recebimento='RECEBIDO'
     ).all()
 
     # Accumulators
@@ -255,11 +262,28 @@ def run_quarterly_appraisal(quarter, year):
             continue
 
         apolice_key = normalize_apolice_number(nf.numero_apolice)
-        if not apolice_key:
-            _set_nf_status(nf, 'UNMATCHED')
-            continue
+        candidates = policy_index.get(apolice_key, []) if apolice_key else []
 
-        candidates = policy_index.get(apolice_key, [])
+        if not candidates:
+            # Fallback for policies whose numero_apolice is wrong/blank in the
+            # sync: match on (Cliente Mãe, Benefício, Operadora). Only when the
+            # tuple resolves to exactly ONE live policy — an ambiguous tuple
+            # (same client+benefit+operadora on several policies) is left
+            # UNMATCHED rather than risk crediting the wrong policy/EV.
+            fb_key = fallback_match_key(
+                normalize_client_name(nf.cliente_mae or ''),
+                benefit, nf.operadora,
+            )
+            fb_candidates = [
+                p for p in fallback_index.get(fb_key, [])
+                if p.id not in locked_policy_ids
+            ]
+            if len(fb_candidates) == 1:
+                candidates = fb_candidates
+            elif len(fb_candidates) > 1:
+                _set_nf_status(nf, 'UNMATCHED')
+                continue
+
         if not candidates:
             _set_nf_status(nf, 'UNMATCHED')
             continue
@@ -297,8 +321,8 @@ def run_quarterly_appraisal(quarter, year):
         for nf in rows:
             by_month[nf.nf_mes_recebimento].append(nf)
 
-        for month in sorted(by_month):
-            month_rows = by_month[month]
+        for ym in sorted(by_month):
+            month_rows = by_month[ym]
             if (
                 policy.commission_status == CommissionStatus.SETTLED
                 or (policy.installments_paid or 0) >= 12
@@ -308,15 +332,16 @@ def run_quarterly_appraisal(quarter, year):
                 policy.commission_status = CommissionStatus.SETTLED
                 continue
 
-            eligible_rows = []
-            for nf in month_rows:
-                if _is_after_window(policy, nf):
-                    _set_nf_status(nf, 'EXPIRED', policy.id)
-                else:
-                    eligible_rows.append(nf)
-
-            if not eligible_rows:
-                continue
+            # The 12-month commission clock is COUNT-based (CONTEXT.md:
+            # "Relogio de 12 meses da apolice" = count of paid Comissão
+            # months). The 12/12 cap above is the SOLE "fully paid" gate — we
+            # do not expire NFs by a calendar window. A policy with legacy
+            # parcelas at e.g. 7/12 still has 5 months to earn, no matter how
+            # much calendar time passed since first_payment_real; previously a
+            # first_payment_real + (12 − legadas) window closed early and
+            # dropped legitimate later NFs (e.g. ARVO, billed 2026 but window
+            # closed 2025).
+            eligible_rows = month_rows
 
             comissao_net = Decimal("0")
             first_comissao_date = None
@@ -343,7 +368,7 @@ def run_quarterly_appraisal(quarter, year):
 
     # -- 5. Load perks per client -------------------------------------
     perks_by_client = defaultdict(Decimal)
-    perk_rows = Perk.query.filter_by(quarter=quarter, year=year).all()
+    perk_rows = Perk.query.filter_by(month=month, year=year).all()
     for perk in perk_rows:
         perks_by_client[perk.client_id] += perk.amount
 
@@ -382,7 +407,7 @@ def run_quarterly_appraisal(quarter, year):
         comm = Commission(
             policy_id=policy_id,
             ev_id=policy.ev_id,
-            quarter=quarter,
+            month=month,
             year=year,
             segment=segment_value,
             achievement_pct=achievement,
@@ -399,35 +424,35 @@ def run_quarterly_appraisal(quarter, year):
         _sync_policy_status(policy)
 
     db.session.flush()
-    return _build_summary(quarter, year)
+    return _build_summary(month, year)
 
 
 # -- Summary ------------------------------------------------------------------
 
 
-def _build_summary(quarter, year):
+def _build_summary(month, year):
     return {
         "totals": {
             "matched_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status='MATCHED'
+                month=month, year=year, match_status='MATCHED'
             ).count(),
             "unmatched_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status='UNMATCHED'
+                month=month, year=year, match_status='UNMATCHED'
             ).count(),
             "expired_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status='EXPIRED'
+                month=month, year=year, match_status='EXPIRED'
             ).count(),
             "pre_vigencia_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status='PRE_VIGENCIA'
+                month=month, year=year, match_status='PRE_VIGENCIA'
             ).count(),
             "produto_nao_suportado_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status='PRODUTO_NAO_SUPORTADO'
+                month=month, year=year, match_status='PRODUTO_NAO_SUPORTADO'
             ).count(),
             "receita_nao_comissionavel_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status=RECEITA_NAO_COMISSIONAVEL
+                month=month, year=year, match_status=RECEITA_NAO_COMISSIONAVEL
             ).count(),
             "apolice_finalizada_count": FinancialImport.query.filter_by(
-                quarter=quarter, year=year, match_status=APOLICE_FINALIZADA
+                month=month, year=year, match_status=APOLICE_FINALIZADA
             ).count(),
         }
     }

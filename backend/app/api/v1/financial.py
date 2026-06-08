@@ -41,18 +41,18 @@ def _validate_xlsx_file(file_storage, max_bytes=10 * 1024 * 1024):
             "error": {"code": "VALIDATION_ERROR", "message": "File is not a valid XLSX (bad magic bytes)"}
         }), 400)
 
-    # Quarter/year sanity (1-4, year >= 2020) — reject early
+    # Month/year sanity (1-12, year >= 2020) — reject early
     return True, None
 
 
-def _validate_period(quarter, year):
-    if not quarter or not year:
+def _validate_period(month, year):
+    if not month or not year:
         return False, (jsonify({
-            "error": {"code": "VALIDATION_ERROR", "message": "quarter+year form fields required"}
+            "error": {"code": "VALIDATION_ERROR", "message": "month+year form fields required"}
         }), 400)
-    if quarter not in (1, 2, 3, 4):
+    if month < 1 or month > 12:
         return False, (jsonify({
-            "error": {"code": "VALIDATION_ERROR", "message": "quarter must be 1-4"}
+            "error": {"code": "VALIDATION_ERROR", "message": "month must be 1-12"}
         }), 400)
     if year < 2020 or year > 2100:
         return False, (jsonify({
@@ -64,11 +64,14 @@ def _validate_period(quarter, year):
 @financial_bp.route("/upload", methods=["POST"])
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def upload_financial():
-    """Upload XLSX, parse, and persist as financial_imports for a target quarter.
+    """Upload XLSX, parse, and persist as financial_imports for a year.
+
+    Each NF is tagged by its own competência month, so one upload of a
+    multi-month export populates every month. Months already LOCKED are
+    preserved (their rows are kept and skipped in the import).
 
     Multipart form fields:
         file: .xlsx file
-        quarter: int 1-4
         year: int
     """
     user = g.current_user
@@ -87,14 +90,17 @@ def upload_financial():
             },
         }), 400
 
-    quarter = request.form.get("quarter", type=int)
     year = request.form.get("year", type=int)
-    if not quarter or not year:
+    if not year:
         return jsonify({
             "error": {
                 "code": "VALIDATION_ERROR",
-                "message": "quarter+year form fields required",
+                "message": "year form field required",
             },
+        }), 400
+    if year < 2020 or year > 2100:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "year out of range"},
         }), 400
 
     fd, path = tempfile.mkstemp(suffix=".xlsx")
@@ -103,38 +109,33 @@ def upload_financial():
 
     try:
         try:
-            parsed = parse_financial_xlsx(path, quarter, year)
+            parsed = parse_financial_xlsx(path, year)
         except ParseError as e:
             return jsonify({
                 "error": {"code": "PARSE_ERROR", "message": str(e)},
             }), 400
 
-        try:
-            batch_id = persist_financial_rows(
-                parsed['rows'], quarter, year, file.filename, user.id,
-            )
-        except UploadBlockedError as e:
-            return jsonify({
-                "error": {"code": "UPLOAD_BLOCKED", "message": str(e)},
-            }), 409
+        result = persist_financial_rows(
+            parsed['rows'], year, file.filename, user.id,
+        )
 
         log_audit(
-            "import_batches", str(batch_id), "CREATE",
+            "import_batches", str(result['batch_id']), "CREATE",
             new_values={
                 "filename": file.filename,
-                "quarter": quarter,
                 "year": year,
-                "nf_count": len(parsed['rows']),
+                "nf_count": result['persisted'],
+                "skipped_locked": result['skipped_locked'],
             },
         )
         db.session.commit()
 
         return jsonify({
             "data": {
-                "batch_id": str(batch_id),
-                "quarter": quarter,
+                "batch_id": str(result['batch_id']),
                 "year": year,
-                "rows_persisted": len(parsed['rows']),
+                "rows_persisted": result['persisted'],
+                "skipped_locked": result['skipped_locked'],
                 "stats": parsed['stats'],
             },
         }), 201
@@ -148,11 +149,13 @@ def upload_financial():
 @financial_bp.route("/upload-perks", methods=["POST"])
 @require_role(UserRole.ADMIN, UserRole.FINANCE)
 def upload_perks():
-    """Upload XLSX with subsidies/perks for a target quarter.
+    """Upload XLSX with subsidies/perks for a year.
+
+    Each perk is tagged by its own competência month (the sheet's 'Mês'
+    column). Months already LOCKED are preserved.
 
     Multipart form fields:
         file: .xlsx file
-        quarter: int 1-4
         year: int
     """
     user = g.current_user
@@ -171,14 +174,17 @@ def upload_perks():
             },
         }), 400
 
-    quarter = request.form.get("quarter", type=int)
     year = request.form.get("year", type=int)
-    if not quarter or not year:
+    if not year:
         return jsonify({
             "error": {
                 "code": "VALIDATION_ERROR",
-                "message": "quarter+year form fields required",
+                "message": "year form field required",
             },
+        }), 400
+    if year < 2020 or year > 2100:
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "year out of range"},
         }), 400
 
     fd, path = tempfile.mkstemp(suffix=".xlsx")
@@ -187,30 +193,25 @@ def upload_perks():
 
     try:
         try:
-            parsed = parse_perk_xlsx(path, quarter, year)
+            parsed = parse_perk_xlsx(path, year)
         except PerkParseError as e:
             return jsonify({
                 "error": {"code": "PARSE_ERROR", "message": str(e)},
             }), 400
 
-        try:
-            result = persist_perk_rows(
-                parsed['rows'], quarter, year, file.filename, user.id,
-            )
-        except UploadBlockedError as e:
-            return jsonify({
-                "error": {"code": "UPLOAD_BLOCKED", "message": str(e)},
-            }), 409
+        result = persist_perk_rows(
+            parsed['rows'], year, file.filename, user.id,
+        )
 
         log_audit(
             "import_batches", str(result['batch_id']), "CREATE",
             new_values={
                 "filename": file.filename,
-                "quarter": quarter,
                 "year": year,
                 "type": "perks",
                 "matched": result['matched'],
                 "missed": result['missed'],
+                "skipped_locked": result['skipped_locked'],
             },
         )
         db.session.commit()
@@ -218,10 +219,10 @@ def upload_perks():
         return jsonify({
             "data": {
                 "batch_id": str(result['batch_id']),
-                "quarter": quarter,
                 "year": year,
                 "matched": result['matched'],
                 "missed": result['missed'],
+                "skipped_locked": result['skipped_locked'],
                 "missed_clients": result['missed_clients'],
                 "stats": parsed['stats'],
             },
@@ -265,7 +266,7 @@ def financial_template():
             ],
             "filters": [
                 "Status Recebimento must be 'RECEBIDO'",
-                "data_recebimento must fall in target (quarter, year)",
+                "data_recebimento must fall in the selected year (each NF keeps its own month)",
                 "Cliente \"Mãe\" and NF Líquido must be non-empty",
             ],
         },

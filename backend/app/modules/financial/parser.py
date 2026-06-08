@@ -95,17 +95,17 @@ def _coerce_date(value):
     return None
 
 
-def _quarter_of(d):
-    return (d.month - 1) // 3 + 1
-
-
-def parse_financial_xlsx(filepath, target_quarter, target_year):
+def parse_financial_xlsx(filepath, target_year):
     """Parse the financial XLSX, returning rows that pass minimal filters.
+
+    Each row keeps its own competência month (mes_recebimento, YYYY-MM); the
+    persistence layer tags FinancialImport.month per row from it. A single
+    upload of a multi-month export therefore populates every month.
 
     Filters applied in the parser:
       - status_recebimento != 'RECEBIDO' → drop
       - cliente_mae or nf_valor_liquido empty → drop
-      - data_recebimento not in target (quarter, year) → drop
+      - data_recebimento year != target_year → drop
 
     Rows with unsupported products (Mental, Fitness) and Odonto/Vida/Saúde
     all PASS the parser. The calculator decides later.
@@ -169,7 +169,7 @@ def parse_financial_xlsx(filepath, target_quarter, target_year):
             stats['descartadas_vazias'] += 1
             continue
 
-        if data_rec.year != target_year or _quarter_of(data_rec) != target_quarter:
+        if data_rec.year != target_year:
             stats['descartadas_periodo'] += 1
             continue
 

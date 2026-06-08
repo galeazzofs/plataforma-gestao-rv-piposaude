@@ -125,6 +125,10 @@ def _period(quarter: int, year: int) -> str:
     return f"Q{quarter}/{year}"
 
 
+def _period_month(month: int, year: int) -> str:
+    return f"{month:02d}/{year}"
+
+
 def _component_label(component_key: str) -> str:
     return _COMPONENT_LABELS.get(component_key, component_key)
 
@@ -136,10 +140,10 @@ def _component_label(component_key: str) -> str:
 
 
 def notify_validating_released(user: User, component_key: str,
-                                quarter: int, year: int) -> bool:
+                                month: int, year: int) -> bool:
     """DM a user that their component is open for validation."""
     label = _component_label(component_key)
-    period = _period(quarter, year)
+    period = _period_month(month, year)
     text = (
         f"Sua apuração de *{label}* para {period} está disponível para "
         f"validação na plataforma."
@@ -152,9 +156,9 @@ def notify_validating_released(user: User, component_key: str,
     return send_slack_dm(user.slack_user_id, text, blocks)
 
 
-def notify_team_validated_for_lider(lider: User, quarter: int, year: int) -> bool:
+def notify_team_validated_for_lider(lider: User, month: int, year: int) -> bool:
     """DM the Líder de Vendas that their team finished validating."""
-    period = _period(quarter, year)
+    period = _period_month(month, year)
     text = (
         f"Seu time concluiu a validação da apuração {period}. "
         f"Você já pode revisar e aprovar."
@@ -167,9 +171,9 @@ def notify_team_validated_for_lider(lider: User, quarter: int, year: int) -> boo
     return send_slack_dm(lider.slack_user_id, text, blocks)
 
 
-def notify_lider_approved(quarter: int, year: int, lider_name: str) -> bool:
+def notify_lider_approved(month: int, year: int, lider_name: str) -> bool:
     """Channel message: Líder aprovou, RevOps revisar."""
-    period = _period(quarter, year)
+    period = _period_month(month, year)
     text = (
         f"{lider_name} aprovou a apuração do time para {period}. "
         f"Pronta para revisão do RevOps."
@@ -182,9 +186,9 @@ def notify_lider_approved(quarter: int, year: int, lider_name: str) -> bool:
     return send_slack_channel(_ops_channel(), text, blocks)
 
 
-def notify_revops_approved(quarter: int, year: int) -> bool:
+def notify_revops_approved(month: int, year: int) -> bool:
     """Channel message to Finance: RevOps liberou para fechamento."""
-    period = _period(quarter, year)
+    period = _period_month(month, year)
     text = (
         f"A apuração {period} passou pela revisão do RevOps e está "
         f"pronta para o Finance fechar."
@@ -228,10 +232,10 @@ def notify_cycle_locked(quarter: int, year: int) -> bool:
     return sent
 
 
-def notify_contestation_opened(quarter: int, year: int,
+def notify_contestation_opened(month: int, year: int,
                                 contestant_name: str) -> bool:
     """Channel message in ops: someone contested. No commission value."""
-    period = _period(quarter, year)
+    period = _period_month(month, year)
     text = (
         f"{contestant_name} abriu uma contestação na apuração {period}. "
         f"Detalhes na plataforma."
@@ -245,9 +249,9 @@ def notify_contestation_opened(quarter: int, year: int,
 
 
 def notify_contestation_resolved(contestant: User,
-                                  quarter: int, year: int) -> bool:
+                                  month: int, year: int) -> bool:
     """DM the contestant that their contestation was resolved."""
-    period = _period(quarter, year)
+    period = _period_month(month, year)
     text = (
         f"Sua contestação na apuração {period} foi respondida. "
         f"Confira a devolutiva e re-valide na plataforma."

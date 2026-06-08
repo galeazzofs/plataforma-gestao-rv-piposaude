@@ -26,22 +26,30 @@ from app.models import (
 _LAST_MONTH_OF_QUARTER = {1: 3, 2: 6, 3: 9, 4: 12}
 
 
-def _appraisal_for(quarter: int, year: int) -> Optional[Appraisal]:
-    return Appraisal.query.filter_by(quarter=quarter, year=year).first()
+def _quarter_appraisals(quarter: int, year: int) -> list:
+    """The Comissão EV is apurada monthly; a quarter spans up to three
+    monthly Appraisals (the calendar months it contains)."""
+    start_month = (quarter - 1) * 3 + 1
+    return Appraisal.query.filter(
+        Appraisal.year == year,
+        Appraisal.month.in_([start_month, start_month + 1, start_month + 2]),
+    ).all()
 
 
-def _ev_appraisal_status(appraisal: Optional[Appraisal], ev_ids: list) -> dict:
-    """Status of the shared Comissão EV component, viewed for one team.
+def _ev_appraisal_status(appraisals: list, ev_ids: list) -> dict:
+    """Status of the Comissão EV component, viewed for one team.
 
-    The Appraisal itself is global per quarter; the team-local progress
-    is computed from the EvValidations of its members.
+    The Comissão EV is apurada monthly now, so a quarter spans up to three
+    monthly Appraisals. Team-local validation progress is summed across them;
+    the component only reaches LOCKED when all three months are LOCKED.
     """
-    if appraisal is None or not ev_ids:
+    if not appraisals or not ev_ids:
         return {"status": "PENDING", "validations_total": 0,
                 "validations_done": 0}
 
+    appraisal_ids = [a.id for a in appraisals]
     validations = EvValidation.query.filter(
-        EvValidation.appraisal_id == appraisal.id,
+        EvValidation.appraisal_id.in_(appraisal_ids),
         EvValidation.ev_id.in_(ev_ids),
     ).all()
     total = len(validations)
@@ -52,8 +60,15 @@ def _ev_appraisal_status(appraisal: Optional[Appraisal], ev_ids: list) -> dict:
             ValidationStatus.RESOLVED,
         )
     )
-    # Use the global Appraisal status as the upper bound.
-    status = appraisal.status.value
+    statuses = [a.status for a in appraisals]
+    locked_count = sum(1 for s in statuses if s == AppraisalStatus.LOCKED)
+    if locked_count == 3:
+        status = "LOCKED"
+    elif locked_count > 0:
+        # Some monthly appraisals are LOCKED but the quarter isn't complete.
+        status = AppraisalStatus.REVOPS_REVIEW.value
+    else:
+        status = _summarize_status_set(statuses)
     return {"status": status, "validations_total": total,
             "validations_done": done}
 
@@ -152,7 +167,7 @@ def _leadership_status(lider_id, quarter: int, year: int) -> dict:
 def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
     """Return the full per-team / per-component payload for a cycle."""
     quarter, year = cycle.quarter, cycle.year
-    appraisal = _appraisal_for(quarter, year)
+    appraisals = _quarter_appraisals(quarter, year)
 
     teams = Team.query.order_by(Team.name).all()
     cn_users = User.query.filter_by(
@@ -176,7 +191,7 @@ def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
             "ev_count": len(ev_ids),
             "cn_count": len(cn_ids),
             "components": {
-                "ev_quarter":     _ev_appraisal_status(appraisal, ev_ids),
+                "ev_quarter":     _ev_appraisal_status(appraisals, ev_ids),
                 "ev_quarterly_bonus": _ev_bonus_status(ev_ids, quarter, year),
                 "cn_quarterly_bonus": _cn_bonus_status(cn_ids, quarter, year),
                 "cn_monthly":     _cn_last_month_status(cn_ids, quarter, year),

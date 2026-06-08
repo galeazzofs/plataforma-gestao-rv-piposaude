@@ -25,7 +25,7 @@ def appraisal_setup():
     db.session.flush()
 
     appraisal = Appraisal(
-        quarter=1, year=2031,
+        month=1, year=2031,
         status=AppraisalStatus.VALIDATING,
         created_by=admin.id,
     )

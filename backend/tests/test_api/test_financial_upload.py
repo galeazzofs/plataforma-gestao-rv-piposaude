@@ -1,4 +1,4 @@
-"""End-to-end test for the financial upload endpoint."""
+"""End-to-end test for the financial upload endpoint (per-year ingestion)."""
 import io
 import uuid
 from pathlib import Path
@@ -37,9 +37,10 @@ def admin():
     db.session.commit()
 
 
-def test_upload_synthetic_xlsx_persists_3_rows(client, admin):
-    """End-to-end: POST the synthetic fixture and verify 3 rows persisted
-    (positive Saúde, negative Saúde estorno, Mental — for Q1/2026)."""
+def test_upload_synthetic_xlsx_persists_rows_by_month(client, admin):
+    """End-to-end: POST the synthetic fixture for the year and verify the 4
+    RECEBIDO rows persist, each tagged by its own competência month
+    (3 in 02/2026, 1 in 04/2026)."""
     with open(SYNTHETIC, "rb") as f:
         file_bytes = f.read()
 
@@ -47,7 +48,6 @@ def test_upload_synthetic_xlsx_persists_3_rows(client, admin):
         "/api/v1/financial/upload",
         data={
             "file": (io.BytesIO(file_bytes), "synthetic.xlsx"),
-            "quarter": "1",
             "year": "2026",
         },
         content_type="multipart/form-data",
@@ -56,30 +56,31 @@ def test_upload_synthetic_xlsx_persists_3_rows(client, admin):
 
     assert resp.status_code == 201, resp.get_json()
     body = resp.get_json()["data"]
-    assert body["rows_persisted"] == 3
-    assert body["quarter"] == 1
+    assert body["rows_persisted"] == 4
     assert body["year"] == 2026
-    assert FinancialImport.query.filter_by(quarter=1, year=2026).count() == 3
+    assert body["skipped_locked"] == 0
+    assert FinancialImport.query.filter_by(year=2026).count() == 4
+    assert FinancialImport.query.filter_by(month=2, year=2026).count() == 3
+    assert FinancialImport.query.filter_by(month=4, year=2026).count() == 1
 
 
 def test_upload_missing_file_returns_400(client, admin):
     resp = client.post(
         "/api/v1/financial/upload",
-        data={"quarter": "1", "year": "2026"},
+        data={"year": "2026"},
         content_type="multipart/form-data",
         headers=_auth_header(admin),
     )
     assert resp.status_code == 400
 
 
-def test_upload_missing_quarter_returns_400(client, admin):
+def test_upload_missing_year_returns_400(client, admin):
     with open(SYNTHETIC, "rb") as f:
         file_bytes = f.read()
     resp = client.post(
         "/api/v1/financial/upload",
         data={
             "file": (io.BytesIO(file_bytes), "synthetic.xlsx"),
-            "year": "2026",
         },
         content_type="multipart/form-data",
         headers=_auth_header(admin),
@@ -92,7 +93,6 @@ def test_upload_rejects_non_xlsx(client, admin):
         "/api/v1/financial/upload",
         data={
             "file": (io.BytesIO(b"hello"), "notes.txt"),
-            "quarter": "1",
             "year": "2026",
         },
         content_type="multipart/form-data",

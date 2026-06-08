@@ -57,9 +57,9 @@ def _team(name, leader):
     return t
 
 
-def _appraisal(quarter, year, status, admin):
+def _appraisal(month, year, status, admin):
     a = Appraisal(
-        quarter=quarter, year=year, status=status,
+        month=month, year=year, status=status,
         created_by=admin.id,
     )
     db.session.add(a)
@@ -230,8 +230,9 @@ def test_auto_advance_skips_when_lider_has_not_validated_own(db_session):
     ev = _user(UserRole.EV, "EvB", team_id=lider.team_id)
     appraisal = _appraisal(2, 2041, AppraisalStatus.VALIDATING, admin)
     _ev_validation(appraisal, ev, ValidationStatus.APPROVED)
-    # Líder still in VALIDATING for own row.
-    _lider_appraisal(lider, 2, 2041, AppraisalStatus.VALIDATING)
+    # Líder still in VALIDATING for own row. The appraisal's month maps to
+    # its gongo quarter ((2-1)//3+1 == 1), which the leadership row keys on.
+    _lider_appraisal(lider, 1, 2041, AppraisalStatus.VALIDATING)
 
     advanced = maybe_auto_advance_appraisal_after_validation(appraisal)
 
@@ -246,7 +247,8 @@ def test_auto_advance_fires_when_team_done_and_lider_validated_own(db_session):
     ev = _user(UserRole.EV, "EvC", team_id=lider.team_id)
     appraisal = _appraisal(3, 2041, AppraisalStatus.VALIDATING, admin)
     _ev_validation(appraisal, ev, ValidationStatus.APPROVED)
-    _lider_appraisal(lider, 3, 2041, AppraisalStatus.LIDER_REVIEW)
+    # appraisal month 3 maps to gongo quarter ((3-1)//3+1 == 1).
+    _lider_appraisal(lider, 1, 2041, AppraisalStatus.LIDER_REVIEW)
 
     mock = MagicMock(return_value={"ok": True})
     with patch("slack_sdk.WebClient.chat_postMessage", mock):
@@ -289,7 +291,8 @@ def test_auto_advance_blocked_by_open_contestation(db_session):
     appraisal = _appraisal(4, 2041, AppraisalStatus.VALIDATING, admin)
     appraisal.has_contestation = True
     _ev_validation(appraisal, ev, ValidationStatus.APPROVED)
-    _lider_appraisal(lider, 4, 2041, AppraisalStatus.LIDER_REVIEW)
+    # appraisal month 4 maps to gongo quarter ((4-1)//3+1 == 2).
+    _lider_appraisal(lider, 2, 2041, AppraisalStatus.LIDER_REVIEW)
 
     advanced = maybe_auto_advance_appraisal_after_validation(appraisal)
 
