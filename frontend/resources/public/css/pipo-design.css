@@ -241,6 +241,10 @@ main:focus{outline:none}
 .kpi-value .currency{font-family:var(--font-ui);font-size:14px;font-weight:600;color:var(--fg-3);margin-right:6px;letter-spacing:0}
 .kpi-value .frac{font-family:var(--font-display);font-size:24px;color:var(--fg-3)}
 .kpi-foot{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3);margin-top:auto}
+.appraisal-review-kpis{grid-template-columns:minmax(360px,1.55fr) repeat(3,minmax(0,1fr))}
+.appraisal-review-money-kpi{padding:18px 20px}
+.appraisal-review-money-kpi .split-numerics{height:100%;padding:0}
+.appraisal-review-money-kpi .kpi-foot{margin-top:6px}
 .delta{display:inline-flex;align-items:center;gap:3px;font-family:var(--font-ui);font-weight:600;font-size:12px;padding:2px 8px;border-radius:var(--r-pill)}
 .delta-up{background:var(--success-lightest);color:var(--success-text)}
 .delta-down{background:var(--danger-lightest);color:var(--danger-text)}
@@ -412,6 +416,18 @@ main:focus{outline:none}
 .tab:hover{color:var(--fg-1)}
 .tab.active,.tab[aria-selected="true"]{color:var(--fg-1);border-bottom-color:var(--black)}
 .tab:focus-visible{outline:2px solid var(--cyan);outline-offset:-2px;border-radius:2px}
+.appraisal-tab-count{
+  display:inline-flex;align-items:center;justify-content:center;min-width:20px;
+  margin-left:6px;padding:1px 7px;border-radius:var(--r-pill);
+  background:var(--bg-2);color:var(--fg-3);
+  font-family:var(--font-mono);font-size:11px;font-weight:600;line-height:1.4;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.appraisal-tab-count.-danger{background:var(--danger-lightest);color:var(--danger-text)}
+.appraisal-tab-count.-warning{background:var(--warning-lightest);color:var(--warning-text)}
+.appraisal-tab-count.-success{background:var(--success-lightest);color:var(--success-text)}
+.tab.active .appraisal-tab-count,
+.tab[aria-selected="true"] .appraisal-tab-count{background:var(--neutral-light);color:var(--fg-1)}
 
 /* Status badges */
 .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-pill);font-family:var(--font-mono);font-size:11px;font-weight:500;line-height:1.4}
@@ -447,6 +463,21 @@ main:focus{outline:none}
 .table .name{font-weight:600;color:var(--fg-1)}
 .table .muted{color:var(--fg-3);font-size:12px}
 .table .strong-num{font-family:var(--font-mono);font-weight:600;color:var(--fg-1);white-space:nowrap}
+.table tfoot td{padding:11px 16px;border-top:1px solid var(--border-subtle)}
+.table .appraisal-nf-total-row td{background:var(--bg-2)}
+.appraisal-nf-table{width:100%}
+.appraisal-empty-cell{
+  padding:32px;text-align:center;color:var(--fg-3);
+  font-family:var(--font-ui);font-size:13px;
+}
+.appraisal-nf-total-label{
+  font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg-3);
+  letter-spacing:0.02em;
+}
+.appraisal-nf-total-value{
+  font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--fg-1);
+  white-space:nowrap;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
 
 /* Bar in cell */
 .bar{
@@ -852,6 +883,127 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:6px 9px;
 }
 .appraisal-fact svg{width:13px;height:13px}
+.appraisal-period-empty-callout{margin-bottom:16px}
+.appraisal-callout-body{flex:1;min-width:0}
+.appraisal-callout-text{
+  margin-top:3px;font-size:13px;color:var(--fg-2);line-height:1.45;
+}
+.appraisal-callout-text.-pre{margin-top:4px;white-space:pre-wrap}
+.appraisal-callout-meta{
+  margin-top:7px;font-family:var(--font-mono);font-size:12px;color:var(--fg-1);
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.appraisal-contestation-form{margin-top:12px}
+.appraisal-textarea{width:100%;min-height:88px;resize:vertical;font-family:var(--font-body)}
+.appraisal-form-actions{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+.appraisal-review-workspace{
+  background:var(--bg-1);border:1px solid var(--border-subtle);
+  border-radius:var(--r-md);overflow:hidden;
+}
+.appraisal-tabs-bar{
+  padding:0 24px;background:var(--bg-1);border-bottom:1px solid var(--border-subtle);
+}
+.appraisal-review-tabs{
+  overflow-x:auto;overflow-y:hidden;margin-bottom:-1px;scrollbar-width:none;
+}
+.appraisal-review-tabs::-webkit-scrollbar{display:none}
+.appraisal-review-tabs .tab{flex:0 0 auto;white-space:nowrap}
+.appraisal-review-content{padding:20px 24px 24px}
+.appraisal-table-toolbar{
+  display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:12px;
+}
+.appraisal-table-note{
+  margin-bottom:12px;font-size:13px;color:var(--fg-3);line-height:1.45;
+}
+.appraisal-filter-band{
+  display:flex;flex-direction:column;gap:10px;
+  padding:0 0 14px;margin-bottom:16px;border-bottom:1px solid var(--border-subtle);
+}
+.appraisal-filter-group{
+  min-width:0;display:grid;grid-template-columns:74px minmax(0,1fr);
+  align-items:start;gap:10px;
+}
+.appraisal-filter-label{
+  font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);
+  letter-spacing:0;text-transform:lowercase;padding-top:8px;
+}
+.appraisal-filter-row{
+  flex-wrap:wrap;overflow:visible;padding:0;gap:8px;
+}
+.appraisal-filter-row::-webkit-scrollbar{display:none}
+.appraisal-filter-row .chip{flex:0 0 auto;background:var(--bg-1)}
+.appraisal-filter-row .chip.active,
+.appraisal-filter-row .chip[aria-pressed="true"]{
+  background:var(--black);color:var(--bg-1);border-color:var(--black);
+}
+.appraisal-ev-list{display:flex;flex-direction:column;gap:10px}
+.appraisal-ev-row,
+.appraisal-policy-row{
+  background:var(--bg-1);border:1px solid var(--border-subtle);
+  border-radius:var(--r-sm);overflow:hidden;
+}
+.appraisal-ev-row{transition:border-color var(--d) var(--ease),box-shadow var(--d) var(--ease)}
+.appraisal-ev-row:hover{box-shadow:var(--shadow-hover)}
+.appraisal-policy-row{margin-bottom:8px}
+.appraisal-policy-row:last-child{margin-bottom:0}
+.appraisal-policy-row.-not-apurada{background:var(--bg-2)}
+.appraisal-review-row-button{
+  display:flex;justify-content:space-between;align-items:center;gap:16px;
+  width:100%;background:transparent;border:0;font:inherit;color:inherit;
+  text-align:left;cursor:pointer;
+}
+.appraisal-review-row-button>div:first-child{min-width:0}
+.appraisal-ev-button{padding:16px 20px}
+.appraisal-policy-button{padding:12px 14px}
+.appraisal-row-main{min-width:0;display:flex;flex-direction:column;gap:4px}
+.appraisal-ev-row .name,
+.appraisal-policy-title{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;
+  font-size:14px;color:var(--fg-1);font-weight:600;
+}
+.appraisal-policy-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.appraisal-ev-meta,
+.appraisal-policy-meta,
+.appraisal-policy-reason{
+  font-size:12px;color:var(--fg-3);line-height:1.35;
+}
+.appraisal-policy-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.appraisal-policy-reason{text-align:right;max-width:280px}
+.appraisal-policy-reason.-detail{text-align:left;max-width:none;padding:4px 0;font-size:13px}
+.appraisal-ev-detail{padding:0 20px 16px}
+.appraisal-subfilter-row{margin-bottom:10px}
+.appraisal-policy-detail{
+  padding:0 14px 14px;border-top:1px solid var(--border-subtle);
+}
+.appraisal-policy-facts{
+  display:flex;gap:16px;flex-wrap:wrap;padding:10px 0;
+  font-family:var(--font-mono);font-size:12px;color:var(--fg-3);
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.appraisal-policy-table{font-size:12.5px}
+.appraisal-empty-panel{
+  padding:22px;text-align:center;color:var(--fg-3);font-size:13px;
+  background:var(--bg-2);border:1px solid var(--border-subtle);border-radius:var(--r-sm);
+}
+.appraisal-empty-panel.-large{padding:46px 24px;background:var(--bg-1)}
+.appraisal-money-ledger{
+  display:flex;flex-direction:column;align-items:flex-end;gap:5px;
+  min-width:178px;text-align:right;
+}
+.appraisal-money-amount{
+  font-family:var(--font-mono);font-weight:700;color:var(--fg-1);line-height:1.15;
+  white-space:nowrap;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.appraisal-money-ledger.-ev .appraisal-money-amount{font-size:18px}
+.appraisal-money-ledger.-policy .appraisal-money-amount{font-size:13px}
+.appraisal-money-nf{
+  display:grid;grid-template-columns:auto auto;align-items:baseline;gap:8px;
+  padding-top:5px;border-top:1px solid var(--border-subtle);
+  font-family:var(--font-mono);font-size:11px;line-height:1;color:var(--fg-3);
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.appraisal-money-nf b{font-weight:700;color:var(--fg-2);white-space:nowrap}
+.appraisal-money-ledger.-policy .appraisal-money-nf{font-size:10.5px}
 .appraisal-review-brief{
   display:grid;grid-template-columns:minmax(220px,0.9fr) minmax(0,1.6fr);gap:20px;align-items:stretch;
 }
@@ -1118,6 +1270,8 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   .page{padding:22px 22px 80px}
   .kpi-grid{grid-template-columns:repeat(2,1fr)}
   .kpi-grid.-three{grid-template-columns:repeat(2,1fr)}
+  .appraisal-review-kpis{grid-template-columns:repeat(2,1fr)}
+  .appraisal-review-money-kpi{grid-column:1/-1}
   .two-col{grid-template-columns:1fr}
   .two-col-eq{grid-template-columns:1fr}
   .form-grid.-three{grid-template-columns:repeat(2,1fr)}
@@ -1136,6 +1290,8 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   .appraisal-review-brief{grid-template-columns:1fr}
   .appraisal-brief-main{padding-right:0;border-right:0;border-bottom:1px solid var(--border-subtle);padding-bottom:16px}
   .appraisal-brief-grid{grid-template-columns:repeat(2,1fr)}
+  .appraisal-filter-group{grid-template-columns:1fr;gap:7px}
+  .appraisal-filter-label{padding-top:0}
 }
 
 /* Wide laptop — 1140px and below: appraisal row reflows to 3 cols,
@@ -1174,6 +1330,22 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   .page{padding:16px 16px 64px;gap:16px}
   .kpi-grid{grid-template-columns:1fr;gap:12px}
   .kpi-grid.-three{grid-template-columns:1fr}
+  .appraisal-review-kpis{grid-template-columns:1fr}
+  .appraisal-review-money-kpi{grid-column:auto}
+  .appraisal-tabs-bar{padding:0 16px}
+  .appraisal-review-content{padding:16px}
+  .appraisal-filter-band{padding:0 0 12px;margin-bottom:12px}
+  .appraisal-table-toolbar{justify-content:flex-start}
+  .appraisal-review-row-button{flex-direction:column;align-items:stretch!important}
+  .appraisal-money-ledger{align-items:flex-start;text-align:left;min-width:0;width:100%}
+  .appraisal-money-nf{width:100%;justify-content:space-between}
+  .appraisal-ev-button{padding:14px 16px}
+  .appraisal-policy-button{padding:12px}
+  .appraisal-ev-detail{padding:0 14px 14px}
+  .appraisal-policy-detail{padding:0 12px 12px}
+  .appraisal-policy-title strong,
+  .appraisal-policy-meta{white-space:normal}
+  .appraisal-policy-reason{text-align:left;max-width:none}
   .form-grid,
   .form-grid.-three,
   .form-grid.-four{grid-template-columns:1fr}

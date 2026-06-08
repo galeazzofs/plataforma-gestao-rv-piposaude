@@ -103,6 +103,11 @@
      (or (fmt-int (:total_commission totals)) "·")]
     [:div.kpi-foot "valor estimado"]]
    [:div.kpi
+    [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "NF líquido"]
+    [:div.kpi-value [:span.currency "R$"]
+     (or (fmt-int (:nf_liquido_total totals)) "·")]
+    [:div.kpi-foot "soma das NFs apuradas"]]
+   [:div.kpi
     [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs"]
     [:div.kpi-value (str (or (:ev_count totals) 0))]
     [:div.kpi-foot "com comissão no mês"]]

@@ -60,20 +60,11 @@
   [:span {:class (str "badge " (status-class status))}
    (status-label status)])
 
+(defn- tone-class [tone]
+  (when tone (str " -" (name tone))))
+
 (defn- count-pill [n tone]
-  [:span {:style {:background (case tone
-                                :danger  "var(--danger-lightest)"
-                                :warning "var(--warning-lightest)"
-                                :success "var(--success-lightest)"
-                                "var(--bg-2)")
-                  :color (case tone
-                           :danger  "var(--danger-text)"
-                           :warning "var(--warning-text)"
-                           :success "var(--success-text)"
-                           "var(--fg-3)")
-                  :font-family "var(--font-mono)" :font-size "11px"
-                  :padding "1px 7px" :border-radius "var(--r-pill)"
-                  :margin-left "6px"}}
+  [:span {:class (str "appraisal-tab-count" (tone-class tone))}
    n])
 
 (defn- tab-button [active-tab k label n tone]
@@ -117,16 +108,15 @@
   months that actually carry financial data (apuração is per-month now)."
   [month year periods]
   (when (seq periods)
-    [:div.callout.-warning {:style {:margin-bottom "16px"}}
+    [:div.callout.-warning.appraisal-period-empty-callout
      [layout/icon "info" {:width 20 :height 20}]
-     [:div {:style {:flex 1}}
+     [:div.appraisal-callout-body
       [:strong (str "Nenhuma NF importada para " (month-label month year))]
-      [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
+      [:div.appraisal-callout-text
        "A apuração é mensal: ela só enxerga as NFs cujo recebimento caiu no "
        "mês escolhido. Os dados financeiros que você importou estão nestes "
-       "meses — selecione um deles para apurar:"]
-      [:div {:style {:font-family "var(--font-mono)" :font-size "12px"
-                     :color "var(--fg-1)" :margin-top "6px"}}
+       "meses. Selecione um deles para apurar:"]
+      [:div.appraisal-callout-meta
        (str/join " · "
                  (for [p periods]
                    (str (month-label (:month p) (:year p))
@@ -137,28 +127,29 @@
 (defn nf-table [rows]
   (let [show-finalizada-mes? (boolean (some :apolice_finalizada_mes rows))
         col-span (if show-finalizada-mes? 8 7)]
-    [:table.table
-   [:thead
-    [:tr
-     [:th "Cliente"] [:th "Operadora"] [:th "Produto"] [:th "Data"]
-     [:th "Tipo receita"] [:th.right "NF Líquido"] [:th "Status"]
-     (when show-finalizada-mes? [:th "Ciclo 12/12"])]]
-   [:tbody
-    (if (empty? rows)
-      [:tr [:td {:col-span col-span :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
-            "Nenhuma linha"]]
-      (for [r rows]
-        ^{:key (or (:id r) (hash r))}
-        [:tr
-         [:td (:cliente_mae r)]
-         [:td.muted (:operadora r)]
-         [:td.muted (:produto r)]
-         [:td.num.muted (:data_recebimento r)]
-         [:td (:tipo_receita r)]
-         [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "·"))]
-         [:td [match-status->badge (:match_status r)]]
-         (when show-finalizada-mes?
-           [:td.num.muted (or (:apolice_finalizada_mes r) "·")])]))]]))
+    [:div.table-wrap.appraisal-nf-table
+     [:table.table
+      [:thead
+       [:tr
+        [:th "Cliente"] [:th "Operadora"] [:th "Produto"] [:th "Data"]
+        [:th "Tipo receita"] [:th.right "NF Líquido"] [:th "Status"]
+        (when show-finalizada-mes? [:th "Ciclo 12/12"])]]
+      [:tbody
+       (if (empty? rows)
+         [:tr [:td.appraisal-empty-cell {:col-span col-span}
+               "Nenhuma linha"]]
+         (for [r rows]
+           ^{:key (or (:id r) (hash r))}
+           [:tr
+            [:td (:cliente_mae r)]
+            [:td.muted (:operadora r)]
+            [:td.muted (:produto r)]
+            [:td.num.muted (:data_recebimento r)]
+            [:td (:tipo_receita r)]
+            [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido r)) "·"))]
+            [:td [match-status->badge (:match_status r)]]
+            (when show-finalizada-mes?
+              [:td.num.muted (or (:apolice_finalizada_mes r) "·")])]))]]]))
 
 (defn- export-csv-button [rows filename]
   [:button.btn.btn-secondary.btn-sm
@@ -179,90 +170,133 @@
         (.revokeObjectURL js/URL url)))}
    [layout/icon "download" {:width 12 :height 12}] " Exportar CSV"])
 
+(defn- money-ledger [{:keys [amount nf-total size]}]
+  [:div {:class (str "appraisal-money-ledger -" (name (or size :compact)))}
+   [:strong.appraisal-money-amount
+    (str "R$ " (or (fmt-money amount) "·"))]
+   [:div.appraisal-money-nf
+    [:span "NF líquido"]
+    [:b (str "R$ " (or (fmt-money nf-total) "0,00"))]]])
+
 ;; ── Policy block (one per Policy under an EV) ─────────────
 
 (defn- policy-block []
   (let [open? (r/atom false)]
     (fn [policy]
-      [:div {:style {:border "1px solid var(--border-subtle)"
-                     :border-radius "var(--r-sm)"
-                     :margin-bottom "8px"
-                     :background "var(--bg-1)"}}
-       [:button {:type "button"
-                 :aria-expanded (str @open?)
-                 :style {:display "flex" :justify-content "space-between" :align-items "center"
-                         :padding "12px 14px" :cursor "pointer"
-                         :width "100%" :background "transparent" :border 0
-                         :font "inherit" :color "inherit" :text-align "left"}
-                 :on-click #(swap! open? not)}
-        [:div
-         [:strong (or (:client_name policy) "·")]
-         [:span.muted {:style {:margin-left "8px" :font-size "12px"}}
-          (str (or (:operadora policy) "·") " · "
-               (or (:produto policy) "·") " · "
-               (or (:segment policy) "·"))]]
-        [:div.strong-num (str "R$ " (or (fmt-money (:subtotal policy)) "·"))]]
-       (when @open?
-         [:div {:style {:padding "0 14px 14px" :border-top "1px solid var(--border-subtle)"}}
-          [:div {:style {:display "flex" :gap "16px" :flex-wrap "wrap"
-                         :padding "10px 0" :font-size "12px" :color "var(--fg-3)"
-                         :font-family "var(--font-mono)"}}
-           [:div "Início vigência: " (or (:first_payment_real policy) "·")]
-           [:div "Gongo: " (or (:closed_date policy) "·")]
-           [:div "Atingimento: " (str (or (fmt-pct (:achievement_used_pct policy)) "·") "%")]
-           [:div "% Comissão: " (str (or (fmt-pct (* 100 (or (:commission_pct policy) 0))) "·") "%")]]
-          [:table.table
-           [:thead [:tr [:th "Data"] [:th "Tipo"] [:th.right "NF Líquido"]]]
-           [:tbody
-            (if (empty? (:nfs policy))
-              [:tr [:td {:col-span 3 :style {:padding "16px" :text-align "center" :color "var(--fg-3)"}}
-                    "·"]]
-              (for [nf (:nfs policy)]
-                ^{:key (or (:id nf) (hash nf))}
-                [:tr
-                 [:td.num.muted (:data_recebimento nf)]
-                 [:td (:tipo_receita nf)]
-                 [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido nf)) "·"))]]))]]])])))
+      (let [apurada? (:apurada policy)]
+        [:div {:class (str "appraisal-policy-row"
+                           (when-not apurada? " -not-apurada"))}
+         [:button.appraisal-review-row-button.appraisal-policy-button
+          {:type "button"
+           :aria-expanded (str @open?)
+           :on-click #(swap! open? not)}
+          [:div.appraisal-row-main
+           [:div.appraisal-policy-title
+            [:strong (or (:client_name policy) "·")]
+            (when-not apurada?
+              [:span.badge.badge-locked "Não apurada"])]
+           [:span.appraisal-policy-meta
+            (str (or (:operadora policy) "·") " · "
+                 (or (:produto policy) "·") " · "
+                 (or (:segment policy) "·"))]]
+          (if apurada?
+            [money-ledger {:amount (:subtotal policy)
+                           :nf-total (:nf_liquido_total policy)
+                           :size :policy}]
+            [:div.appraisal-policy-reason
+             (or (:reason policy) "Não apurada")])]
+         (when @open?
+           [:div.appraisal-policy-detail
+            [:div.appraisal-policy-facts
+             [:div "Início vigência: " (or (:first_payment_real policy) "·")]
+             [:div "Gongo: " (or (:closed_date policy) "·")]
+             (when apurada?
+               [:div "Atingimento: " (str (or (fmt-pct (:achievement_used_pct policy)) "·") "%")])
+             (when apurada?
+               [:div "% Comissão: " (str (or (fmt-pct (* 100 (or (:commission_pct policy) 0))) "·") "%")])]
+            (if apurada?
+              [:table.table.appraisal-policy-table
+               [:thead [:tr [:th "Data"] [:th "Tipo"] [:th.right "NF Líquido"]]]
+               [:tbody
+                (if (empty? (:nfs policy))
+                  [:tr [:td.appraisal-empty-cell {:col-span 3}
+                        "·"]]
+                  (for [nf (:nfs policy)]
+                    ^{:key (or (:id nf) (hash nf))}
+                    [:tr
+                     [:td.num.muted (:data_recebimento nf)]
+                     [:td (:tipo_receita nf)]
+                     [:td.right.strong-num (str "R$ " (or (fmt-money (:nf_liquido nf)) "·"))]]))]
+               (when (seq (:nfs policy))
+                  [:tfoot
+                   [:tr.appraisal-nf-total-row
+                    [:td.right.appraisal-nf-total-label {:col-span 2} "Total NF líquido"]
+                    [:td.right.appraisal-nf-total-value
+                     (str "R$ " (or (fmt-money (:nf_liquido_total policy)) "·"))]]])]
+              [:div.appraisal-policy-reason.-detail
+               (str "Sem comissão nesta competência: "
+                    (or (:reason policy) "não apurada") ".")])])]))))
 
 ;; ── EV row ────────────────────────────────────────────────
 
 (defn- ev-row []
-  (let [open? (r/atom false)]
+  (let [open? (r/atom false)
+        apurada-filter (r/atom :apuradas)]
     (fn [ev tipo-filter operadora-filter]
       (let [filter-nfs (fn [nfs]
                          (if (or (nil? tipo-filter) (= "Todos" tipo-filter))
                            nfs
                            (filter #(= (:tipo_receita %) tipo-filter) nfs)))
-            filtered (->> (:policies ev)
-                          (filter (fn [p]
-                                    (or (nil? operadora-filter)
-                                        (= "Todas" operadora-filter)
-                                        (= (:operadora p) operadora-filter))))
-                          (map (fn [p] (update p :nfs filter-nfs))))]
-        [:div.card {:style {:padding 0 :margin-bottom "12px"}}
-         [:button {:type "button"
-                   :aria-expanded (str @open?)
-                   :style {:padding "16px 20px" :cursor "pointer"
-                           :display "flex" :justify-content "space-between" :align-items "center"
-                           :width "100%" :background "transparent" :border 0
-                           :font "inherit" :color "inherit" :text-align "left"}
-                   :on-click #(swap! open? not)}
-          [:div
-           [:div.name {:style {:font-size "14px"}}
+            base (->> (:policies ev)
+                      (filter (fn [p]
+                                (or (nil? operadora-filter)
+                                    (= "Todas" operadora-filter)
+                                    (= (:operadora p) operadora-filter))))
+                      (map (fn [p] (update p :nfs filter-nfs))))
+            apuradas     (filter :apurada base)
+            nao-apuradas (remove :apurada base)
+            visible (case @apurada-filter
+                      :apuradas     apuradas
+                      :nao-apuradas nao-apuradas
+                      base)
+            nao-count (or (:nao_apuradas_count ev) (count nao-apuradas))]
+        [:div.appraisal-ev-row
+         [:button.appraisal-review-row-button.appraisal-ev-button
+          {:type "button"
+           :aria-expanded (str @open?)
+           :on-click #(swap! open? not)}
+          [:div.appraisal-row-main
+           [:div.name
             (:ev_name ev)
             (when (:ev_left_company ev)
-              [:span.badge.badge-review {:style {:margin-left "8px"}}
+              [:span.badge.badge-review
                "Saiu"])]
-           [:div.muted {:style {:font-size "12px" :margin-top "4px"}}
-            (str (:policies_count ev) " apólices · "
+           [:div.appraisal-ev-meta
+            (str (:policies_count ev) " apuradas · "
+                 (when (pos? nao-count) (str nao-count " não apuradas · "))
                  (:nf_count ev) " NFs · atingimento "
                  (or (fmt-pct (:achievement_pct ev)) "·") "%")]]
-          [:div.strong-num {:style {:font-size "18px"}}
-           (str "R$ " (or (fmt-money (:total_commission ev)) "·"))]]
+          [money-ledger {:amount (:total_commission ev)
+                         :nf-total (:nf_liquido_total ev)
+                         :size :ev}]]
          (when @open?
-           [:div {:style {:padding "0 20px 16px"}}
-            (for [p filtered]
-              ^{:key (:policy_id p)} [policy-block p])])]))))
+           [:div.appraisal-ev-detail
+            [:div.filter-row.appraisal-subfilter-row
+             {:role "group" :aria-label "Filtro de apuração"}
+             (for [[k label cnt] [[:apuradas "Apuradas" (count apuradas)]
+                                  [:nao-apuradas "Não apuradas" (count nao-apuradas)]
+                                  [:todas "Todas" (count base)]]]
+               ^{:key k}
+               [:button {:type "button"
+                         :class (str "chip" (when (= k @apurada-filter) " active"))
+                         :aria-pressed (str (= k @apurada-filter))
+                         :on-click #(reset! apurada-filter k)}
+                (str label " (" cnt ")")])]
+            (if (empty? visible)
+              [:div.appraisal-empty-panel
+               "Nenhuma apólice neste filtro"]
+              (for [p visible]
+                ^{:key (:policy_id p)} [policy-block p]))])]))))
 
 ;; ── Por EV tab ────────────────────────────────────────────
 
@@ -276,31 +310,37 @@
                          (remove nil?)
                          distinct sort)]
         [:div
-         [:div.filter-row {:role "group" :aria-label "Filtros"}
-          (for [t ["Todos" "Comissão" "Fee por Vida" "Premiação" "Patrocínio - Eventos" "Agenciamento"]]
-            ^{:key t}
+         [:div.appraisal-filter-band
+          [:div.appraisal-filter-group
+           [:div.appraisal-filter-label "receita"]
+           [:div.filter-row.appraisal-filter-row
+            {:role "group" :aria-label "Filtro por tipo de receita"}
+            (for [t ["Todos" "Comissão" "Fee por Vida" "Premiação" "Patrocínio - Eventos" "Agenciamento"]]
+              ^{:key t}
+              [:button {:type "button"
+                        :class (str "chip" (when (= t @tipo-filter) " active"))
+                        :aria-pressed (str (= t @tipo-filter))
+                        :on-click #(reset! tipo-filter t)}
+               t])]]
+          [:div.appraisal-filter-group.-wide
+           [:div.appraisal-filter-label "operadora"]
+           [:div.filter-row.appraisal-filter-row
+            {:role "group" :aria-label "Filtro por operadora"}
             [:button {:type "button"
-                      :class (str "chip" (when (= t @tipo-filter) " active"))
-                      :aria-pressed (str (= t @tipo-filter))
-                      :on-click #(reset! tipo-filter t)}
-             t])
-          [:div {:role "separator" :aria-hidden "true"
-                 :style {:width "1px" :height "20px" :background "var(--border-subtle)" :margin "0 4px"}}]
-          [:button {:type "button"
-                    :class (str "chip" (when (= "Todas" @op-filter) " active"))
-                    :aria-pressed (str (= "Todas" @op-filter))
-                    :on-click #(reset! op-filter "Todas")} "Todas"]
-          (for [o all-ops]
-            ^{:key o}
-            [:button {:type "button"
-                      :class (str "chip" (when (= o @op-filter) " active"))
-                      :aria-pressed (str (= o @op-filter))
-                      :on-click #(reset! op-filter o)}
-             o])]
+                      :class (str "chip" (when (= "Todas" @op-filter) " active"))
+                      :aria-pressed (str (= "Todas" @op-filter))
+                      :on-click #(reset! op-filter "Todas")} "Todas"]
+            (for [o all-ops]
+              ^{:key o}
+              [:button {:type "button"
+                        :class (str "chip" (when (= o @op-filter) " active"))
+                        :aria-pressed (str (= o @op-filter))
+                        :on-click #(reset! op-filter o)}
+               o])]]]
          (if (empty? ev-summary)
-           [:div.card [:div {:style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
-                       "Nenhum EV com comissão calculada"]]
-           [:div
+           [:div.appraisal-empty-panel.-large
+            "Nenhum EV com comissão calculada"]
+           [:div.appraisal-ev-list
             (for [ev ev-summary]
               ^{:key (:ev_id ev)}
               [ev-row ev @tipo-filter @op-filter])])]))))
@@ -353,23 +393,19 @@
           has?
           [:div.callout.-danger
            [layout/icon "alert" {:width 20 :height 20}]
-           [:div {:style {:flex 1}}
+           [:div.appraisal-callout-body
             [:strong "Contestação aberta"]
-            [:div {:style {:font-size "13px" :color "var(--fg-2)"
-                           :margin-top "4px" :white-space "pre-wrap"}}
+            [:div.appraisal-callout-text.-pre
              (or note "·")]
             (when admin?
-              [:div {:style {:margin-top "12px"}}
+              [:div.appraisal-contestation-form
                [:textarea
                 {:value @resolve-text
-                 :placeholder "Devolutiva (obrigatório) — descreva como o problema foi resolvido."
+                 :placeholder "Devolutiva (obrigatório). Descreva como o problema foi resolvido."
                  :on-change #(reset! resolve-text (-> % .-target .-value))
                  :rows 3
-                 :style {:width "100%" :font-family "var(--font-sans)"
-                         :font-size "13px" :padding "8px"
-                         :border "1px solid var(--border-subtle)"
-                         :border-radius "var(--r-sm)"}}]
-               [:div {:style {:margin-top "8px" :display "flex" :gap "8px"}}
+                 :class "field-input appraisal-textarea"}]
+               [:div.appraisal-form-actions
                 [:button.btn.btn-primary.btn-sm
                  {:disabled (clojure.string/blank? @resolve-text)
                   :on-click (fn []
@@ -382,34 +418,29 @@
           (and (not has?) res-note)
           [:div.callout.-success
            [layout/icon "check" {:width 20 :height 20}]
-           [:div {:style {:flex 1}}
+           [:div.appraisal-callout-body
             [:strong "Contestação resolvida"]
-            [:div {:style {:font-size "13px" :color "var(--fg-2)"
-                           :margin-top "4px" :white-space "pre-wrap"}}
+            [:div.appraisal-callout-text.-pre
              res-note]]]
 
           ;; Can contest — show button + textarea (toggled)
           can-contest?
           [:div.callout.-neutral
            [layout/icon "info" {:width 20 :height 20}]
-           [:div {:style {:flex 1}}
+           [:div.appraisal-callout-body
             [:strong "Contestar valor"]
-            [:div {:style {:font-size "13px" :color "var(--fg-3)"
-                           :margin-top "2px"}}
-             "Discordou do valor calculado? Abra uma contestação — a "
+            [:div.appraisal-callout-text
+             "Discordou do valor calculado? Abra uma contestação. A "
              "apuração vai direto para revisão do RevOps."]
             (when @contest-open?
-              [:div {:style {:margin-top "10px"}}
+              [:div.appraisal-contestation-form
                [:textarea
                 {:value @contest-text
                  :placeholder "Motivo da contestação (obrigatório)"
                  :on-change #(reset! contest-text (-> % .-target .-value))
                  :rows 3
-                 :style {:width "100%" :font-family "var(--font-sans)"
-                         :font-size "13px" :padding "8px"
-                         :border "1px solid var(--border-subtle)"
-                         :border-radius "var(--r-sm)"}}]
-               [:div {:style {:margin-top "8px" :display "flex" :gap "8px"}}
+                 :class "field-input appraisal-textarea"}]
+               [:div.appraisal-form-actions
                 [:button.btn.btn-primary.btn-sm
                  {:disabled (clojure.string/blank? @contest-text)
                   :on-click (fn []
@@ -480,24 +511,31 @@
          (when-let [missing (seq (:missing_achievements appraisal))]
            [:div.callout.-warning
             [layout/icon "alert" {:width 20 :height 20}]
-            [:div {:style {:flex 1}}
-             [:strong "Atingimentos faltando — apurados como 0%"]
-             [:div {:style {:font-size "13px" :color "var(--fg-2)" :margin-top "2px"}}
+            [:div.appraisal-callout-body
+             [:strong "Atingimentos faltando, apurados como 0%"]
+             [:div.appraisal-callout-text
               "Estes EVs estão sem atingimento usado pela regra do gongo e "
               "saíram no piso da tabela. Preencha em Atingimento EV e recalcule:"]
-             [:div {:style {:font-family "var(--font-mono)" :font-size "12px"
-                            :color "var(--fg-1)" :margin-top "6px"}}
+             [:div.appraisal-callout-meta
               (str/join " · " missing)]]])
 
          [review-brief appraisal totals unmatched expired apolices-finalizadas nao-sup]
 
          ;; KPIs row
-         [:div.kpi-grid
-          [:div.kpi
-           [:div.kpi-label [layout/icon "money" {:width 14 :height 14}] "comissão total"]
-           [:div.kpi-value [:span.currency "R$"]
-            (or (fmt-int (:total_commission totals)) "·")]
-           [:div.kpi-foot "valor da competência"]]
+         [:div.kpi-grid.appraisal-review-kpis
+          [:div.kpi.appraisal-review-money-kpi
+           [:div.split-numerics
+            [:div.col
+             [:div.lab "comissão total"]
+             [:div.num [:span.currency "R$"]
+              (or (fmt-int (:total_commission totals)) "·")]
+             [:div.kpi-foot "valor da competência"]]
+            [:div.rule]
+            [:div.col
+             [:div.lab "NF líquido"]
+             [:div.num [:span.currency "R$"]
+              (or (fmt-int (:nf_liquido_total totals)) "·")]
+             [:div.kpi-foot "NFs apuradas"]]]]
           [:div.kpi
            [:div.kpi-label [layout/icon "team" {:width 14 :height 14}] "EVs"]
            [:div.kpi-value (str (or (:ev_count totals) 0))]
@@ -511,31 +549,31 @@
            [:div.kpi-value (str (or (:matched_nf_count totals) 0))]
            [:div.kpi-foot "matcheadas"]]]
 
-         ;; Tabs card
-         [:div.card {:style {:padding 0}}
-          [:div {:style {:padding "0 24px"}}
-           [:div.tabs {:role "tablist" :aria-label "Visões de apuração"}
+         [:div.appraisal-review-workspace
+          [:div.appraisal-tabs-bar
+           [:div.tabs.appraisal-review-tabs
+            {:role "tablist" :aria-label "Visões de apuração"}
             [tab-button active-tab :por-ev "Por EV" (count ev-summary) :neutral]
             [tab-button active-tab :unmatched "Não matcheadas" (count unmatched) :danger]
             [tab-button active-tab :expired "Fora de vigência" (count expired) :warning]
             [tab-button active-tab :apolices-finalizadas "Apólices finalizadas" (count apolices-finalizadas) :success]
             [tab-button active-tab :nao-sup "Não suportado" (count nao-sup) :neutral]]]
-          [:div {:style {:padding "20px 24px"}}
+          [:div.appraisal-review-content
            (case @active-tab
              :por-ev    [por-ev-tab ev-summary]
              :unmatched [:<>
-                         [:div {:style {:margin-bottom "12px"}}
+                         [:div.appraisal-table-toolbar
                           [export-csv-button unmatched "nao-matcheadas.csv"]]
                          [nf-table unmatched]]
              :expired   [:<>
-                         [:div {:style {:margin-bottom "12px"}}
+                         [:div.appraisal-table-toolbar
                           [export-csv-button expired "fora-vigencia.csv"]]
                          [nf-table expired]]
              :apolices-finalizadas [:<>
-                                     [:div {:style {:margin-bottom "12px"}}
+                                     [:div.appraisal-table-toolbar
                                       [export-csv-button apolices-finalizadas "apolices-finalizadas.csv"]]
                                      [nf-table apolices-finalizadas]]
              :nao-sup   [:<>
-                         [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-bottom "12px"}}
+                         [:p.appraisal-table-note
                           "Linhas com produto não suportado pelo modelo (Mental, Fitness)."]
                          [nf-table nao-sup]])]]]))))

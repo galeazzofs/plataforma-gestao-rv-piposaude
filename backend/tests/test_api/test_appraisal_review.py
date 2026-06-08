@@ -228,6 +228,61 @@ def test_recalculate_runs_calculator_and_returns_detail(client, review_setup):
     assert ev_block["policies"][0]["nfs"][0]["nf_liquido"] == 1000.0
 
 
+def test_ev_summary_exposes_nao_apuradas_and_nf_liquido_total(client, review_setup):
+    """The Por EV payload carries (a) the EV's full book split into apuradas /
+    não apuradas with a reason, and (b) the summed NF líquido alongside the
+    commission total."""
+    admin, ev, client_obj, policy, appraisal, nf = review_setup
+
+    # A second policy for the same EV with no NF this month → não apurada.
+    suffix = uuid.uuid4().hex[:8]
+    other = Policy(
+        hubspot_ticket_id=f"REV-T2-{suffix}",
+        numero_apolice=f"AP-REV2-{suffix}",
+        ev_id=ev.id, client_id=client_obj.id,
+        segment=Segment.M, benefit_type=BenefitType.VIDA,
+        partner_operator="Prudential",
+        closed_date=date(2026, 7, 1),
+        first_payment_real=date(2026, 7, 15),
+    )
+    db.session.add(other)
+    db.session.commit()
+
+    try:
+        # Apura the first (matched) policy.
+        client.post(
+            f"/api/v1/appraisals/{appraisal.id}/recalculate",
+            headers=_auth_header(admin),
+        )
+        resp = client.get(
+            f"/api/v1/appraisals/{appraisal.id}",
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()["data"]
+
+        ev_block = body["ev_summary"][0]
+        # Counts split between apuradas and the rest of the book.
+        assert ev_block["policies_count"] == 1
+        assert ev_block["nao_apuradas_count"] == 1
+        # NF líquido sum surfaces at EV and totals level.
+        assert ev_block["nf_liquido_total"] == 1000.0
+        assert body["totals"]["nf_liquido_total"] == 1000.0
+
+        blocks = {b["policy_id"]: b for b in ev_block["policies"]}
+        apurada = blocks[str(policy.id)]
+        nao = blocks[str(other.id)]
+        assert apurada["apurada"] is True
+        assert apurada["nf_liquido_total"] == 1000.0
+        assert nao["apurada"] is False
+        assert nao["subtotal"] == 0.0
+        assert nao["reason"] == "Sem NF no mês"
+    finally:
+        Commission.query.filter_by(month=8, year=2026).delete()
+        Policy.query.filter_by(id=other.id).delete()
+        db.session.commit()
+
+
 def test_recalculate_blocked_when_locked(client, review_setup):
     admin, _, _, _, appraisal, _ = review_setup
     appraisal.status = AppraisalStatus.LOCKED

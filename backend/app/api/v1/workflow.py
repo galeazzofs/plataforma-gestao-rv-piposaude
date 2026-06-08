@@ -5,11 +5,12 @@ from flask import Blueprint, jsonify, request, g
 
 from app.auth.decorators import require_auth, require_role
 from app.models import (
-    Appraisal, AppraisalStatus, UserRole,
+    Appraisal, AppraisalStatus, UserRole, CommissionStatus,
     Commission, EvQuarterAchievement, FinancialImport, Policy, User,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
+from app.modules.policies.filters import ev_policies_query
 from app.modules.workflow.state_machine import (
     start_appraisal,
     transition_appraisal,
@@ -495,6 +496,63 @@ def _build_period_detail(month, year):
     for c in commissions:
         by_ev[c.ev_id].append(c)
 
+    # The Por EV view also lets the user filter to the EV's policies that did
+    # NOT generate commission this month ("não apuradas"). To explain *why*
+    # each one fell out we need, per policy, which match statuses landed in
+    # the competência (e.g. an EXPIRED NF vs no NF at all).
+    month_nf_status = defaultdict(set)
+    for ms, pid in db.session.query(
+        FinancialImport.match_status, FinancialImport.policy_id,
+    ).filter(
+        FinancialImport.month == month,
+        FinancialImport.year == year,
+        FinancialImport.policy_id.isnot(None),
+    ).all():
+        month_nf_status[pid].add(ms)
+
+    # Pull the full book (excluding cancelled) for every EV that has at least
+    # one apurada policy this month — that's the set of cards the user can
+    # expand and filter inside.
+    ev_ids = list(by_ev.keys())
+    ev_book = defaultdict(list)
+    if ev_ids:
+        for p in (
+            ev_policies_query()
+            .filter(Policy.ev_id.in_(ev_ids))
+            .filter(Policy.commission_status != CommissionStatus.CANCELLED)
+            .all()
+        ):
+            ev_book[p.ev_id].append(p)
+
+    def _nao_apurada_reason(p):
+        if p.commission_status == CommissionStatus.SETTLED or (p.installments_paid or 0) >= 12:
+            return "Ciclo 12/12 completo"
+        statuses = month_nf_status.get(p.id, set())
+        if 'APOLICE_FINALIZADA' in statuses:
+            return "Ciclo 12/12 completo"
+        if 'EXPIRED' in statuses or 'PRE_VIGENCIA' in statuses:
+            return "NF fora de vigência no mês"
+        if 'PRODUTO_NAO_SUPORTADO' in statuses:
+            return "Produto não suportado"
+        if statuses:
+            return "NF não comissionável no mês"
+        return "Sem NF no mês"
+
+    def _policy_base(p):
+        return {
+            "policy_id": str(p.id),
+            "client_name": p.client.name if p.client else None,
+            "operadora": p.partner_operator,
+            "produto": p.benefit_type.value if p.benefit_type else None,
+            "segment": p.segment.value if p.segment else None,
+            "first_payment_real": (
+                p.first_payment_real.isoformat() if p.first_payment_real else None
+            ),
+            "closed_date": (
+                p.closed_date.isoformat() if p.closed_date else None
+            ),
+        }
+
     ev_summary = []
     for ev_id, ev_commissions in by_ev.items():
         ev = db.session.get(User, ev_id)
@@ -502,24 +560,18 @@ def _build_period_detail(month, year):
             ev_id=ev_id, quarter=quarter, year=year,
         ).first()
 
+        apurada_ids = {c.policy_id for c in ev_commissions}
+
         policy_blocks = []
         for c in ev_commissions:
             p = policies.get(c.policy_id)
             if p is None:
                 continue
             nfs = nfs_by_policy.get(p.id, [])
-            policy_blocks.append({
-                "policy_id": str(p.id),
-                "client_name": p.client.name if p.client else None,
-                "operadora": p.partner_operator,
-                "produto": p.benefit_type.value if p.benefit_type else None,
-                "segment": p.segment.value if p.segment else None,
-                "first_payment_real": (
-                    p.first_payment_real.isoformat() if p.first_payment_real else None
-                ),
-                "closed_date": (
-                    p.closed_date.isoformat() if p.closed_date else None
-                ),
+            block = _policy_base(p)
+            block.update({
+                "apurada": True,
+                "reason": None,
                 "achievement_used_pct": (
                     float(c.achievement_pct * 100) if c.achievement_pct else 0.0
                 ),
@@ -527,6 +579,9 @@ def _build_period_detail(month, year):
                     float(c.commission_pct) if c.commission_pct else 0.0
                 ),
                 "subtotal": float(c.total_actual or 0),
+                "nf_liquido_total": float(
+                    sum(nf.nf_valor_liquido for nf in nfs)
+                ) if nfs else 0.0,
                 "nfs": [
                     {
                         "data_recebimento": (
@@ -539,6 +594,23 @@ def _build_period_detail(month, year):
                     for nf in nfs
                 ],
             })
+            policy_blocks.append(block)
+
+        nao_apurada_blocks = []
+        for p in ev_book.get(ev_id, []):
+            if p.id in apurada_ids:
+                continue
+            block = _policy_base(p)
+            block.update({
+                "apurada": False,
+                "reason": _nao_apurada_reason(p),
+                "achievement_used_pct": None,
+                "commission_pct": None,
+                "subtotal": 0.0,
+                "nf_liquido_total": 0.0,
+                "nfs": [],
+            })
+            nao_apurada_blocks.append(block)
 
         ev_summary.append({
             "ev_id": str(ev_id),
@@ -549,11 +621,18 @@ def _build_period_detail(month, year):
                 if ach_curr and ach_curr.achievement_pct is not None else None
             ),
             "policies_count": len(policy_blocks),
+            "nao_apuradas_count": len(nao_apurada_blocks),
             "nf_count": sum(len(b["nfs"]) for b in policy_blocks),
+            "nf_liquido_total": float(
+                sum(b["nf_liquido_total"] for b in policy_blocks)
+            ),
             "total_commission": float(
                 sum(c.total_actual or Decimal("0") for c in ev_commissions)
             ),
-            "policies": sorted(policy_blocks, key=lambda b: b["client_name"] or ""),
+            "policies": sorted(
+                policy_blocks + nao_apurada_blocks,
+                key=lambda b: b["client_name"] or "",
+            ),
         })
     ev_summary.sort(key=lambda s: s["ev_name"])
 
@@ -604,6 +683,7 @@ def _build_period_detail(month, year):
 
     totals = {
         "total_commission": sum(s["total_commission"] for s in ev_summary),
+        "nf_liquido_total": float(sum(s["nf_liquido_total"] for s in ev_summary)),
         "ev_count": len(ev_summary),
         "left_company_ev_count": sum(
             1 for s in ev_summary if s.get("ev_left_company")
