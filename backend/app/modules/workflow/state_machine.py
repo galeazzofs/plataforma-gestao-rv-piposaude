@@ -392,6 +392,29 @@ def _required_lider_ids_for_appraisal(appraisal: Appraisal) -> set:
     return {team.leader_id for team in teams}
 
 
+def pending_required_lideres(appraisal: Appraisal):
+    """Required sales leaders who still haven't validated own for this
+    appraisal's quarter — i.e. the ones blocking the auto-advance out of
+    VALIDATING. Returns a list of (lider_id, LiderVendasQuarterAppraisal|None);
+    empty when no leader gate applies or every required leader validated own.
+
+    Mirrors the gate in maybe_auto_advance_appraisal_after_validation so the
+    review UI can show *why* a fully-validated appraisal hasn't advanced.
+    """
+    required = _required_lider_ids_for_appraisal(appraisal)
+    if not required:
+        return []
+    quarter = (appraisal.month - 1) // 3 + 1
+    pending = []
+    for lider_id in required:
+        own = LiderVendasQuarterAppraisal.query.filter_by(
+            lider_vendas_id=lider_id, quarter=quarter, year=appraisal.year,
+        ).first()
+        if own is None or own.status not in _LIDER_VALIDATED_OWN:
+            pending.append((lider_id, own))
+    return pending
+
+
 def _ensure_ev_validations_for_appraisal(appraisal: Appraisal) -> int:
     """Create one EvValidation per commissioned policy in this apuracao.
 

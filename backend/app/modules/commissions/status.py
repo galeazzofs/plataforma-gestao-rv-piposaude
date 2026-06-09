@@ -26,9 +26,11 @@ def update_policy_statuses(policies, earliest_nf_dates=None):
         if policy.first_payment_real is None and policy.id in earliest_nf_dates:
             policy.first_payment_real = earliest_nf_dates[policy.id]
 
-        # Transition logic
-        if policy.installments_paid >= 12 and policy.first_payment_real is not None:
+        # Transition logic — count-based only. first_payment_real (Início
+        # vigência) is unreliable and must NOT gate the transition; the
+        # paid-month count alone decides the status.
+        if policy.installments_paid >= 12:
             policy.commission_status = CommissionStatus.SETTLED
-        elif policy.first_payment_real is not None and policy.installments_paid > 0:
+        elif policy.installments_paid > 0:
             policy.commission_status = CommissionStatus.IN_PAYMENT
         # else: stays PROJECTED

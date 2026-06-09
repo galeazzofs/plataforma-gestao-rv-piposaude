@@ -27,6 +27,11 @@
    (get-in db [:lider-vendas :appraisals] [])))
 
 (rf/reg-sub
+ :lider-vendas/team-appraisal
+ (fn [db _]
+   (get-in db [:lider-vendas :team-appraisal])))
+
+(rf/reg-sub
  :lider-vendas/appraisals-loading?
  (fn [db _]
    (get-in db [:lider-vendas :appraisals-loading?])))

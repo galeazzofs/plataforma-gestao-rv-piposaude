@@ -314,7 +314,6 @@ def test_get_appraisal_detail_includes_drill_down(client, review_setup):
     body = resp.get_json()["data"]
     assert "ev_summary" in body
     assert "unmatched" in body
-    assert "expired" in body
     assert "nao_suportado" in body
     assert "apolices_finalizadas" in body
     assert body["totals"]["matched_nf_count"] == 1

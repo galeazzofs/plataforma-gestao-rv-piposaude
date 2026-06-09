@@ -394,6 +394,32 @@
            :on-success [:revops/fetch-appraisals]
            :on-failure [:revops/appraisals-error]}}))
 
+;; State-aware advance actions for the review page header.
+(rf/reg-event-fx
+ :revops/advance-to-revops
+ (fn [_ [_ id]]
+   {:http {:method     :post
+           :url        (str "/appraisals/" id "/transition")
+           :body       {:to "REVOPS_REVIEW"}
+           :on-success [:revops/appraisal-advanced id "Enviado para revisão do RevOps."]
+           :on-failure [:revops/appraisals-error]}}))
+
+(rf/reg-event-fx
+ :revops/lock-appraisal
+ (fn [_ [_ id]]
+   {:http {:method     :post
+           :url        (str "/appraisals/" id "/transition")
+           :body       {:to "LOCKED"}
+           :on-success [:revops/appraisal-advanced id "Apuração fechada e pagamento liberado."]
+           :on-failure [:revops/appraisals-error]}}))
+
+(rf/reg-event-fx
+ :revops/appraisal-advanced
+ (fn [_ [_ id msg _resp]]
+   {:dispatch-n [[:revops/fetch-appraisal-detail id]
+                 [:revops/fetch-appraisals]
+                 [:ui/show-toast {:type :success :message msg}]]}))
+
 (rf/reg-event-fx
  :revops/delete-appraisal
  (fn [_ [_ id]]

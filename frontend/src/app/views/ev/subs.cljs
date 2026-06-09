@@ -43,6 +43,16 @@
    (get-in db [:validations :items])))
 
 (rf/reg-sub
+ :ev/validations-in-flight
+ (fn [db _]
+   (get-in db [:validations :in-flight] #{})))
+
+(rf/reg-sub
+ :ev/validations-loading?
+ (fn [db _]
+   (get-in db [:validations :loading?])))
+
+(rf/reg-sub
  :ev/loading?
  (fn [db _]
    (get-in db [:commissions :loading?])))

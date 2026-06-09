@@ -30,6 +30,50 @@
     "LOCKED" [:span.badge.badge-locked "Fechado"]
     [:span.badge.badge-locked (or status "Sem ciclo")]))
 
+(defn- status-label [status]
+  (case status
+    "VALIDATING"    "Em validação dos EVs"
+    "LIDER_REVIEW"  "Em revisão do líder"
+    "REVOPS_REVIEW" "Com o RevOps"
+    "LOCKED"        "Fechada"
+    (or status "·")))
+
+(defn- appraisal-approval-card
+  "Líder's 'Aprovar apuração' card: shows the team's current apuração, the
+  EV-approval progress, and the button that sends it to RevOps."
+  [ta]
+  (when ta
+    (let [{:keys [id status month year team_total team_approved team_pending
+                  all_team_approved can_approve has_contestation]} ta]
+      [:div.card
+       [:div.card-head
+        [:div
+         [:h3 (str "Apuração " (when month (str month "/")) year)]
+         [:div.card-sub "Aprove a apuração do seu time e envie para o RevOps"]]
+        [status-badge status]]
+       [:div {:style {:display "flex" :align-items "center" :justify-content "space-between"
+                      :gap "16px" :flex-wrap "wrap" :margin-top "12px"}}
+        [:div {:style {:font-family "var(--font-mono)" :font-size "13px" :color "var(--fg-2)"}}
+         [:strong (str team_approved "/" team_total)] " EVs do time aprovaram"
+         [:span.muted {:style {:margin-left "10px"}} (status-label status)]]
+        (cond
+          can_approve
+          [:button.btn.btn-primary
+           {:on-click #(rf/dispatch [:lider-vendas/approve-team-appraisal id])}
+           [layout/icon "check" {:width 14 :height 14}] "Aprovar apuração e enviar ao RevOps"]
+
+          has_contestation
+          [:span.badge.badge-contested "Contestação aberta — resolva antes"]
+
+          (and (= status "VALIDATING") (not all_team_approved))
+          [:span.muted (str "Aguardando " team_pending " EV(s) aprovar(em)")]
+
+          (#{"REVOPS_REVIEW" "LOCKED"} status)
+          [:span.muted "Já enviada ao RevOps"]
+
+          :else
+          [:span.muted "Sem ação no momento"])]])))
+
 (defn- leadership-row [row]
   (let [status (:status row)
         validating? (= status "VALIDATING")]
@@ -68,9 +112,11 @@
 (defn lider-vendas-dashboard-page []
   (rf/dispatch [:lider-vendas/fetch-team])
   (rf/dispatch [:lider-vendas/fetch-appraisals])
+  (rf/dispatch [:lider-vendas/fetch-team-appraisal])
   (fn []
     (let [members    @(rf/subscribe [:lider-vendas/team-members])
           appraisals @(rf/subscribe [:lider-vendas/appraisals])
+          team-appraisal @(rf/subscribe [:lider-vendas/team-appraisal])
           user       @(rf/subscribe [:auth/current-user])
           route      @(rf/subscribe [:current-route-name])
           rows       (or members [])
@@ -106,6 +152,8 @@
          [:div.kpi-label [layout/icon "alert" {:width 14 :height 14}] "minhas aprovacoes"]
          [:div.kpi-value (str pending-count)]
          [:div.kpi-foot (when (pos? pending-count) "aguardando sua acao")]]]
+
+       [appraisal-approval-card team-appraisal]
 
        (when (seq approvals)
          [:div.card {:style {:padding 0}}
