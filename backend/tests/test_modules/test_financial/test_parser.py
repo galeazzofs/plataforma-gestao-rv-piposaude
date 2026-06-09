@@ -8,6 +8,8 @@ import pytest
 from datetime import date
 from pathlib import Path
 
+from openpyxl import Workbook
+
 from app.modules.financial.parser import parse_financial_xlsx, ParseError
 
 FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
@@ -58,6 +60,47 @@ def test_synthetic_keeps_mental_product():
     result = parse_financial_xlsx(str(SYNTHETIC), 2026)
     produtos = [r['produto'] for r in result['rows']]
     assert 'Mental' in produtos
+
+
+def test_keeps_non_commissionable_revenue_for_calculator_review(tmp_path):
+    """Parser should NOT filter Receita nao comissionavel.
+
+    The calculator owns the classification so it can mark the row as
+    RECEITA_NAO_COMISSIONAVEL and the review payload can expose it.
+    """
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "Cliente Mae",
+        "Operadora",
+        "Produto",
+        "Numero Apolice",
+        "NF Liquido",
+        "Data Recebimento",
+        "Mes Recebimento",
+        "Status Recebimento",
+        "Tipo Receita",
+    ])
+    sheet.append([
+        "Cliente Teste",
+        "Operadora",
+        "Saude",
+        "AP-001",
+        1000,
+        date(2026, 4, 15),
+        "2026-04",
+        "RECEBIDO",
+        "Patrocinio",
+    ])
+    path = tmp_path / "non-commissionable.xlsx"
+    workbook.save(path)
+    workbook.close()
+
+    result = parse_financial_xlsx(str(path), 2026)
+
+    assert result["stats"]["descartadas_tipo_receita"] == 0
+    assert result["stats"]["persistidas"] == 1
+    assert result["rows"][0]["tipo_receita"] == "Patrocinio"
 
 
 def test_synthetic_drops_other_years():

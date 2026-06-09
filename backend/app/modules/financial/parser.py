@@ -107,8 +107,9 @@ def parse_financial_xlsx(filepath, target_year):
       - cliente_mae or nf_valor_liquido empty → drop
       - data_recebimento year != target_year → drop
 
-    Rows with unsupported products (Mental, Fitness) and Odonto/Vida/Saúde
-    all PASS the parser. The calculator decides later.
+    Rows with unsupported products (Mental, Fitness), Odonto/Vida/Saúde, and
+    non-commissionable revenue types all PASS the parser. The calculator
+    decides later.
 
     Returns:
         {
@@ -171,12 +172,6 @@ def parse_financial_xlsx(filepath, target_year):
 
         if data_rec.year != target_year:
             stats['descartadas_periodo'] += 1
-            continue
-
-        # Only keep Comissão and Agenciamento revenue types (skip Premiação etc.)
-        tipo = _normalize_header(cell(r, 'tipo_receita') or '')
-        if tipo and tipo not in ('comissao', 'agenciamento'):
-            stats['descartadas_tipo_receita'] += 1
             continue
 
         # ALWAYS derive YYYY-MM from data_recebimento. The XLSX's
