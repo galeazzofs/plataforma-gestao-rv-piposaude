@@ -7,6 +7,7 @@ from app.auth.decorators import require_auth, require_role
 from app.models import (
     Appraisal, AppraisalStatus, UserRole, CommissionStatus,
     Commission, EvQuarterAchievement, FinancialImport, Policy, User,
+    EvValidation, ValidationStatus,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
@@ -14,6 +15,7 @@ from app.modules.policies.filters import ev_policies_query
 from app.modules.workflow.state_machine import (
     start_appraisal,
     transition_appraisal,
+    pending_required_lideres,
     InvalidTransitionError,
 )
 from app.modules.commissions.calculator import MissingAchievementsError
@@ -160,6 +162,10 @@ def delete_appraisal(appraisal_id):
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
 
     month, year = appraisal.month, appraisal.year
+
+    # Drop the EV validations first — they FK appraisal_id with no cascade, so
+    # the appraisal can't be deleted while any exist (i.e. once released).
+    EvValidation.query.filter_by(appraisal_id=appraisal.id).delete()
 
     # Delete ALL commissions for this month (including is_final when LOCKED)
     Commission.query.filter_by(month=month, year=year).delete()
@@ -452,8 +458,73 @@ def _serialize_appraisal(appraisal, detail=False):
 
 
 def _build_appraisal_detail(appraisal):
-    """Build the rich review payload for an appraisal, keyed on its period."""
-    return _build_period_detail(appraisal.month, appraisal.year)
+    """Build the rich review payload for an appraisal, keyed on its period,
+    then layer on the EV validation status (who approved / who is still
+    pending / who contested) so the review screen can show approval progress.
+    Only persisted appraisals carry this — the read-only preview, which calls
+    _build_period_detail directly, has no validations."""
+    detail = _build_period_detail(appraisal.month, appraisal.year)
+    _attach_validation_status(appraisal, detail)
+    _attach_lider_gate(appraisal, detail)
+    return detail
+
+
+def _attach_lider_gate(appraisal, detail):
+    """Surface the leader gate: which required líderes still haven't validated
+    own for the quarter and are therefore blocking the advance out of
+    VALIDATING, even when every EV validation is already approved."""
+    quarter = (appraisal.month - 1) // 3 + 1
+    leaders = []
+    for lider_id, own in pending_required_lideres(appraisal):
+        u = db.session.get(User, lider_id)
+        leaders.append({
+            "id": str(lider_id),
+            "name": u.name if u else "—",
+            "has_appraisal": own is not None,
+            "own_status": (
+                own.status.value
+                if own is not None and hasattr(own.status, "value") else None
+            ),
+        })
+    detail["lider_gate"] = {
+        "quarter": quarter,
+        "year": appraisal.year,
+        "blocked": len(leaders) > 0,
+        "pending_leaders": leaders,
+    }
+
+
+def _validation_counts(validations):
+    """Roll a list of EvValidation rows into a status breakdown."""
+    counts = {
+        "total": len(validations), "pending": 0, "approved": 0,
+        "auto_approved": 0, "contested": 0, "resolved": 0,
+    }
+    for v in validations:
+        key = v.status.value.lower()
+        counts[key] = counts.get(key, 0) + 1
+    done = counts["approved"] + counts["auto_approved"] + counts["resolved"]
+    counts["done"] = done
+    counts["all_done"] = counts["total"] > 0 and done == counts["total"]
+    return counts
+
+
+def _attach_validation_status(appraisal, detail):
+    """Annotate each EV (and each apurada policy) in the detail payload with
+    its validation status for this appraisal, plus a top-level summary."""
+    validations = EvValidation.query.filter_by(appraisal_id=appraisal.id).all()
+    by_ev = defaultdict(list)
+    by_policy = {}
+    for v in validations:
+        by_ev[str(v.ev_id)].append(v)
+        by_policy[(str(v.ev_id), str(v.policy_id))] = v.status.value
+
+    for ev in detail.get("ev_summary", []):
+        ev["validation_status"] = _validation_counts(by_ev.get(ev["ev_id"], []))
+        for p in ev.get("policies", []):
+            p["validation_status"] = by_policy.get((ev["ev_id"], p["policy_id"]))
+
+    detail["validation_totals"] = _validation_counts(validations)
 
 
 def _build_period_detail(month, year):
@@ -530,8 +601,6 @@ def _build_period_detail(month, year):
         statuses = month_nf_status.get(p.id, set())
         if 'APOLICE_FINALIZADA' in statuses:
             return "Ciclo 12/12 completo"
-        if 'EXPIRED' in statuses or 'PRE_VIGENCIA' in statuses:
-            return "NF fora de vigência no mês"
         if 'PRODUTO_NAO_SUPORTADO' in statuses:
             return "Produto não suportado"
         if statuses:
@@ -545,6 +614,10 @@ def _build_period_detail(month, year):
             "operadora": p.partner_operator,
             "produto": p.benefit_type.value if p.benefit_type else None,
             "segment": p.segment.value if p.segment else None,
+            # The 12-month clock is count-based — surface the paid-month count
+            # as the authoritative value. first_payment_real (Início vigência)
+            # is advisory only and is NOT used by the calculation.
+            "installments_paid": p.installments_paid or 0,
             "first_payment_real": (
                 p.first_payment_real.isoformat() if p.first_payment_real else None
             ),
@@ -665,13 +738,6 @@ def _build_period_detail(month, year):
             month=month, year=year, match_status='UNMATCHED',
         ).all()
     ]
-    expired = [
-        _serialize_nf(n) for n in FinancialImport.query.filter(
-            FinancialImport.month == month,
-            FinancialImport.year == year,
-            FinancialImport.match_status.in_(['EXPIRED', 'PRE_VIGENCIA']),
-        ).all()
-    ]
     nao_suportado = [
         _serialize_nf(n) for n in FinancialImport.query.filter_by(
             month=month, year=year, match_status='PRODUTO_NAO_SUPORTADO',
@@ -691,7 +757,6 @@ def _build_period_detail(month, year):
         "policy_count": sum(s["policies_count"] for s in ev_summary),
         "matched_nf_count": sum(s["nf_count"] for s in ev_summary),
         "unmatched_count": len(unmatched),
-        "expired_count": len(expired),
         "nao_suportado_count": len(nao_suportado),
         "apolices_finalizadas_count": len(apolices_finalizadas),
     }
@@ -700,7 +765,6 @@ def _build_period_detail(month, year):
         "totals": totals,
         "ev_summary": ev_summary,
         "unmatched": unmatched,
-        "expired": expired,
         "nao_suportado": nao_suportado,
         "apolices_finalizadas": apolices_finalizadas,
         "missing_achievements": missing_achievements,

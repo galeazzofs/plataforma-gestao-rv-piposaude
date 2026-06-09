@@ -94,12 +94,61 @@
                         "badge-review"))}
    (match-status-label status)])
 
+;; ── EV validation status (who approved / who's pending) ───
+
+(defn- validation-status-badge
+  "Per-policy EV-validation status badge."
+  [status]
+  (case status
+    "PENDING"       [:span.badge.badge-pending "Pendente EV"]
+    "APPROVED"      [:span.badge.badge-approved "Aprovada EV"]
+    "AUTO_APPROVED" [:span.badge.badge-approved "Auto-aprovada"]
+    "CONTESTED"     [:span.badge.badge-contested "Contestada"]
+    "RESOLVED"      [:span.badge.badge-approved "Resolvida"]
+    nil))
+
+(defn- validation-ev-badge
+  "Per-EV approval-progress badge for the Por EV header."
+  [vs]
+  (when (and vs (pos? (or (:total vs) 0)))
+    (cond
+      (pos? (or (:contested vs) 0))
+      [:span.badge.badge-contested
+       (str (:contested vs) " contestada" (when (> (:contested vs) 1) "s"))]
+      (:all_done vs)
+      [:span.badge.badge-approved "✓ aprovado"]
+      :else
+      [:span.badge.badge-pending
+       (str (:done vs) "/" (:total vs) " aprovadas")])))
+
+(defn- lider-gate-callout
+  "Shown when a fully-or-partly validated appraisal is held in VALIDATING
+  because a required líder hasn't validated their own quarterly appraisal —
+  the otherwise-invisible second gate on the advance."
+  [appraisal]
+  (let [gate (:lider_gate appraisal)]
+    (when (and gate (:blocked gate)
+               (contains? #{"CALCULATING" "VALIDATING"} (:status appraisal)))
+      [:div.callout.-warning
+       [layout/icon "clock" {:width 20 :height 20}]
+       [:div.appraisal-callout-body
+        [:strong "Aguardando validação da liderança"]
+        [:div.appraisal-callout-text
+         "Mesmo com os EVs validados, a apuração só avança quando cada líder "
+         "responsável valida a própria apuração de liderança do trimestre "
+         (str "(Q" (:quarter gate) "/" (:year gate) "). Pendentes:")]
+        [:div.appraisal-callout-meta
+         (str/join " · "
+                   (for [l (:pending_leaders gate)]
+                     (if (:has_appraisal l)
+                       (str (:name l) " — " (or (:own_status l) "pendente"))
+                       (str (:name l) " — sem apuração de liderança criada"))))]]])))
+
 (defn period-empty?
   "True when the period has no imported NFs of any match status."
   [totals]
   (zero? (+ (or (:matched_nf_count totals) 0)
             (or (:unmatched_count totals) 0)
-            (or (:expired_count totals) 0)
             (or (:nao_suportado_count totals) 0)
             (or (:apolices_finalizadas_count totals) 0))))
 
@@ -122,7 +171,7 @@
                    (str (month-label (:month p) (:year p))
                         " (" (:nf_count p) " NFs)")))]]]))
 
-;; ── NF table for unmatched/expired/nao-suportado ──
+;; ── NF table for unmatched/nao-suportado ──
 
 (defn nf-table [rows]
   (let [show-finalizada-mes? (boolean (some :apolice_finalizada_mes rows))
@@ -194,7 +243,9 @@
            [:div.appraisal-policy-title
             [:strong (or (:client_name policy) "·")]
             (when-not apurada?
-              [:span.badge.badge-locked "Não apurada"])]
+              [:span.badge.badge-locked "Não apurada"])
+            (when apurada?
+              [validation-status-badge (:validation_status policy)])]
            [:span.appraisal-policy-meta
             (str (or (:operadora policy) "·") " · "
                  (or (:produto policy) "·") " · "
@@ -208,7 +259,9 @@
          (when @open?
            [:div.appraisal-policy-detail
             [:div.appraisal-policy-facts
-             [:div "Início vigência: " (or (:first_payment_real policy) "·")]
+             [:div "Meses pagos: " (str (or (:installments_paid policy) 0) "/12")]
+             [:div.muted "Início vigência (ref. HubSpot, não usada no cálculo): "
+              (or (:first_payment_real policy) "·")]
              [:div "Gongo: " (or (:closed_date policy) "·")]
              (when apurada?
                [:div "Atingimento: " (str (or (fmt-pct (:achievement_used_pct policy)) "·") "%")])
@@ -270,7 +323,8 @@
             (:ev_name ev)
             (when (:ev_left_company ev)
               [:span.badge.badge-review
-               "Saiu"])]
+               "Saiu"])
+            [validation-ev-badge (:validation_status ev)]]
            [:div.appraisal-ev-meta
             (str (:policies_count ev) " apuradas · "
                  (when (pos? nao-count) (str nao-count " não apuradas · "))
@@ -353,7 +407,7 @@
    [:span.appraisal-brief-label label]
    [:strong value]])
 
-(defn- review-brief [appraisal totals unmatched expired finalizadas nao-sup]
+(defn- review-brief [appraisal totals unmatched finalizadas nao-sup]
   [:div.card.appraisal-review-brief
    [:div.appraisal-brief-main
     [:div.appraisal-brief-label "competência mensal"]
@@ -367,11 +421,17 @@
     [brief-item {:label "não matcheadas"
                  :value (str (count unmatched))
                  :tone :danger}]
-    [brief-item {:label "fora de vigência"
-                 :value (str (count expired))
-                 :tone :warning}]
     [brief-item {:label "finalizadas / não suportado"
-                 :value (str (+ (count finalizadas) (count nao-sup)))}]]])
+                 :value (str (+ (count finalizadas) (count nao-sup)))}]
+    (let [vt (:validation_totals appraisal)]
+      (when (and vt (pos? (or (:total vt) 0)))
+        [brief-item {:label "validações aprovadas"
+                     :value (str (:done vt) "/" (:total vt)
+                                 (when (pos? (or (:pending vt) 0))
+                                   (str " · " (:pending vt) " pend.")))
+                     :tone (cond (pos? (or (:contested vt) 0)) :danger
+                                 (:all_done vt) :success
+                                 :else nil)}]))]])
 
 ;; ── Contestation panel (issue #36) ────────────────────────
 
@@ -475,7 +535,6 @@
                                      (or appraisals [])))
             ev-summary (or (:ev_summary appraisal) [])
             unmatched  (or (:unmatched appraisal) [])
-            expired    (or (:expired appraisal) [])
             nao-sup    (or (:nao_suportado appraisal) [])
             apolices-finalizadas (or (:apolices_finalizadas appraisal) [])
             totals     (or (:totals appraisal) {})
@@ -489,15 +548,32 @@
                       (str "Competência mensal · " (status-label (:status appraisal)))
                       "Competência mensal")
           :header-actions
-          [[:button.btn.btn-secondary
-            {:on-click #(rf/dispatch [:navigate :revops/appraisal])}
-            "← Voltar"]
-           [:button.btn.btn-secondary
-            {:on-click #(rf/dispatch [:revops/recalculate-appraisal appraisal-id])}
-            [layout/icon "refresh" {:width 14 :height 14}] "Recalcular"]
-           [:button.btn.btn-primary
-            {:on-click #(rf/dispatch [:revops/release-to-validation appraisal-id])}
-            [layout/icon "check" {:width 14 :height 14}] "Liberar para EVs"]]}
+          ;; State-aware: each status shows only the actions that make sense
+          ;; there, so REVOPS_REVIEW gets a "Fechar apuração" and never the
+          ;; stale "Liberar para EVs".
+          (let [st (:status appraisal)]
+            (cond-> [[:button.btn.btn-secondary
+                      {:on-click #(rf/dispatch [:navigate :revops/appraisal])}
+                      "← Voltar"]]
+              (contains? #{"CALCULATING" "VALIDATING" "LIDER_REVIEW" "REVOPS_REVIEW"} st)
+              (conj [:button.btn.btn-secondary
+                     {:on-click #(rf/dispatch [:revops/recalculate-appraisal appraisal-id])}
+                     [layout/icon "refresh" {:width 14 :height 14}] "Recalcular"])
+
+              (= st "CALCULATING")
+              (conj [:button.btn.btn-primary
+                     {:on-click #(rf/dispatch [:revops/release-to-validation appraisal-id])}
+                     [layout/icon "check" {:width 14 :height 14}] "Liberar para EVs"])
+
+              (= st "LIDER_REVIEW")
+              (conj [:button.btn.btn-primary
+                     {:on-click #(rf/dispatch [:revops/advance-to-revops appraisal-id])}
+                     [layout/icon "check" {:width 14 :height 14}] "Avançar para RevOps"])
+
+              (= st "REVOPS_REVIEW")
+              (conj [:button.btn.btn-primary
+                     {:on-click #(rf/dispatch [:revops/lock-appraisal appraisal-id])}
+                     [layout/icon "lock" {:width 14 :height 14}] "Fechar apuração"])))}
 
          ;; Contestation panel (issue #36)
          [contestation-panel appraisal user]
@@ -519,7 +595,10 @@
              [:div.appraisal-callout-meta
               (str/join " · " missing)]]])
 
-         [review-brief appraisal totals unmatched expired apolices-finalizadas nao-sup]
+         ;; Travada esperando a liderança validar own (segundo gate, invisível)
+         [lider-gate-callout appraisal]
+
+         [review-brief appraisal totals unmatched apolices-finalizadas nao-sup]
 
          ;; KPIs row
          [:div.kpi-grid.appraisal-review-kpis
@@ -555,7 +634,6 @@
             {:role "tablist" :aria-label "Visões de apuração"}
             [tab-button active-tab :por-ev "Por EV" (count ev-summary) :neutral]
             [tab-button active-tab :unmatched "Não matcheadas" (count unmatched) :danger]
-            [tab-button active-tab :expired "Fora de vigência" (count expired) :warning]
             [tab-button active-tab :apolices-finalizadas "Apólices finalizadas" (count apolices-finalizadas) :success]
             [tab-button active-tab :nao-sup "Não suportado" (count nao-sup) :neutral]]]
           [:div.appraisal-review-content
@@ -565,10 +643,6 @@
                          [:div.appraisal-table-toolbar
                           [export-csv-button unmatched "nao-matcheadas.csv"]]
                          [nf-table unmatched]]
-             :expired   [:<>
-                         [:div.appraisal-table-toolbar
-                          [export-csv-button expired "fora-vigencia.csv"]]
-                         [nf-table expired]]
              :apolices-finalizadas [:<>
                                      [:div.appraisal-table-toolbar
                                       [export-csv-button apolices-finalizadas "apolices-finalizadas.csv"]]

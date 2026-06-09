@@ -278,9 +278,13 @@ def _set_nf_status(nf, status, policy_id=None, matched=False):
 def _sync_policy_status(policy):
     if policy.commission_status == CommissionStatus.CANCELLED:
         return
-    if policy.installments_paid >= 12 and policy.first_payment_real is not None:
+    # Count-based only: the 12-month clock alone decides status.
+    # first_payment_real (Início vigência) is unreliable and must NOT gate the
+    # transition — a policy with paid months but a missing/future vigência
+    # still derives its status from installments_paid.
+    if policy.installments_paid >= 12:
         policy.commission_status = CommissionStatus.SETTLED
-    elif policy.first_payment_real is not None and policy.installments_paid > 0:
+    elif policy.installments_paid > 0:
         policy.commission_status = CommissionStatus.IN_PAYMENT
 
 
@@ -578,12 +582,6 @@ def _build_summary(month, year):
             ).count(),
             "unmatched_count": FinancialImport.query.filter_by(
                 month=month, year=year, match_status='UNMATCHED'
-            ).count(),
-            "expired_count": FinancialImport.query.filter_by(
-                month=month, year=year, match_status='EXPIRED'
-            ).count(),
-            "pre_vigencia_count": FinancialImport.query.filter_by(
-                month=month, year=year, match_status='PRE_VIGENCIA'
             ).count(),
             "produto_nao_suportado_count": FinancialImport.query.filter_by(
                 month=month, year=year, match_status='PRODUTO_NAO_SUPORTADO'

@@ -270,6 +270,28 @@ def test_current_ev_cannot_skip_lider_review_when_team_has_leader(db_session):
         transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)
 
 
+def test_pending_required_lideres_powers_the_gate_callout(db_session):
+    """The helper behind the review-screen leader-gate callout: a required
+    líder with no validated-own row shows up as pending (with own=None), and
+    the list clears once they validate own."""
+    from app.modules.workflow.state_machine import pending_required_lideres
+    admin = _user(UserRole.ADMIN, "AdminGate")
+    lider = _user(UserRole.LIDER_VENDAS, "LdrGate")
+    _team("TeamGate", lider)
+    ev = _user(UserRole.EV, "EvGate", team_id=lider.team_id)
+    appraisal = _appraisal(2, 2044, AppraisalStatus.VALIDATING, admin)
+    _ev_validation(appraisal, ev, ValidationStatus.APPROVED)
+
+    # No leadership appraisal yet → the líder blocks the advance and is listed.
+    pending = pending_required_lideres(appraisal)
+    assert [lid for lid, _own in pending] == [lider.id]
+    assert pending[0][1] is None  # no LiderVendasQuarterAppraisal row exists
+
+    # Once the líder validates own (month 2 → gongo quarter 1), the gate clears.
+    _lider_appraisal(lider, 1, 2044, AppraisalStatus.LIDER_REVIEW)
+    assert pending_required_lideres(appraisal) == []
+
+
 def test_auto_advance_departed_ev_only_goes_to_revops_review(db_session):
     admin = _user(UserRole.ADMIN, "AdminE")
     ev = _user(UserRole.EV, "EvE")

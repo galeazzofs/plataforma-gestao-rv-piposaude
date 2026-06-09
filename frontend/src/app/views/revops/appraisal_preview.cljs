@@ -123,7 +123,6 @@
 (defn- result-view [result active-tab]
   (let [ev-summary  (or (:ev_summary result) [])
         unmatched   (or (:unmatched result) [])
-        expired     (or (:expired result) [])
         nao-sup     (or (:nao_suportado result) [])
         finalizadas (or (:apolices_finalizadas result) [])
         missing     (or (:missing_achievements result) [])
@@ -159,14 +158,12 @@
        [:div.tabs {:role "tablist" :aria-label "Visões da prévia"}
         [tab-button active-tab :por-ev "Por EV" (count ev-summary) :neutral]
         [tab-button active-tab :unmatched "Não matcheadas" (count unmatched) :danger]
-        [tab-button active-tab :expired "Fora de vigência" (count expired) :warning]
         [tab-button active-tab :finalizadas "Apólices finalizadas" (count finalizadas) :success]
         [tab-button active-tab :nao-sup "Não suportado" (count nao-sup) :neutral]]]
       [:div {:style {:padding "20px 24px"}}
        (case @active-tab
          :por-ev      [review/por-ev-tab ev-summary]
          :unmatched   [review/nf-table unmatched]
-         :expired     [review/nf-table expired]
          :finalizadas [review/nf-table finalizadas]
          :nao-sup     [review/nf-table nao-sup])]]]))
 

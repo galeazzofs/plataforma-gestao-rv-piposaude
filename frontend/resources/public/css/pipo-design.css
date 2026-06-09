@@ -223,6 +223,7 @@ main:focus{outline:none}
 .btn-ghost:hover{background:var(--bg-2)}
 .btn-danger{background:var(--danger-lightest);color:var(--danger-text);border-color:var(--danger-light)}
 .btn-sm{padding:6px 11px;font-size:12px}
+.btn:disabled,.btn[disabled]{opacity:.5;cursor:not-allowed;box-shadow:none!important}
 
 /* ============ Content ============ */
 .page{padding:28px 32px 80px;display:flex;flex-direction:column;gap:24px;max-width:1480px}
@@ -478,6 +479,24 @@ main:focus{outline:none}
   font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--fg-1);
   white-space:nowrap;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
 }
+
+/* EV · Validação — click-to-expand apólice rows */
+.ev-val-summary{cursor:pointer;transition:background var(--d) var(--ease)}
+.ev-val-summary:hover{background:var(--bg-2)}
+.ev-val-summary.is-open{background:var(--bg-2)}
+.ev-val-caret{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;margin-right:8px;vertical-align:middle;
+  background:transparent;border:0;border-radius:var(--r-sm);cursor:pointer;
+  color:var(--fg-3);transition:transform var(--d) var(--ease),background var(--d) var(--ease);
+}
+.ev-val-caret:hover{background:var(--bg-3,var(--bg-2));color:var(--fg-1)}
+.ev-val-summary.is-open .ev-val-caret{transform:rotate(90deg);color:var(--fg-1)}
+/* Scoped under .ev-val-table tbody so padding:0 outweighs `.table tbody td`. */
+.ev-val-table tbody .ev-val-detail-row>td{background:var(--bg-2);padding:0}
+.ev-val-detail{padding:2px 18px 16px}
+.ev-val-detail .appraisal-policy-table{background:var(--bg-1);border-radius:var(--r-sm);overflow:hidden}
+.ev-val-actions{display:inline-flex;gap:8px;justify-content:flex-end}
 
 /* Bar in cell */
 .bar{

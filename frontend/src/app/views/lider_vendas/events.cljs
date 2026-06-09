@@ -47,6 +47,48 @@
    (assoc-in db [:admin :ev-detail-loading?] false)))
 
 (rf/reg-event-fx
+ :lider-vendas/fetch-team-appraisal
+ (fn [_ _]
+   {:http {:method     :get
+           :url        "/lider-vendas/appraisal"
+           :on-success [:lider-vendas/team-appraisal-loaded]
+           :on-failure [:lider-vendas/team-appraisal-error]}}))
+
+(rf/reg-event-db
+ :lider-vendas/team-appraisal-loaded
+ (fn [db [_ response]]
+   (assoc-in db [:lider-vendas :team-appraisal] (:data response))))
+
+(rf/reg-event-db
+ :lider-vendas/team-appraisal-error
+ (fn [db _]
+   (assoc-in db [:lider-vendas :team-appraisal] nil)))
+
+(rf/reg-event-fx
+ :lider-vendas/approve-team-appraisal
+ (fn [_ [_ appraisal-id]]
+   {:http {:method     :post
+           :url        (str "/lider-vendas/appraisal/" appraisal-id "/approve")
+           :on-success [:lider-vendas/team-appraisal-action-ok]
+           :on-failure [:lider-vendas/team-appraisal-action-err]}}))
+
+(rf/reg-event-fx
+ :lider-vendas/team-appraisal-action-ok
+ (fn [_ _]
+   {:dispatch-n [[:lider-vendas/fetch-team-appraisal]
+                 [:lider-vendas/fetch-team]
+                 [:ui/show-toast {:type :success
+                                  :message "Apuração aprovada e enviada para o RevOps."}]]}))
+
+(rf/reg-event-fx
+ :lider-vendas/team-appraisal-action-err
+ (fn [_ [_ response]]
+   (let [msg (or (get-in response [:response :error :message])
+                 (get-in response [:error :message])
+                 "Erro ao aprovar a apuração.")]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))
+
+(rf/reg-event-fx
  :lider-vendas/fetch-appraisals
  (fn [{:keys [db]} _]
    {:db   (assoc-in db [:lider-vendas :appraisals-loading?] true)

@@ -31,7 +31,7 @@ DEV_BATCH_FILENAME = "dev_e2e_apuracao_2026_04.xlsx"
 USER_EMAILS = {
     "admin": "eric.valoz@piposaude.com",
     "finance": "frederico.lofredo@piposaude.com",
-    "lider_pm": "felipe.valenca@piposaude.com",
+    "lider_pm": "aline.furlaneto@piposaude.com.br",
     "lider_gp": "carla.mendes@piposaude.com",
     "ev1": "joao.silva@piposaude.com",
     "ev2": "maria.santos@piposaude.com",
@@ -218,7 +218,7 @@ def ensure_dev_e2e_data():
     )
     lider_pm = _ensure_user(
         USER_EMAILS["lider_pm"],
-        "Felipe Valenca",
+        "Aline Furlaneto",
         UserRole.LIDER_VENDAS,
         team_pm,
         salario_base=Decimal("12000.00"),
@@ -339,9 +339,9 @@ def seed():
             name="Frederico Lofredo",
             role=UserRole.FINANCE,
         )
-        felipe = User(
+        lider_pm = User(
             email=USER_EMAILS["lider_pm"],
-            name="Felipe Valenca",
+            name="Aline Furlaneto",
             role=UserRole.LIDER_VENDAS,
             team_id=team_vendas_1.id,
             salario_base=Decimal("12000.00"),
@@ -385,12 +385,12 @@ def seed():
         )
 
         all_users = [
-            eric, fernando, fred, felipe, carla, ev1, ev2, ev3, cn1,
+            eric, fernando, fred, lider_pm, carla, ev1, ev2, ev3, cn1,
         ]
         db.session.add_all(all_users)
         db.session.flush()
 
-        team_vendas_1.leader_id = felipe.id
+        team_vendas_1.leader_id = lider_pm.id
         team_vendas_2.leader_id = carla.id
 
         print(f"  Created {len(all_users)} users")
