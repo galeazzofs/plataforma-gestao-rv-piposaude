@@ -10,6 +10,13 @@
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
+(defn- num [v]
+  (cond
+    (nil? v) 0
+    (number? v) v
+    (string? v) (or (js/parseFloat v) 0)
+    :else 0))
+
 (def ^:private meses-abbr
   ["Jan" "Fev" "Mar" "Abr" "Mai" "Jun" "Jul" "Ago" "Set" "Out" "Nov" "Dez"])
 
@@ -20,10 +27,14 @@
 (defn- pct-bar [pct fill-class]
   [:div.bar
    [:div {:class (str "bar-fill " fill-class)
-          :style {:width (str (min (or pct 0) 150) "%")}}]])
+          :style {:width (str (min (num pct) 150) "%")}}]])
 
 (defn- pct-class [pct]
-  (cond (>= (or pct 0) 100) "success" (>= (or pct 0) 70) "warn" :else "danger"))
+  (let [value (num pct)]
+    (cond (>= value 100) "success" (>= value 70) "warn" :else "danger")))
+
+(defn- appraisal-id [row]
+  (or (:appraisal_id row) (:id row)))
 
 (defn approval-page []
   (rf/dispatch [:finance/fetch-approval])
@@ -33,7 +44,7 @@
           user     @(rf/subscribe [:auth/current-user])
           route    @(rf/subscribe [:current-route-name])
           rows     (or items [])
-          total-pending (->> rows (map :commission_total) (filter some?) (reduce + 0))]
+          total-pending (->> rows (map :commission_total) (map num) (reduce + 0))]
       [layout/page-shell
        {:current-route route :user user
         :crumbs ["plataforma rv" "finance" "aprovação"]
@@ -43,7 +54,7 @@
         [[:button.btn.btn-primary
           {:disabled (zero? (count rows))
            :on-click #(doseq [r rows]
-                        (rf/dispatch [:finance/liberar-pagamento (:appraisal_id r)]))}
+                        (rf/dispatch [:finance/liberar-pagamento (appraisal-id r)]))}
           [layout/icon "check" {:width 14 :height 14}] "Liberar todos"]]}
 
        ;; KPI — total a liberar (real, agregado)
@@ -83,7 +94,7 @@
               ^{:key (or (:appraisal_id row) (:id row))}
               [:tr
                [:td
-                [:div.name (:ev_name row)]
+                [:div.name (or (:ev_name row) (str (or (:ev_count row) 0) " EVs"))]
                 (when (:ev_id row) [:div.muted (str "id " (:ev_id row))])]
                [:td.num (month-label (:month row) (:year row))]
                [:td.right.strong-num (str "R$ " (or (fmt-int (:commission_total row)) "·"))]
@@ -91,13 +102,13 @@
                [:td
                 [:div.cell-progress
                  [pct-bar (:achievement_pct row) (pct-class (:achievement_pct row))]
-                 [:span.pct (str (.toFixed (or (:achievement_pct row) 0) 0) "%")]]]
+                 [:span.pct (str (.toFixed (num (:achievement_pct row)) 0) "%")]]]
                [:td [:span.badge.badge-approved "Approved"]]
                [:td.right
                 [:button.btn.btn-primary.btn-sm
-                 {:on-click #(rf/dispatch [:finance/liberar-pagamento (:appraisal_id row)])}
+                 {:on-click #(rf/dispatch [:finance/liberar-pagamento (appraisal-id row)])}
                  "Liberar"]
                 " "
                 [:button.btn.btn-ghost.btn-sm
-                 {:on-click #(rf/dispatch [:finance/devolver (:appraisal_id row)])}
+                 {:on-click #(rf/dispatch [:finance/devolver (appraisal-id row)])}
                  "Devolver"]]]))]]]])))

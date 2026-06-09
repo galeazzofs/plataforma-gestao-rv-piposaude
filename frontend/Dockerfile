@@ -12,4 +12,4 @@ FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/resources/public /usr/share/nginx/html
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -q --spider http://localhost/nginx-health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -q --spider http://127.0.0.1/nginx-health || exit 1

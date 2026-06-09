@@ -106,6 +106,7 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         if deadline is None:
             deadline = (datetime.now(timezone.utc) + timedelta(days=5)).date()
         appraisal.validation_deadline = deadline
+        _ensure_ev_validations_for_appraisal(appraisal)
         _auto_approve_left_company_validations(appraisal)
 
     if new_status == AppraisalStatus.LOCKED:
@@ -389,6 +390,52 @@ def _required_lider_ids_for_appraisal(appraisal: Appraisal) -> set:
         Team.leader_id.isnot(None),
     ).all()
     return {team.leader_id for team in teams}
+
+
+def _ensure_ev_validations_for_appraisal(appraisal: Appraisal) -> int:
+    """Create one EvValidation per commissioned policy in this apuracao.
+
+    The calculator owns the Commission rows for a month. When RevOps releases
+    the appraisal to VALIDATING, those rows become the EV validation workload.
+    """
+    commission_rows = (
+        db.session.query(Commission.policy_id, Commission.ev_id)
+        .filter(
+            Commission.month == appraisal.month,
+            Commission.year == appraisal.year,
+            Commission.policy_id.isnot(None),
+            Commission.ev_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    if not commission_rows:
+        return 0
+
+    existing = {
+        (validation.policy_id, validation.ev_id)
+        for validation in EvValidation.query
+        .filter_by(appraisal_id=appraisal.id)
+        .all()
+    }
+
+    created = 0
+    for policy_id, ev_id in commission_rows:
+        key = (policy_id, ev_id)
+        if key in existing:
+            continue
+        db.session.add(EvValidation(
+            appraisal_id=appraisal.id,
+            policy_id=policy_id,
+            ev_id=ev_id,
+            status=ValidationStatus.PENDING,
+        ))
+        existing.add(key)
+        created += 1
+
+    if created:
+        db.session.flush()
+    return created
 
 
 def _auto_approve_left_company_validations(appraisal: Appraisal) -> int:

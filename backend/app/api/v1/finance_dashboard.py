@@ -36,6 +36,7 @@ from app.models import (
     CommissionStatus,
     FinancialImport,
     Policy,
+    User,
     UserRole,
 )
 from app.modules.financial.monthly_engine import (
@@ -805,21 +806,71 @@ def list_approval():
 
     return jsonify({
         "data": {
-            "items": [
-                {
-                    "id": str(a.id),
-                    "month": a.month,
-                    "year": a.year,
-                    "status": a.status.value,
-                    "validation_deadline": a.validation_deadline.isoformat() if a.validation_deadline else None,
-                    "created_at": a.created_at.isoformat() if a.created_at else None,
-                    "locked_at": a.locked_at.isoformat() if a.locked_at else None,
-                }
-                for a in items
-            ],
+            "items": [_serialize_approval_item(a) for a in items],
             "meta": meta,
         }
     })
+
+
+def _serialize_approval_item(appraisal: Appraisal):
+    commissions = Commission.query.filter_by(
+        month=appraisal.month,
+        year=appraisal.year,
+    ).all()
+
+    commission_total = sum(
+        (
+            Decimal(str(c.total_actual or c.monthly_actual or 0))
+            for c in commissions
+        ),
+        Decimal("0"),
+    )
+    policy_ids = {c.policy_id for c in commissions if c.policy_id}
+    ev_ids = {c.ev_id for c in commissions if c.ev_id}
+    evs = User.query.filter(User.id.in_(ev_ids)).all() if ev_ids else []
+    ev_name = None
+    ev_id = None
+    if len(evs) == 1:
+        ev_name = evs[0].name
+        ev_id = str(evs[0].id)
+    elif evs:
+        ev_name = f"{len(evs)} EVs"
+
+    achievement_values = [
+        Decimal(str(c.achievement_pct)) * Decimal("100")
+        for c in commissions
+        if c.achievement_pct is not None
+    ]
+    achievement_pct = None
+    if achievement_values:
+        achievement_pct = str(
+            (sum(achievement_values, Decimal("0")) / len(achievement_values))
+            .quantize(Decimal("0.01"))
+        )
+
+    return {
+        "id": str(appraisal.id),
+        "appraisal_id": str(appraisal.id),
+        "month": appraisal.month,
+        "year": appraisal.year,
+        "status": appraisal.status.value,
+        "validation_deadline": (
+            appraisal.validation_deadline.isoformat()
+            if appraisal.validation_deadline else None
+        ),
+        "created_at": (
+            appraisal.created_at.isoformat() if appraisal.created_at else None
+        ),
+        "locked_at": (
+            appraisal.locked_at.isoformat() if appraisal.locked_at else None
+        ),
+        "commission_total": str(commission_total),
+        "policies_count": len(policy_ids),
+        "ev_count": len(ev_ids),
+        "ev_id": ev_id,
+        "ev_name": ev_name or "Sem EV apurado",
+        "achievement_pct": achievement_pct,
+    }
 
 
 @finance_dashboard_bp.route("/export")

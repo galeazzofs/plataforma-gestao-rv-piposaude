@@ -1,5 +1,6 @@
 (ns app.views.lider-vendas.events
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [app.api.endpoints :as ep]))
 
 (rf/reg-event-fx
  :lider-vendas/fetch-team
@@ -44,3 +45,47 @@
  :lider-vendas/ev-detail-error
  (fn [db _]
    (assoc-in db [:admin :ev-detail-loading?] false)))
+
+(rf/reg-event-fx
+ :lider-vendas/fetch-appraisals
+ (fn [{:keys [db]} _]
+   {:db   (assoc-in db [:lider-vendas :appraisals-loading?] true)
+    :http {:method     :get
+           :url        ep/leadership-appraisal
+           :on-success [:lider-vendas/appraisals-loaded]
+           :on-failure [:lider-vendas/appraisals-error]}}))
+
+(rf/reg-event-db
+ :lider-vendas/appraisals-loaded
+ (fn [db [_ response]]
+   (-> db
+       (assoc-in [:lider-vendas :appraisals] (:data response))
+       (assoc-in [:lider-vendas :appraisals-loading?] false))))
+
+(rf/reg-event-db
+ :lider-vendas/appraisals-error
+ (fn [db _]
+   (assoc-in db [:lider-vendas :appraisals-loading?] false)))
+
+(rf/reg-event-fx
+ :lider-vendas/approve-appraisal
+ (fn [_ [_ appraisal-id]]
+   {:http {:method     :post
+           :url        (ep/leadership-transition appraisal-id)
+           :body       {:to "LIDER_REVIEW"}
+           :on-success [:lider-vendas/appraisal-action-success]
+           :on-failure [:lider-vendas/appraisal-action-error]}}))
+
+(rf/reg-event-fx
+ :lider-vendas/appraisal-action-success
+ (fn [_ _]
+   {:dispatch-n [[:lider-vendas/fetch-appraisals]
+                 [:lider-vendas/fetch-team]
+                 [:ui/show-toast {:type :success
+                                  :message "Apuracao aprovada"}]]}))
+
+(rf/reg-event-fx
+ :lider-vendas/appraisal-action-error
+ (fn [_ _]
+   {:dispatch [:ui/show-toast {:type :error
+                               :message "Erro ao aprovar apuracao"}]}))

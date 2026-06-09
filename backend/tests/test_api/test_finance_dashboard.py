@@ -12,6 +12,7 @@ from app.models import (
     AppraisalStatus,
     BenefitType,
     Client,
+    Commission,
     CommissionPctTable,
     CommissionStatus,
     EvQuarterAchievement,
@@ -158,6 +159,55 @@ def test_dashboard_period_filter_scopes_paid_totals_and_monthly_series(client, d
     assert data["comissao_agenciamento"]["series"] == [
         {"label": "jan/26", "comissao": "100.00", "agenciamento": "0"}
     ]
+
+
+def test_finance_approval_returns_appraisal_id_and_commission_summary(
+    client, db_session
+):
+    period_year = 2080 + int(uuid.uuid4().hex[:2], 16)
+    admin = _admin()
+    ev, client_obj = _ev_and_client()
+    policy = Policy(
+        hubspot_ticket_id=f"FIN-APPROVAL-{uuid.uuid4().hex[:8]}",
+        ev_id=ev.id,
+        client_id=client_obj.id,
+        segment=Segment.M,
+        benefit_type=BenefitType.SAUDE,
+        mrr_projected=Decimal("1000.00"),
+        closed_date=date(2026, 1, 1),
+    )
+    db.session.add(policy)
+    db.session.flush()
+
+    appraisal = Appraisal(
+        month=8,
+        year=period_year,
+        status=AppraisalStatus.REVOPS_REVIEW,
+        created_by=admin.id,
+    )
+    commission = Commission(
+        policy_id=policy.id,
+        ev_id=ev.id,
+        month=8,
+        year=period_year,
+        segment="M",
+        achievement_pct=Decimal("0.75"),
+        commission_pct=Decimal("0.06"),
+        total_actual=Decimal("60.00"),
+    )
+    db.session.add_all([appraisal, commission])
+    db.session.flush()
+
+    resp = client.get("/api/v1/finance/approval", headers=_auth_header(admin))
+
+    assert resp.status_code == 200
+    items = resp.get_json()["data"]["items"]
+    item = next(i for i in items if i["appraisal_id"] == str(appraisal.id))
+    assert item["appraisal_id"] == str(appraisal.id)
+    assert item["commission_total"] == "60.00"
+    assert item["policies_count"] == 1
+    assert item["ev_name"] == ev.name
+    assert item["achievement_pct"] == "75.00"
 
 
 def test_dashboard_year_filter_uses_payment_calendar_not_gongo_year(

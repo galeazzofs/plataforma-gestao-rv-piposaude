@@ -51,6 +51,8 @@
 ;; CN commissions
 (def cn-goals           "/commissions/cn/goals")
 (def cn-appraisal       "/commissions/cn/appraisal")
+(defn cn-appraisal-transition [id] (str "/commissions/cn/appraisal/" id "/transition"))
+(defn cn-appraisal-contest [id] (str "/commissions/cn/appraisal/" id "/contest"))
 (defn cn-appraisal-finalize [id] (str "/commissions/cn/appraisal/" id "/finalize"))
 (def cn-simulate        "/commissions/cn/simulate")
 (def cn-quarterly-bonus           "/commissions/cn/quarterly-bonus")
@@ -62,4 +64,5 @@
 ;; Leadership
 (def leadership-preview    "/commissions/leadership/preview")
 (def leadership-appraisal  "/commissions/leadership/appraisal")
+(defn leadership-transition [id] (str "/commissions/leadership/appraisal/" id "/transition"))
 (defn leadership-finalize [id] (str "/commissions/leadership/appraisal/" id "/finalize"))

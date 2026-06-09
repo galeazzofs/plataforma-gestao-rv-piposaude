@@ -20,3 +20,13 @@
  :lider-vendas/ev-detail-loading?
  (fn [db _]
    (get-in db [:admin :ev-detail-loading?])))
+
+(rf/reg-sub
+ :lider-vendas/appraisals
+ (fn [db _]
+   (get-in db [:lider-vendas :appraisals] [])))
+
+(rf/reg-sub
+ :lider-vendas/appraisals-loading?
+ (fn [db _]
+   (get-in db [:lider-vendas :appraisals-loading?])))

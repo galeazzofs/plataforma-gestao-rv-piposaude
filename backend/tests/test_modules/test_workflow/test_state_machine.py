@@ -8,7 +8,8 @@ from app.modules.workflow.state_machine import (
 )
 from app.models import (
     Appraisal, AppraisalStatus, User, UserRole,
-    Policy, Client, Segment, BenefitType, Commission,
+    Policy, Client, Segment, BenefitType, Commission, EvValidation,
+    ValidationStatus,
 )
 from app.extensions import db
 
@@ -35,6 +36,62 @@ def test_transition_draft_to_calculating(db_session):
     with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
     assert appraisal.status == AppraisalStatus.CALCULATING
+
+
+def test_transition_to_validating_creates_ev_validations_from_commissions(db_session):
+    admin = User(
+        email="validation-admin@piposaude.com",
+        name="Admin",
+        role=UserRole.ADMIN,
+    )
+    ev = User(
+        email="validation-ev@piposaude.com",
+        name="EV",
+        role=UserRole.EV,
+        active=True,
+    )
+    db_session.add_all([admin, ev])
+    db_session.flush()
+
+    client = Client.find_or_create("Validation Client")
+    db_session.flush()
+    policy = Policy(
+        hubspot_ticket_id="VALIDATION-T1",
+        ev_id=ev.id,
+        client_id=client.id,
+        segment=Segment.M,
+        benefit_type=BenefitType.SAUDE,
+        closed_date=date(2026, 1, 1),
+    )
+    db_session.add(policy)
+    db_session.flush()
+
+    appraisal = Appraisal(
+        month=4,
+        year=2026,
+        status=AppraisalStatus.CALCULATING,
+        created_by=admin.id,
+    )
+    commission = Commission(
+        policy_id=policy.id,
+        ev_id=ev.id,
+        month=4,
+        year=2026,
+        segment="M",
+        achievement_pct=Decimal("0.75"),
+        commission_pct=Decimal("0.06"),
+        total_actual=Decimal("100.00"),
+    )
+    db_session.add_all([appraisal, commission])
+    db_session.flush()
+
+    transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+
+    validations = EvValidation.query.filter_by(appraisal_id=appraisal.id).all()
+    assert len(validations) == 1
+    assert validations[0].policy_id == policy.id
+    assert validations[0].ev_id == ev.id
+    assert validations[0].status == ValidationStatus.PENDING
 
 
 def test_invalid_transition_raises(db_session):

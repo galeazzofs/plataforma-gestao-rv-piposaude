@@ -1,14 +1,23 @@
 from decimal import Decimal
+import uuid
 import pytest
 from app.models import (
-    AppraisalStatus, User, UserRole, Team, Goal, LiderVendasQuarterAppraisal,
+    Appraisal, AppraisalStatus, BenefitType, Client, EvValidation, Goal,
+    LiderVendasQuarterAppraisal, Policy, Segment, Team, User, UserRole,
+    ValidationStatus,
 )
 from app.modules.commissions.leadership_calculator import (
     run_leadership_appraisal,
     get_leadership_preview,
     _lideranca_multiplier,
 )
+from app.auth.jwt_manager import create_access_token
 from app.extensions import db
+
+
+def _auth(user):
+    token = create_access_token(str(user.id), user.role.value)
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _make_lider(session, name="Lider", salario=Decimal("10000")):
@@ -284,3 +293,76 @@ class TestLeadershipTransitions:
 
         assert appraisal.is_final is True
         assert appraisal.status == AppraisalStatus.LOCKED
+
+    def test_lider_transition_rechecks_monthly_appraisals_in_quarter(
+        self, client, db_session
+    ):
+        period_year = 2080 + int(uuid.uuid4().hex[:2], 16)
+        admin = User(
+            email="lider-hook-admin@test.com",
+            name="Admin",
+            role=UserRole.ADMIN,
+            active=True,
+        )
+        lider, team = _make_lider_with_team(
+            db_session, name="Hook Lider", salario=Decimal("10000"),
+        )
+        ev = next(member for member in team.members if member.role == UserRole.EV)
+        ev.active = True
+        db_session.add(admin)
+        db_session.flush()
+
+        client_obj = Client(
+            name="Hook Client",
+            name_normalized="hook client",
+            ev_id=ev.id,
+        )
+        db_session.add(client_obj)
+        db_session.flush()
+        policy = Policy(
+            hubspot_ticket_id="HOOK-T1",
+            ev_id=ev.id,
+            client_id=client_obj.id,
+            segment=Segment.M,
+            benefit_type=BenefitType.SAUDE,
+        )
+        monthly = Appraisal(
+            month=4,
+            year=period_year,
+            status=AppraisalStatus.VALIDATING,
+            created_by=admin.id,
+        )
+        leadership = LiderVendasQuarterAppraisal(
+            lider_vendas_id=lider.id,
+            quarter=2,
+            year=period_year,
+            meta_mrr=Decimal("100000"),
+            meta_sql=10,
+            realizado_mrr=Decimal("100000"),
+            realizado_sql=10,
+            pct_mrr=Decimal("1.0"),
+            pct_sql=Decimal("1.0"),
+            multiplicador=Decimal("2.0"),
+            bonus_amount=Decimal("20000"),
+            status=AppraisalStatus.VALIDATING,
+        )
+        db_session.add_all([policy, monthly, leadership])
+        db_session.flush()
+        validation = EvValidation(
+            appraisal_id=monthly.id,
+            policy_id=policy.id,
+            ev_id=ev.id,
+            status=ValidationStatus.APPROVED,
+        )
+        db_session.add(validation)
+        db_session.commit()
+
+        resp = client.post(
+            f"/api/v1/commissions/leadership/appraisal/{leadership.id}/transition",
+            json={"to": "LIDER_REVIEW"},
+            headers=_auth(lider),
+        )
+
+        assert resp.status_code == 200
+        db_session.refresh(monthly)
+        assert monthly.status == AppraisalStatus.LIDER_REVIEW

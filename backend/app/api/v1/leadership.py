@@ -163,12 +163,21 @@ def transition_endpoint(appraisal_id):
 
     # Issue #37a: a Líder validating own row may have been the last gate
     # holding the global Appraisal in VALIDATING. Re-evaluate.
-    global_appraisal = Appraisal.query.filter_by(
-        quarter=appraisal.quarter, year=appraisal.year,
-    ).first()
-    if global_appraisal is not None:
+    start_month = (appraisal.quarter - 1) * 3 + 1
+    global_appraisals = Appraisal.query.filter(
+        Appraisal.year == appraisal.year,
+        Appraisal.month.in_([start_month, start_month + 1, start_month + 2]),
+        Appraisal.status == AppraisalStatus.VALIDATING,
+    ).all()
+    if global_appraisals:
         try:
-            if maybe_auto_advance_appraisal_after_validation(global_appraisal):
+            advanced = False
+            for global_appraisal in global_appraisals:
+                advanced = (
+                    maybe_auto_advance_appraisal_after_validation(global_appraisal)
+                    or advanced
+                )
+            if advanced:
                 db.session.commit()
         except Exception:
             db.session.rollback()

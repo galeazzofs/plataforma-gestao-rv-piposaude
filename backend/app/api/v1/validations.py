@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth, require_role
 from app.models import (
-    Appraisal, EvValidation, User, ValidationStatus, UserRole,
+    Appraisal, Commission, EvValidation, Policy, User, ValidationStatus,
+    UserRole,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
@@ -182,11 +183,52 @@ def _post_validation_hooks(validation: EvValidation):
 
 
 def _serialize_validation(v):
+    appraisal = v.appraisal or db.session.get(Appraisal, v.appraisal_id)
+    policy = v.policy or db.session.get(Policy, v.policy_id)
+    commission = None
+    if appraisal is not None:
+        commission = Commission.query.filter_by(
+            policy_id=v.policy_id,
+            month=appraisal.month,
+            year=appraisal.year,
+        ).first()
+
+    mrr = policy.mrr_for_commission if policy is not None else None
+    commission_amount = None
+    if commission is not None:
+        commission_amount = commission.monthly_actual or commission.total_actual
+
     return {
         "id": str(v.id),
         "appraisal_id": str(v.appraisal_id),
         "policy_id": str(v.policy_id),
         "ev_id": str(v.ev_id),
+        "ev_name": v.ev.name if v.ev else None,
+        "month": appraisal.month if appraisal else None,
+        "year": appraisal.year if appraisal else None,
+        "appraisal_status": (
+            appraisal.status.value if appraisal and appraisal.status else None
+        ),
+        "client_name": (
+            policy.client.name if policy is not None and policy.client else None
+        ),
+        "benefit_type": (
+            policy.benefit_type.value
+            if policy is not None and policy.benefit_type else None
+        ),
+        "numero_apolice": (
+            policy.numero_apolice or policy.hubspot_apolice_id
+            if policy is not None else None
+        ),
+        "mrr": str(mrr) if mrr is not None else None,
+        "commission_monthly": (
+            str(commission_amount) if commission_amount is not None else None
+        ),
+        "commission_pct": (
+            str(commission.commission_pct)
+            if commission is not None and commission.commission_pct is not None
+            else None
+        ),
         "status": v.status.value,
         "comment": v.comment,
         "resolution_comment": v.resolution_comment,

@@ -13,6 +13,13 @@
 (defn- fmt-int [v]
   (when v (.toLocaleString (js/Math.round (if (string? v) (js/parseFloat v) v)) "pt-BR")))
 
+(defn- num [v]
+  (cond
+    (nil? v) 0
+    (number? v) v
+    (string? v) (or (js/parseFloat v) 0)
+    :else 0))
+
 (defn- contest-modal []
   (let [comment (r/atom "")]
     (fn [{:keys [open? on-close on-submit deal-id]}]
@@ -55,8 +62,8 @@
                     :approved approved
                     :contested contested
                     rows)
-            total-mrr (reduce + 0 (map #(or (:mrr %) 0) rows))
-            total-comm (reduce + 0 (map #(or (:commission_monthly %) 0) rows))]
+            total-mrr (reduce + 0 (map #(num (:mrr %)) rows))
+            total-comm (reduce + 0 (map #(num (:commission_monthly %)) rows))]
         [layout/page-shell
          {:current-route route :user user
           :crumbs ["plataforma rv" "ev" "validação"]
