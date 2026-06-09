@@ -33,7 +33,6 @@ from app.models import (
     Appraisal,
     AppraisalStatus,
     Commission,
-    CommissionStatus,
     FinancialImport,
     Policy,
     User,
@@ -43,11 +42,8 @@ from app.modules.financial.monthly_engine import (
     A_APURAR,
     PROJETADO,
     REALIZADO,
-    FinancialRow,
-    PolicyFinancialState,
-    build_monthly_financial_engine,
-    classify_revenue_type,
 )
+from app.modules.financial.finance_read_model import build_monthly_finance_view
 
 finance_dashboard_bp = Blueprint(
     "finance_dashboard", __name__, url_prefix="/api/v1/finance"
@@ -71,16 +67,6 @@ def _short_pt_month(ym: str) -> str:
         return f"{_PT_MONTHS[int(m) - 1]}/{y[2:]}"
     except (ValueError, IndexError):
         return ym
-
-
-def _payment_start(p: Policy) -> date | None:
-    """Best-effort start of payment cadence for a policy."""
-    return (
-        p.first_payment_real
-        or p.first_payment_prev
-        or p.deploy_date
-        or p.closed_date
-    )
 
 
 def _is_comissao(tipo: str | None) -> bool:
@@ -163,210 +149,6 @@ def _month_matches_period(
     return True
 
 
-def _sum_paid_for_policy(p: Policy) -> Decimal:
-    """Best signal of "what was paid for this policy", until the
-    Policy.total_paid_* columns are populated by an upstream pipeline."""
-    explicit = (p.total_paid_comissao or Decimal("0")) + (
-        p.total_paid_agenciamento or Decimal("0")
-    )
-    if explicit > 0:
-        return explicit
-    # Fall back to summing finalised Commission rows for the policy.
-    derived = Decimal("0")
-    for c in p.commissions or []:
-        if c.is_final and c.total_actual is not None:
-            derived += c.total_actual
-    legacy = p.commission_paid_legacy or Decimal("0")
-    return derived + legacy
-
-
-def _month_from_date(value: date | None, fallback: date) -> str:
-    source = value or fallback
-    return source.strftime("%Y-%m")
-
-
-def _policy_projection_start_month(p: Policy, fallback: date) -> str:
-    """First month where future projection may start for this policy."""
-    start = _payment_start(p) or fallback
-    months_paid = max(0, min(p.installments_paid or 0, 12))
-    scheduled = start + relativedelta(months=months_paid)
-    fallback_ym = fallback.strftime("%Y-%m")
-    projected_ym = scheduled.strftime("%Y-%m")
-    return max(projected_ym, fallback_ym)
-
-
-def _locked_appraisal_pairs() -> set[tuple[int, int]]:
-    return {
-        (m, y)
-        for m, y in db.session.query(Appraisal.month, Appraisal.year)
-        .filter(Appraisal.status == AppraisalStatus.LOCKED)
-        .all()
-    }
-
-
-def _finance_policy_states(active_policies, fallback: date) -> list[PolicyFinancialState]:
-    states = []
-    for policy in active_policies:
-        states.append(PolicyFinancialState(
-            policy_id=str(policy.id),
-            commission_potential=policy.commission_potential or Decimal("0"),
-            projection_start_month=_policy_projection_start_month(policy, fallback),
-            initial_installments_paid=policy.initial_installments_paid or 0,
-            commission_paid_legacy=policy.commission_paid_legacy or Decimal("0"),
-            commission_status=(
-                policy.commission_status.value
-                if hasattr(policy.commission_status, "value")
-                else policy.commission_status
-            ),
-        ))
-    return states
-
-
-def _finance_rows_for_policies(policy_ids: set[str], locked_pairs: set[tuple[int, int]]):
-    if not policy_ids:
-        return []
-    rows = (
-        FinancialImport.query.filter(
-            FinancialImport.match_status == "MATCHED",
-            FinancialImport.policy_id.isnot(None),
-            FinancialImport.policy_id.in_(policy_ids),
-        )
-        .all()
-    )
-    result = []
-    for row in rows:
-        if classify_revenue_type(row.tipo_receita) is None:
-            continue
-        result.append(FinancialRow(
-            policy_id=str(row.policy_id),
-            month=row.nf_mes_recebimento,
-            amount=row.nf_valor_liquido,
-            revenue_type=row.tipo_receita,
-            is_locked=(row.month, row.year) in locked_pairs,
-        ))
-    return result
-
-
-def _locked_realized_by_month(locked_pairs: set[tuple[int, int]]) -> dict[str, Decimal]:
-    if not locked_pairs:
-        return {}
-    rows = (
-        FinancialImport.query.filter(
-            FinancialImport.match_status == "MATCHED",
-            FinancialImport.policy_id.isnot(None),
-        )
-        .all()
-    )
-    by_month: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    for row in rows:
-        if (row.month, row.year) not in locked_pairs:
-            continue
-        if classify_revenue_type(row.tipo_receita) is None:
-            continue
-        by_month[row.nf_mes_recebimento] += row.nf_valor_liquido or Decimal("0")
-    return dict(by_month)
-
-
-def _monthly_finance_view(today: date):
-    active_policies = Policy.query.filter(
-        Policy.commission_status.notin_(
-            [CommissionStatus.SETTLED, CommissionStatus.CANCELLED]
-        ),
-        Policy.installments_paid < 12,
-    ).all()
-    locked_pairs = _locked_appraisal_pairs()
-    policy_ids = {str(p.id) for p in active_policies}
-    engine = build_monthly_financial_engine(
-        _finance_policy_states(active_policies, today),
-        _finance_rows_for_policies(policy_ids, locked_pairs),
-    )
-
-    entries_by_month: dict[str, dict[str, Decimal | set]] = defaultdict(
-        lambda: {
-            REALIZADO: Decimal("0"),
-            A_APURAR: Decimal("0"),
-            PROJETADO: Decimal("0"),
-            "apolices": set(),
-        }
-    )
-    for month, amount in _locked_realized_by_month(locked_pairs).items():
-        entries_by_month[month][REALIZADO] += amount
-    for entry in engine.entries:
-        if entry.state == REALIZADO:
-            continue
-        entries_by_month[entry.month][entry.state] += entry.amount
-        entries_by_month[entry.month]["apolices"].add(entry.policy_id)
-
-    return engine, entries_by_month
-
-
-# ---------------------------------------------------------------------------
-# Per-policy projection (Row 3)
-# ---------------------------------------------------------------------------
-
-
-def _project_policy(
-    p: Policy, ref_date: date, future_months: int
-) -> dict[str, Decimal]:
-    """Build {YYYY-MM: amount} for one policy's expected future payments.
-
-    Rules:
-    - Already-paid months are not projected (we never re-schedule).
-    - If installments_paid >= 1: monthly = (paid_total / installments_paid)
-      — i.e. running average of what's already been paid per month.
-    - If installments_paid == 0: monthly = commission_potential / 12.
-    - Settled / cancelled / fully-paid policies contribute nothing.
-    """
-    if p.commission_status in (
-        CommissionStatus.SETTLED,
-        CommissionStatus.CANCELLED,
-    ):
-        return {}
-
-    months_paid = min(p.installments_paid or 0, 12)
-    months_remaining = max(0, 12 - months_paid)
-    if months_remaining == 0:
-        return {}
-
-    if months_paid >= 1:
-        paid_total = _sum_paid_for_policy(p)
-        if paid_total <= 0:
-            # Falls back to potential-based projection if the policy has
-            # installments counted but no money recorded yet.
-            potencial = p.commission_potential
-            if potencial is None or potencial <= 0:
-                return {}
-            monthly = (potencial / Decimal("12")).quantize(Decimal("0.01"))
-        else:
-            monthly = (paid_total / Decimal(months_paid)).quantize(
-                Decimal("0.01")
-            )
-    else:
-        potencial = p.commission_potential
-        if potencial is None or potencial <= 0:
-            return {}
-        monthly = (potencial / Decimal("12")).quantize(Decimal("0.01"))
-
-    if monthly <= 0:
-        return {}
-
-    start = _payment_start(p) or ref_date
-    horizon_end = ref_date + relativedelta(months=future_months)
-
-    buckets: dict[str, Decimal] = {}
-    for i in range(months_remaining):
-        scheduled = start + relativedelta(months=months_paid + i)
-        # Skip months in the past (already paid or missed).
-        if (scheduled.year, scheduled.month) < (ref_date.year, ref_date.month):
-            continue
-        if scheduled > horizon_end:
-            break
-        ym = scheduled.strftime("%Y-%m")
-        buckets[ym] = buckets.get(ym, Decimal("0")) + monthly
-
-    return buckets
-
-
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
@@ -408,7 +190,7 @@ def dashboard():
 
     # Build the monthly Finance view up front. Period filters in Finance answer
     # "what belongs to this monthly competency window?".
-    finance_engine, finance_by_month = _monthly_finance_view(today)
+    finance_engine, finance_by_month = build_monthly_finance_view(today)
     realizado_by_month = {
         ym: values[REALIZADO]
         for ym, values in finance_by_month.items()
