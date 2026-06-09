@@ -1,17 +1,15 @@
 from collections import defaultdict
-from decimal import Decimal
 
 from flask import Blueprint, jsonify, request, g
 
 from app.auth.decorators import require_auth, require_role
 from app.models import (
-    Appraisal, AppraisalStatus, UserRole, CommissionStatus,
-    Commission, EvQuarterAchievement, FinancialImport, Policy, User,
-    EvValidation, ValidationStatus,
+    Appraisal, AppraisalStatus, UserRole,
+    Commission, FinancialImport, User,
+    EvValidation,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
-from app.modules.policies.filters import ev_policies_query
 from app.modules.workflow.state_machine import (
     start_appraisal,
     transition_appraisal,
@@ -19,8 +17,7 @@ from app.modules.workflow.state_machine import (
     InvalidTransitionError,
 )
 from app.modules.commissions.calculator import MissingAchievementsError
-from app.modules.financial.monthly_engine import COMISSAO, classify_revenue_type
-from app.modules.financial.policy_clock import positive_locked_comissao_month_counts
+from app.modules.workflow.appraisal_review import build_period_detail
 
 workflow_bp = Blueprint("workflow", __name__, url_prefix="/api/v1/appraisals")
 
@@ -409,7 +406,7 @@ def preview_appraisal():
         # calculator with the gate disabled so a draft is always produced.
         missing_achievements = validate_achievements_for_appraisal(month, year)
         run_monthly_appraisal(month, year, validate_achievements=False)
-        detail = _build_period_detail(month, year)
+        detail = build_period_detail(month, year)
     finally:
         # A preview must never persist. Nothing here was committed, so a full
         # rollback discards everything the calculator flushed — commissions,
@@ -463,8 +460,8 @@ def _build_appraisal_detail(appraisal):
     then layer on the EV validation status (who approved / who is still
     pending / who contested) so the review screen can show approval progress.
     Only persisted appraisals carry this — the read-only preview, which calls
-    _build_period_detail directly, has no validations."""
-    detail = _build_period_detail(appraisal.month, appraisal.year)
+    build_period_detail directly, has no validations."""
+    detail = build_period_detail(appraisal.month, appraisal.year)
     _attach_validation_status(appraisal, detail)
     _attach_lider_gate(appraisal, detail)
     return detail
@@ -528,319 +525,3 @@ def _attach_validation_status(appraisal, detail):
     detail["validation_totals"] = _validation_counts(validations)
 
 
-def _build_period_detail(month, year):
-    """Build the rich review payload: ev_summary with nested policies and NFs,
-    plus unmatched / expired / nao_suportado tabs and totals. Keyed purely on
-    (month, year) so it serves both a persisted appraisal and a throwaway
-    preview run."""
-    # Achievement stays quarterly: the per-EV achievement shown for a monthly
-    # appraisal is the achievement of the quarter that contains this month.
-    quarter = (month - 1) // 3 + 1
-    # Surface (don't enforce) the gongo-quarter achievements still missing, so
-    # the review can flag the EVs that were apurados at 0%.
-    from app.modules.commissions.calculator import validate_achievements_for_appraisal
-    missing_achievements = validate_achievements_for_appraisal(month, year)
-    commissions = Commission.query.filter_by(month=month, year=year).all()
-    nfs_matched = FinancialImport.query.filter_by(
-        month=month, year=year, match_status='MATCHED',
-    ).all()
-    nfs_finalized = FinancialImport.query.filter_by(
-        month=month, year=year, match_status='APOLICE_FINALIZADA',
-    ).all()
-
-    nfs_by_policy = defaultdict(list)
-    for nf in nfs_matched:
-        if nf.policy_id:
-            nfs_by_policy[nf.policy_id].append(nf)
-
-    finalized_policy_ids = {nf.policy_id for nf in nfs_finalized if nf.policy_id}
-    policy_ids = (
-        {c.policy_id for c in commissions}
-        | set(nfs_by_policy.keys())
-        | finalized_policy_ids
-    )
-    policies = (
-        {p.id: p for p in Policy.query.filter(Policy.id.in_(policy_ids)).all()}
-        if policy_ids else {}
-    )
-
-    by_ev = defaultdict(list)
-    for c in commissions:
-        by_ev[c.ev_id].append(c)
-
-    # The Por EV view also lets the user filter to the EV's policies that did
-    # NOT generate commission this month ("não apuradas"). To explain *why*
-    # each one fell out we need, per policy, which match statuses landed in
-    # the competência (e.g. an EXPIRED NF vs no NF at all).
-    month_nf_status = defaultdict(set)
-    for ms, pid in db.session.query(
-        FinancialImport.match_status, FinancialImport.policy_id,
-    ).filter(
-        FinancialImport.month == month,
-        FinancialImport.year == year,
-        FinancialImport.policy_id.isnot(None),
-    ).all():
-        month_nf_status[pid].add(ms)
-
-    # Pull the full book (excluding cancelled) for every EV that has at least
-    # one apurada policy this month — that's the set of cards the user can
-    # expand and filter inside.
-    ev_ids = list(by_ev.keys())
-    ev_book = defaultdict(list)
-    if ev_ids:
-        for p in (
-            ev_policies_query()
-            .filter(Policy.ev_id.in_(ev_ids))
-            .filter(Policy.commission_status != CommissionStatus.CANCELLED)
-            .all()
-        ):
-            ev_book[p.ev_id].append(p)
-
-    def _nao_apurada_reason(p):
-        if p.commission_status == CommissionStatus.SETTLED or (p.installments_paid or 0) >= 12:
-            return "Ciclo 12/12 completo"
-        statuses = month_nf_status.get(p.id, set())
-        if 'APOLICE_FINALIZADA' in statuses:
-            return "Ciclo 12/12 completo"
-        if 'PRODUTO_NAO_SUPORTADO' in statuses:
-            return "Produto não suportado"
-        if statuses:
-            return "NF não comissionável no mês"
-        return "Sem NF no mês"
-
-    def _policy_base(p):
-        return {
-            "policy_id": str(p.id),
-            "client_name": p.client.name if p.client else None,
-            "operadora": p.partner_operator,
-            "produto": p.benefit_type.value if p.benefit_type else None,
-            "segment": p.segment.value if p.segment else None,
-            # The 12-month clock is count-based — surface the paid-month count
-            # as the authoritative value. first_payment_real (Início vigência)
-            # is advisory only and is NOT used by the calculation.
-            "installments_paid": p.installments_paid or 0,
-            "first_payment_real": (
-                p.first_payment_real.isoformat() if p.first_payment_real else None
-            ),
-            "closed_date": (
-                p.closed_date.isoformat() if p.closed_date else None
-            ),
-        }
-
-    ev_summary = []
-    for ev_id, ev_commissions in by_ev.items():
-        ev = db.session.get(User, ev_id)
-        ach_curr = EvQuarterAchievement.query.filter_by(
-            ev_id=ev_id, quarter=quarter, year=year,
-        ).first()
-
-        apurada_ids = {c.policy_id for c in ev_commissions}
-
-        policy_blocks = []
-        for c in ev_commissions:
-            p = policies.get(c.policy_id)
-            if p is None:
-                continue
-            nfs = nfs_by_policy.get(p.id, [])
-            block = _policy_base(p)
-            block.update({
-                "apurada": True,
-                "reason": None,
-                "achievement_used_pct": (
-                    float(c.achievement_pct * 100) if c.achievement_pct else 0.0
-                ),
-                "commission_pct": (
-                    float(c.commission_pct) if c.commission_pct else 0.0
-                ),
-                "subtotal": float(c.total_actual or 0),
-                "nf_liquido_total": float(
-                    sum(nf.nf_valor_liquido for nf in nfs)
-                ) if nfs else 0.0,
-                "nfs": [
-                    {
-                        "data_recebimento": (
-                            nf.data_recebimento.isoformat()
-                            if nf.data_recebimento else None
-                        ),
-                        "tipo_receita": nf.tipo_receita,
-                        "nf_liquido": float(nf.nf_valor_liquido),
-                    }
-                    for nf in nfs
-                ],
-            })
-            policy_blocks.append(block)
-
-        nao_apurada_blocks = []
-        for p in ev_book.get(ev_id, []):
-            if p.id in apurada_ids:
-                continue
-            block = _policy_base(p)
-            block.update({
-                "apurada": False,
-                "reason": _nao_apurada_reason(p),
-                "achievement_used_pct": None,
-                "commission_pct": None,
-                "subtotal": 0.0,
-                "nf_liquido_total": 0.0,
-                "nfs": [],
-            })
-            nao_apurada_blocks.append(block)
-
-        ev_summary.append({
-            "ev_id": str(ev_id),
-            "ev_name": ev.name if ev else "—",
-            "ev_left_company": bool(getattr(ev, "left_company", False)) if ev else False,
-            "achievement_pct": (
-                float(ach_curr.achievement_pct * 100)
-                if ach_curr and ach_curr.achievement_pct is not None else None
-            ),
-            "policies_count": len(policy_blocks),
-            "nao_apuradas_count": len(nao_apurada_blocks),
-            "nf_count": sum(len(b["nfs"]) for b in policy_blocks),
-            "nf_liquido_total": float(
-                sum(b["nf_liquido_total"] for b in policy_blocks)
-            ),
-            "total_commission": float(
-                sum(c.total_actual or Decimal("0") for c in ev_commissions)
-            ),
-            "policies": sorted(
-                policy_blocks + nao_apurada_blocks,
-                key=lambda b: b["client_name"] or "",
-            ),
-        })
-    ev_summary.sort(key=lambda s: s["ev_name"])
-
-    finalized_completion_months = _finalized_completion_months(
-        month, year, finalized_policy_ids, policies
-    )
-
-    def _serialize_nf(nf):
-        return {
-            "id": str(nf.id),
-            "cliente_mae": nf.cliente_mae,
-            "operadora": nf.operadora,
-            "produto": nf.produto,
-            "data_recebimento": (
-                nf.data_recebimento.isoformat() if nf.data_recebimento else None
-            ),
-            "nf_liquido": float(nf.nf_valor_liquido),
-            "tipo_receita": nf.tipo_receita,
-            "match_status": nf.match_status,
-            "policy_id": str(nf.policy_id) if nf.policy_id else None,
-            "apolice_finalizada_mes": (
-                finalized_completion_months.get(nf.policy_id)
-                if nf.match_status == 'APOLICE_FINALIZADA' and nf.policy_id
-                else None
-            ),
-        }
-
-    unmatched = [
-        _serialize_nf(n) for n in FinancialImport.query.filter_by(
-            month=month, year=year, match_status='UNMATCHED',
-        ).all()
-    ]
-    nao_suportado = [
-        _serialize_nf(n) for n in FinancialImport.query.filter_by(
-            month=month, year=year, match_status='PRODUTO_NAO_SUPORTADO',
-        ).all()
-    ]
-    apolices_finalizadas = [
-        _serialize_nf(n) for n in nfs_finalized
-    ]
-
-    totals = {
-        "total_commission": sum(s["total_commission"] for s in ev_summary),
-        "nf_liquido_total": float(sum(s["nf_liquido_total"] for s in ev_summary)),
-        "ev_count": len(ev_summary),
-        "left_company_ev_count": sum(
-            1 for s in ev_summary if s.get("ev_left_company")
-        ),
-        "policy_count": sum(s["policies_count"] for s in ev_summary),
-        "matched_nf_count": sum(s["nf_count"] for s in ev_summary),
-        "unmatched_count": len(unmatched),
-        "nao_suportado_count": len(nao_suportado),
-        "apolices_finalizadas_count": len(apolices_finalizadas),
-    }
-
-    return {
-        "totals": totals,
-        "ev_summary": ev_summary,
-        "unmatched": unmatched,
-        "nao_suportado": nao_suportado,
-        "apolices_finalizadas": apolices_finalizadas,
-        "missing_achievements": missing_achievements,
-        "financial_data_periods": _financial_data_periods(),
-    }
-
-
-def _financial_data_periods():
-    """Every (year, month) that currently has RECEBIDO financial imports, with
-    NF counts. The apuração is keyed strictly on its own month, so when the
-    selected month comes back empty this tells the UI where the imported NFs
-    actually landed — e.g. all of a year's commission receipts often pile into
-    January (renewal season)."""
-    rows = (
-        db.session.query(
-            FinancialImport.year,
-            FinancialImport.month,
-            db.func.count(FinancialImport.id),
-        )
-        .filter(FinancialImport.status_recebimento == 'RECEBIDO')
-        .group_by(FinancialImport.year, FinancialImport.month)
-        .order_by(FinancialImport.year, FinancialImport.month)
-        .all()
-    )
-    return [
-        {"year": y, "month": m, "nf_count": c}
-        for (y, m, c) in rows
-    ]
-
-
-def _finalized_completion_months(
-    month: int,
-    year: int,
-    policy_ids: set,
-    policies: dict,
-) -> dict:
-    if not policy_ids:
-        return {}
-
-    prior_counts = positive_locked_comissao_month_counts(
-        policy_ids,
-        before=(month, year),
-    )
-    rows = FinancialImport.query.filter_by(
-        month=month,
-        year=year,
-        match_status='MATCHED',
-    ).filter(FinancialImport.policy_id.in_(policy_ids)).all()
-
-    current_monthly = defaultdict(lambda: defaultdict(Decimal))
-    for row in rows:
-        if classify_revenue_type(row.tipo_receita) != COMISSAO:
-            continue
-        current_monthly[row.policy_id][row.nf_mes_recebimento] += (
-            row.nf_valor_liquido or Decimal("0")
-        )
-
-    completion_months = {}
-    for policy_id in policy_ids:
-        policy = policies.get(policy_id)
-        if policy is None:
-            continue
-        clock = min(
-            12,
-            (policy.initial_installments_paid or 0)
-            + prior_counts.get(policy_id, 0),
-        )
-        if clock >= 12:
-            continue
-        for month in sorted(current_monthly.get(policy_id, {})):
-            if current_monthly[policy_id][month] <= 0:
-                continue
-            clock += 1
-            if clock >= 12:
-                completion_months[policy_id] = month
-                break
-
-    return completion_months
