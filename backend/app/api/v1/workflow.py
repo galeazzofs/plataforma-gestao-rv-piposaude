@@ -20,6 +20,7 @@ from app.modules.workflow.state_machine import (
 )
 from app.modules.commissions.calculator import MissingAchievementsError
 from app.modules.financial.monthly_engine import COMISSAO, classify_revenue_type
+from app.modules.financial.policy_clock import positive_locked_comissao_month_counts
 
 workflow_bp = Blueprint("workflow", __name__, url_prefix="/api/v1/appraisals")
 
@@ -795,60 +796,6 @@ def _financial_data_periods():
     ]
 
 
-def _period_before(left: tuple[int, int], right: tuple[int, int]) -> bool:
-    left_q, left_y = left
-    right_q, right_y = right
-    return (left_y, left_q) < (right_y, right_q)
-
-
-def _locked_period_pairs_before(month: int, year: int) -> set[tuple[int, int]]:
-    current = (month, year)
-    appraisal_pairs = {
-        (m, y) for m, y in db.session.query(Appraisal.month, Appraisal.year)
-        .filter(Appraisal.status == AppraisalStatus.LOCKED)
-        .all()
-    }
-    commission_pairs = {
-        (m, y) for m, y in db.session.query(Commission.month, Commission.year)
-        .filter(Commission.is_final.is_(True))
-        .all()
-    }
-    return {
-        pair for pair in (appraisal_pairs | commission_pairs)
-        if _period_before(pair, current)
-    }
-
-
-def _positive_locked_comissao_month_counts(
-    policy_ids: set,
-    month: int,
-    year: int,
-) -> dict:
-    pairs = _locked_period_pairs_before(month, year)
-    if not policy_ids or not pairs:
-        return {}
-
-    rows = FinancialImport.query.filter(
-        FinancialImport.match_status == 'MATCHED',
-        FinancialImport.policy_id.in_(policy_ids),
-    ).all()
-
-    monthly = defaultdict(lambda: defaultdict(Decimal))
-    for row in rows:
-        if (row.month, row.year) not in pairs:
-            continue
-        if classify_revenue_type(row.tipo_receita) != COMISSAO:
-            continue
-        monthly[row.policy_id][row.nf_mes_recebimento] += (
-            row.nf_valor_liquido or Decimal("0")
-        )
-
-    return {
-        policy_id: sum(1 for total in months.values() if total > 0)
-        for policy_id, months in monthly.items()
-    }
-
-
 def _finalized_completion_months(
     month: int,
     year: int,
@@ -858,7 +805,10 @@ def _finalized_completion_months(
     if not policy_ids:
         return {}
 
-    prior_counts = _positive_locked_comissao_month_counts(policy_ids, month, year)
+    prior_counts = positive_locked_comissao_month_counts(
+        policy_ids,
+        before=(month, year),
+    )
     rows = FinancialImport.query.filter_by(
         month=month,
         year=year,

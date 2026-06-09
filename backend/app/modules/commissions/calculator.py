@@ -19,12 +19,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import tuple_
-
 from app.extensions import db
 from app.models import (
-    Appraisal,
-    AppraisalStatus,
     Policy,
     Commission,
     CommissionStatus,
@@ -48,6 +44,7 @@ from app.modules.financial.monthly_engine import (
     COMISSAO,
     classify_revenue_type,
 )
+from app.modules.financial.policy_clock import positive_locked_comissao_month_counts
 
 
 # -- Errors -------------------------------------------------------------------
@@ -219,56 +216,6 @@ def _partial_client_fallback_candidates(
     return _unique_unlocked_policies(candidates, locked_policy_ids)
 
 
-def _locked_period_pairs():
-    appraisal_pairs = {
-        (m, y) for m, y in db.session.query(Appraisal.month, Appraisal.year)
-        .filter(Appraisal.status == AppraisalStatus.LOCKED)
-        .all()
-    }
-    commission_pairs = {
-        (m, y) for m, y in db.session.query(Commission.month, Commission.year)
-        .filter(Commission.is_final.is_(True))
-        .all()
-    }
-    return appraisal_pairs | commission_pairs
-
-
-def _locked_positive_comissao_month_counts():
-    pairs = _locked_period_pairs()
-    if not pairs:
-        return {}
-
-    rows = (
-        db.session.query(
-            FinancialImport.policy_id,
-            FinancialImport.nf_mes_recebimento,
-            FinancialImport.tipo_receita,
-            db.func.coalesce(db.func.sum(FinancialImport.nf_valor_liquido), 0),
-        )
-        .filter(
-            FinancialImport.match_status == "MATCHED",
-            FinancialImport.policy_id.isnot(None),
-            tuple_(FinancialImport.month, FinancialImport.year).in_(pairs),
-        )
-        .group_by(
-            FinancialImport.policy_id,
-            FinancialImport.nf_mes_recebimento,
-            FinancialImport.tipo_receita,
-        )
-        .all()
-    )
-
-    monthly = defaultdict(lambda: defaultdict(Decimal))
-    for policy_id, ym, tipo, total in rows:
-        if classify_revenue_type(tipo) == COMISSAO:
-            monthly[policy_id][ym] += total or Decimal("0")
-
-    return {
-        policy_id: sum(1 for total in months.values() if total > 0)
-        for policy_id, months in monthly.items()
-    }
-
-
 def _set_nf_status(nf, status, policy_id=None, matched=False):
     nf.match_status = status
     nf.policy_id = policy_id
@@ -329,7 +276,7 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
     ).all()
     policies = [p for p in policies_for_index if p.id not in locked_policy_ids]
 
-    locked_comissao_count = _locked_positive_comissao_month_counts()
+    locked_comissao_count = positive_locked_comissao_month_counts()
     for p in policies_for_index:
         if p.commission_status == CommissionStatus.CANCELLED:
             continue
