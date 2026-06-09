@@ -16,6 +16,7 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+backend/.pytest-tmp*/
 *.egg-info/
 dist/
 build/
