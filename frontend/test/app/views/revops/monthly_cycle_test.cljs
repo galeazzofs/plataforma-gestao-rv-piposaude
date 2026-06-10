@@ -133,6 +133,40 @@
              (:url (mc/next-action "leadership_bonus"
                                    {:status "LIDER_REVIEW" :appraisal_id "ld1"}
                                    cycle)))))
+    (testing "EV apuração CALCULATING → release to validation"
+      (let [a (mc/next-action "ev_apuracao"
+                              {:status "CALCULATING" :appraisal_id "ap1"} cycle)]
+        (is (= "/appraisals/ap1/transition" (:url a)))
+        (is (= {:to "VALIDATING"} (:body a)))))
+    (testing "EV apuração LIDER_REVIEW → advance to RevOps review"
+      (is (= {:to "REVOPS_REVIEW"}
+             (:body (mc/next-action "ev_apuracao"
+                                    {:status "LIDER_REVIEW" :appraisal_id "ap1"}
+                                    cycle)))))
+    (testing "CN apuração VALIDATING → bulk advance with confirm"
+      (let [a (mc/next-action "cn_apuracao" {:status "VALIDATING"} cycle)]
+        (is (= "/commissions/cn/appraisal/transition-month" (:url a)))
+        (is (= {:month 6 :year 2026 :to "LIDER_REVIEW"} (:body a)))
+        (is (true? (:confirm? a)))))
+    (testing "CN apuração CALCULATING with missing rows → navigate to complete"
+      (let [a (mc/next-action "cn_apuracao"
+                              {:status "CALCULATING" :rows 1 :expected 2} cycle)]
+        (is (= :navigate (:kind a)))
+        (is (= :revops/cn-appraisal (:route a)))))
+    (testing "Bônus CN PENDING body carries quarter and year"
+      (is (= {:quarter 2 :year 2026}
+             (:body (mc/next-action "cn_bonus" {:status "PENDING"} cycle)))))
+    (testing "Liderança CALCULATING → release via transition endpoint"
+      (let [a (mc/next-action "leadership_bonus"
+                              {:status "CALCULATING" :appraisal_id "ld1"} cycle)]
+        (is (= "/commissions/leadership/appraisal/ld1/transition" (:url a)))
+        (is (= {:to "VALIDATING"} (:body a)))))
+    (testing "Liderança REVOPS_REVIEW → lock via transition endpoint (finalize 422s mid-chain)"
+      (let [a (mc/next-action "leadership_bonus"
+                              {:status "REVOPS_REVIEW" :appraisal_id "ld1"} cycle)]
+        (is (= "/commissions/leadership/appraisal/ld1/transition" (:url a)))
+        (is (= {:to "LOCKED"} (:body a)))
+        (is (true? (:confirm? a)))))
     (testing "LOCKED components have no action"
       (is (nil? (mc/next-action "ev_apuracao" {:status "LOCKED"} cycle)))
       (is (nil? (mc/next-action "cn_bonus" {:status "LOCKED"} cycle))))))

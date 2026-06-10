@@ -93,7 +93,7 @@
    {:kind :navigate :route ...} deep-link to the detail page (work that
    needs inputs). nil = nothing for the admin to click right now."
   [k component cycle]
-  (let [{:keys [status appraisal_id]} component
+  (let [{:keys [status appraisal_id rows expected]} component
         {:keys [month year quarter]} cycle]
     (case k
       "ev_apuracao"
@@ -136,12 +136,18 @@
         {:kind :navigate :label "Preparar e rodar →"
          :route :revops/cn-appraisal}
         ("DRAFT" "CALCULATING")
-        {:kind :request :label "Liberar para validação"
-         :method :post :url ep/cn-appraisal-transition-month
-         :body {:month month :year year :to "VALIDATING"}
-         :success-msg "CNs liberados para validação."}
+        (if (and rows expected (< rows expected))
+          ;; Incomplete row set (e.g. CN hired after the run): bulk
+          ;; transitions would no-op — the remedy is re-running from the
+          ;; detail page, which recreates non-LOCKED rows for all CNs.
+          {:kind :navigate :label "Completar apuração →"
+           :route :revops/cn-appraisal}
+          {:kind :request :label "Liberar para validação"
+           :method :post :url ep/cn-appraisal-transition-month
+           :body {:month month :year year :to "VALIDATING"}
+           :success-msg "CNs liberados para validação."})
         "VALIDATING"
-        {:kind :request :label "Avançar para revisão do líder"
+        {:kind :request :label "Avançar para revisão do líder" :confirm? true
          :method :post :url ep/cn-appraisal-transition-month
          :body {:month month :year year :to "LIDER_REVIEW"}
          :success-msg "CNs avançados para revisão do líder."}
@@ -205,10 +211,10 @@
            :success-msg "Enviado para revisão RevOps."})
         "REVOPS_REVIEW"
         (when appraisal_id
-          {:kind :request :label "Finalizar" :confirm? true
-           :method :post :url (ep/leadership-finalize appraisal_id)
-           :body {}
-           :success-msg "Bônus Liderança finalizado."})
+          {:kind :request :label "Travar (LOCKED)" :confirm? true
+           :method :post :url (ep/leadership-transition appraisal_id)
+           :body {:to "LOCKED"}
+           :success-msg "Bônus Liderança travado."})
         nil)
 
       nil)))
