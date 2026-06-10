@@ -340,11 +340,15 @@
                         (assoc action :cycle-id (:id cycle))])))}
      label]))
 
-(defn- detail-link [k]
+(defn- detail-link [cycle k]
   (when-let [route (component-routes k)]
-    [:button.btn.btn-secondary.btn-sm
-     {:on-click #(rf/dispatch [:navigate route])}
-     "Ver detalhes →"]))
+    (let [{:keys [month year quarter]} cycle
+          query (if (#{"cn_bonus" "ev_bonus" "leadership_bonus"} k)
+                  {:quarter quarter :year year}
+                  {:month month :year year})]
+      [:button.btn.btn-secondary.btn-sm
+       {:on-click #(rf/dispatch [:navigate [route nil query]])}
+       "Ver detalhes →"])))
 
 (defn- bonus-guidance
   "Soft warning when a bonus step is opened while apurações are open.
@@ -392,7 +396,7 @@
         [:div {:style {:display "flex" :gap "8px" :margin-top "4px"}}
          (when-not read-only?
            [action-button cycle (next-action k component cycle)])
-         [detail-link k]]])]))
+         [detail-link cycle k]]])]))
 
 (defn- quarter-divider [cycle]
   [:div {:style {:display "flex" :align-items "center" :gap "12px"

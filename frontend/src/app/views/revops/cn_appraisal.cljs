@@ -6,6 +6,7 @@
             [app.views.cn.calc :as calc]
             [app.ds.layout :as layout]
             [app.ds.modal :as modal]
+            [app.util.url :as url]
             [app.auth.subs]))
 
 ;; Apuração mensal do CN. A grade espelha o simulador (meta de vidas
@@ -245,7 +246,8 @@
     :on-change #(on-change (.. % -target -value))}])
 
 (defn page []
-  (let [filter-s    (r/atom {:month "4" :year "2026"})
+  (let [filter-s    (r/atom {:month (or (url/query-param "month") "4")
+                             :year  (or (url/query-param "year") "2026")})
         edits       (r/atom {})
         modal-state (r/atom {:open? false :mode nil :row nil :note ""})
         fetch-period!

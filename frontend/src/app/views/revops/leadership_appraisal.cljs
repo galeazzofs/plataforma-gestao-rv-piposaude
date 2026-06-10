@@ -5,6 +5,7 @@
             [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
             [app.ds.inputs :as inputs]
+            [app.util.url :as url]
             [app.auth.subs]))
 
 (rf/reg-event-fx
@@ -97,7 +98,8 @@
     nil))
 
 (defn page []
-  (let [filter-s    (r/atom {:quarter "2" :year "2026"})
+  (let [filter-s    (r/atom {:quarter (or (url/query-param "quarter") "2")
+                             :year    (or (url/query-param "year") "2026")})
         form-inputs (r/atom {})]
     (fn []
       (let [preview  @(rf/subscribe [:revops/leadership-preview])
