@@ -5,22 +5,27 @@
             [app.ds.layout :as layout]
             [app.auth.subs]))
 
-;; Unified MonthlyCycle page — feeds from
-;; GET /api/v1/monthly-cycles/:id (cycle aggregator).
+;; Unified MonthlyCycle page — a vertical step rail fed from
+;; GET /api/v1/monthly-cycles/:id (global component aggregator).
 ;;
-;; The cycle runs the apuração sequence: Apuração EV → Apuração CN →
-;; (quarter-end months only) Bônus CN, Bônus EV e Bônus Liderança.
+;; Sequence: Apuração EV → Apuração CN → (quarter-end months only)
+;; Bônus CN, Bônus EV e Bônus Liderança. The rail guides, never blocks.
 
-(def ^:private steps
+(def ^:private full-steps
   ["DRAFT" "CALCULATING" "VALIDATING" "LIDER_REVIEW" "REVOPS_REVIEW" "LOCKED"])
 
-(def ^:private step-labels
+(def ^:private full-step-labels
   {"DRAFT"         "Draft"
    "CALCULATING"   "Calculating"
    "VALIDATING"    "Validating"
    "LIDER_REVIEW"  "Líder Review"
    "REVOPS_REVIEW" "RevOps Review"
    "LOCKED"        "Locked"})
+
+(def ^:private bonus-steps ["PENDING" "CALCULATING" "LOCKED"])
+
+(def ^:private bonus-step-labels
+  {"PENDING" "Pendente" "CALCULATING" "Calculando" "LOCKED" "Final"})
 
 (def ^:private base-sequence
   [["ev_apuracao" "Apuração EV"]
@@ -219,73 +224,6 @@
 
       nil)))
 
-(defn- status->badge [status]
-  (case status
-    "PENDING"       [:span.badge.badge-locked "Pendente"]
-    "DRAFT"         [:span.badge.badge-draft "Draft"]
-    "CALCULATING"   [:span.badge.badge-calc "Calculating"]
-    "VALIDATING"    [:span.badge.badge-validating "Validating"]
-    "LIDER_REVIEW"  [:span.badge.badge-review "Líder Review"]
-    "REVOPS_REVIEW" [:span.badge.badge-review "RevOps Review"]
-    "LOCKED"        [:span.badge.badge-paid "Locked"]
-    [:span.badge.badge-locked (or status "·")]))
-
-(defn- stepper [current-status]
-  (let [idx (max 0 (.indexOf (clj->js steps) (or current-status "DRAFT")))]
-    [:div.stepper
-     (for [[i s] (map-indexed vector steps)
-           :let [done?    (< i idx)
-                 current? (= i idx)]]
-       ^{:key s}
-       [:<>
-        [:div.stepper-stack
-         [:div {:class (str "step" (cond done? " done" current? " current"))}
-          [:div.step-dot (str (inc i))]]
-         [:div.step-label (step-labels s)]]
-        (when (< i (dec (count steps)))
-          [:div.step-line])])]))
-
-(defn- component-card-for-team [team step-number label component-key component]
-  [:div.card
-   [:div.card-head
-    [:div
-     [:h4 (str step-number " · " label)]
-     [:div.card-sub (str "Time: " (:team_name team))]]
-    [status->badge (or (:status component) "PENDING")]]
-   [:div {:style {:padding "12px 0"}}
-    (let [validations-total (:validations_total component)
-          validations-done  (:validations_done component)
-          rows              (:rows component)
-          final             (:final component)
-          month             (:month component)
-          contest?          (:has_contestation component)]
-      [:<>
-       (cond
-         (and validations-total (pos? validations-total))
-         [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
-          (str validations-done " / " validations-total " validações concluídas")]
-
-         (and rows (pos? rows))
-         [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
-          (str final " / " rows " final"
-               (when month (str " · mês " month)))]
-
-         month
-         [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
-          (str "mês " month)]
-
-         :else
-         [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
-          "—"])
-       (when contest?
-         [:span.badge.badge-review {:style {:margin-top "6px"}}
-          "⚠ contestação aberta"])])]
-   [:div {:style {:display "flex" :gap "8px" :margin-top "8px"}}
-    (when-let [route (component-routes component-key)]
-      [:button.btn.btn-secondary.btn-sm
-       {:on-click #(rf/dispatch [:navigate route])}
-       "Abrir"])]])
-
 (defn- next-month [{:keys [month year]}]
   (if (< month 12)
     {:month (inc month) :year year}
@@ -316,21 +254,6 @@
                           cycles)]
        (when-not already? nm)))))
 
-(defn- header-banner [cycles cycle suggestion]
-  [:<>
-   (when (and (not cycle) suggestion)
-     [:div.callout
-      [layout/icon "info" {:width 20 :height 20}]
-      [:div {:style {:flex 1}}
-       [:strong (str (cycle-label suggestion) " pronto para apurar")]
-       [:div {:style {:font-size "13px" :color "var(--fg-3)"}}
-        (if (empty? (or cycles []))
-          "Abra o ciclo mensal atual para começar."
-          "O mês anterior está fechado. Abra o ciclo mensal para começar.")]]
-      [:button.btn.btn-primary.btn-sm
-       {:on-click #(rf/dispatch [:revops/open-monthly-cycle suggestion])}
-       (str "Abrir " (cycle-label suggestion))]])])
-
 (defn- pick-cycle
   "Default to the most-recent OPEN cycle, falling back to the latest row."
   [cycles]
@@ -338,6 +261,216 @@
                     (sort-by (juxt :year :month) #(compare %2 %1)))]
     (or (first (filter #(= "OPEN" (:status %)) sorted))
         (first sorted))))
+
+(defn- status->badge [status]
+  (case status
+    "PENDING"       [:span.badge.badge-locked "Pendente"]
+    "DRAFT"         [:span.badge.badge-draft "Draft"]
+    "CALCULATING"   [:span.badge.badge-calc "Calculating"]
+    "VALIDATING"    [:span.badge.badge-validating "Validating"]
+    "LIDER_REVIEW"  [:span.badge.badge-review "Líder Review"]
+    "REVOPS_REVIEW" [:span.badge.badge-review "RevOps Review"]
+    "LOCKED"        [:span.badge.badge-paid "Locked"]
+    [:span.badge.badge-locked (or status "·")]))
+
+(defn- mini-stepper
+  "Per-component state mini-stepper. Bonus components use the short
+   vocabulary; apurações/liderança use the full state machine."
+  [k current-status]
+  (let [bonus? (#{"cn_bonus" "ev_bonus"} k)
+        sts    (if bonus? bonus-steps full-steps)
+        labels (if bonus? bonus-step-labels full-step-labels)
+        idx    (max 0 (.indexOf (clj->js sts) (or current-status (first sts))))]
+    [:div.stepper
+     (for [[i s] (map-indexed vector sts)
+           :let [done?    (< i idx)
+                 current? (= i idx)]]
+       ^{:key s}
+       [:<>
+        [:div.stepper-stack
+         [:div {:class (str "step" (cond done? " done" current? " current"))}
+          [:div.step-dot (str (inc i))]]
+         [:div.step-label (labels s)]]
+        (when (< i (dec (count sts)))
+          [:div.step-line])])]))
+
+(defn- step-summary
+  "One line with the numbers that matter for a component."
+  [k component]
+  (let [{:keys [validations_total validations_done rows final expected
+                month has_contestation]} component
+        text (cond
+               (and validations_total (pos? validations_total))
+               (str validations_done " / " validations_total
+                    " validações concluídas")
+
+               (= k "cn_apuracao")
+               (if (and rows (pos? rows))
+                 (str rows " de " (or expected rows) " CNs apurados"
+                      (when month (str " · mês " month)))
+                 "—")
+
+               (and rows (pos? rows))
+               (str (or final 0) " / " rows " finais"
+                    (when expected (str " · " rows " de " expected)))
+
+               :else "—")]
+    [:<>
+     [:div.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
+      text]
+     (when has_contestation
+       [:span.badge.badge-review {:style {:margin-top "6px"}}
+        "⚠ contestação aberta"])]))
+
+(defn- action-button [cycle {:keys [kind label confirm? route] :as action}]
+  (when action
+    [:button.btn.btn-primary.btn-sm
+     {:on-click
+      (fn []
+        (cond
+          (= kind :navigate)
+          (rf/dispatch [:navigate route])
+
+          (and confirm?
+               (not (js/confirm (str label "? Esta ação avança o ciclo."))))
+          nil
+
+          :else
+          (rf/dispatch [:revops/cycle-action
+                        (assoc action :cycle-id (:id cycle))])))}
+     label]))
+
+(defn- detail-link [k]
+  (when-let [route (component-routes k)]
+    [:button.btn.btn-secondary.btn-sm
+     {:on-click #(rf/dispatch [:navigate route])}
+     "Ver detalhes →"]))
+
+(defn- bonus-guidance
+  "Soft warning when a bonus step is opened while apurações are open.
+   Guides, never blocks."
+  [cycle k]
+  (when (and (#{"cn_bonus" "ev_bonus" "leadership_bonus"} k)
+             (some #(not= "LOCKED" (:status (component-of cycle %)))
+                   ["ev_apuracao" "cn_apuracao"]))
+    [:div.callout {:style {:margin "8px 0"}}
+     [layout/icon "info" {:width 16 :height 16}]
+     [:div {:style {:font-size "12px" :color "var(--fg-3)"}}
+      "Recomendado concluir as Apurações EV e CN antes dos bônus."]]))
+
+(defn- step-card
+  [cycle idx k label {:keys [expanded? current? read-only? on-toggle]}]
+  (let [component (component-of cycle k)
+        status    (or (:status component) "PENDING")
+        done?     (= "LOCKED" status)]
+    [:div.card {:style {:margin-top "12px"
+                        :border (when current?
+                                  "1px solid var(--accent, #4f7cff)")
+                        :opacity (if (or done? current? expanded?) 1 0.72)}}
+     [:div.card-head {:style {:cursor "pointer"} :on-click on-toggle}
+      [:div {:style {:display "flex" :align-items "center" :gap "10px"}}
+       [:div.step-dot {:style {:flex-shrink 0}} (if done? "✓" (str idx))]
+       [:div
+        [:h4 label]
+        (when current?
+          [:div.card-sub "Você está aqui"])]]
+      [:div {:style {:display "flex" :gap "10px" :align-items "center"}}
+       (when-not expanded? [step-summary k component])
+       [status->badge status]]]
+     (when expanded?
+       [:div {:style {:padding "4px 0 8px"}}
+        (when-not (= "PENDING" status)
+          [mini-stepper k status])
+        [:div {:style {:padding "10px 0"}}
+         [step-summary k component]]
+        [bonus-guidance cycle k]
+        (when (= "VALIDATING" status)
+          [:div.muted {:style {:font-size "12px" :margin-bottom "8px"}}
+           (if (= k "ev_apuracao")
+             "Aguardando os EVs validarem; avança sozinho ao concluir."
+             "Aguardando validações.")])
+        [:div {:style {:display "flex" :gap "8px" :margin-top "4px"}}
+         (when-not read-only?
+           [action-button cycle (next-action k component cycle)])
+         [detail-link k]]])]))
+
+(defn- quarter-divider [cycle]
+  [:div {:style {:display "flex" :align-items "center" :gap "12px"
+                 :margin "20px 0 4px"}}
+   [:div {:style {:flex 1 :height "1px" :background "var(--border, #333)"}}]
+   [:strong {:style {:font-size "12px" :letter-spacing "0.08em"
+                     :color "var(--fg-3)"}}
+    (str "FECHAMENTO DO Q" (:quarter cycle))]
+   [:div {:style {:flex 1 :height "1px" :background "var(--border, #333)"}}]])
+
+(defn- next-action-band [cycle]
+  (when (not= "LOCKED" (:status cycle))
+    (let [k         (current-step-key cycle)
+          labels    (into {} (components-for cycle))
+          component (component-of cycle k)
+          action    (when k (next-action k component cycle))]
+      (when k
+        [:div.callout {:style {:margin-top "16px"}}
+         [layout/icon "info" {:width 20 :height 20}]
+         [:div {:style {:flex 1}}
+          [:strong (str "Próximo passo: " (get labels k))]
+          [:div {:style {:font-size "13px" :color "var(--fg-3)"}}
+           (if action
+             (:label action)
+             "Aguardando validações — nada a fazer agora.")]]
+         (when action [action-button cycle action])]))))
+
+(defn- progress-bar [cycle]
+  (let [{:keys [done total]} (progress cycle)]
+    [:div {:style {:display "flex" :align-items "center" :gap "10px"}}
+     [:div {:style {:flex 1 :height "6px" :border-radius "3px"
+                    :background "var(--bg-3, #222)" :overflow "hidden"}}
+      [:div {:style {:width (str (if (pos? total)
+                                   (js/Math.round (* 100 (/ done total)))
+                                   0) "%")
+                     :height "100%"
+                     :background "var(--accent, #4f7cff)"}}]]
+     [:span.muted {:style {:font-family "var(--font-mono)" :font-size "12px"}}
+      (str done " de " total " passos concluídos")]]))
+
+(defn- cycle-selector [cycles selection]
+  (let [cyc    (cycle-for-month cycles selection)
+        sorted (->> (or cycles [])
+                    (sort-by (juxt :year :month) #(compare %2 %1)))]
+    [:div.card {:style {:display "flex" :align-items "center" :gap "12px"
+                        :padding "14px 18px"}}
+     [:button.btn.btn-secondary.btn-sm
+      {:on-click #(rf/dispatch [:revops/select-cycle-month
+                                (prev-month selection)])}
+      "‹"]
+     [:div {:style {:flex 1 :text-align "center"}}
+      [:strong {:style {:font-size "16px"}} (cycle-label selection)]
+      [:span {:style {:margin-left "10px"}}
+       (cond
+         (nil? cyc)                    [:span.badge.badge-locked "Sem ciclo"]
+         (= "OPEN" (:status cyc))      [:span.badge.badge-calc "Em andamento"]
+         (= "LOCKED" (:status cyc))    [:span.badge.badge-paid "Fechado"]
+         :else                         [:span.badge.badge-locked (:status cyc)])]]
+     [:button.btn.btn-secondary.btn-sm
+      {:on-click #(rf/dispatch [:revops/select-cycle-month
+                                (next-month selection)])}
+      "›"]
+     (when (seq sorted)
+       [:select {:value     (str (:month selection) "-" (:year selection))
+                 :on-change (fn [e]
+                              (let [[m y] (.split (.. e -target -value) "-")]
+                                (rf/dispatch [:revops/select-cycle-month
+                                              {:month (js/parseInt m)
+                                               :year  (js/parseInt y)}])))
+                 :style {:margin-left "8px"}}
+        (when (nil? (cycle-for-month sorted selection))
+          [:option {:value (str (:month selection) "-" (:year selection))}
+           (cycle-label selection)])
+        (for [c sorted]
+          ^{:key (:id c)}
+          [:option {:value (str (:month c) "-" (:year c))}
+           (str (cycle-label c)
+                (if (= "LOCKED" (:status c)) " · fechado" " · aberto"))])])]))
 
 (defn- delete-cycle-btn [cycle]
   (let [{:keys [id status]} cycle
@@ -354,82 +487,87 @@
                    (rf/dispatch [:revops/delete-monthly-cycle id]))}
      "Excluir ciclo"]))
 
+(defn- open-cycle-cta [selection]
+  [:div.card
+   [:div.empty
+    [:h4 (str "Nenhum ciclo para " (cycle-label selection))]
+    [:p "Abra o ciclo para começar a apuração deste mês."]
+    [:button.btn.btn-primary
+     {:on-click #(rf/dispatch [:revops/open-monthly-cycle selection])}
+     (str "Abrir " (cycle-label selection))]]])
+
+(defn- rail [cycle read-only? expanded toggle!]
+  (let [comps (components-for cycle)
+        cur   (when-not read-only? (current-step-key cycle))]
+    [:<>
+     (for [[i [k label]] (map-indexed vector comps)]
+       ^{:key k}
+       [:<>
+        (when (= k "cn_bonus") [quarter-divider cycle])
+        [step-card cycle (inc i) k label
+         {:expanded?  (or (contains? @expanded k)
+                          (and (not read-only?) (= k cur)))
+          :current?   (= k cur)
+          :read-only? read-only?
+          :on-toggle  #(toggle! k)}]])]))
+
 (defn page []
   (rf/dispatch [:revops/fetch-monthly-cycles])
-  (fn []
-    (let [cycles     @(rf/subscribe [:revops/monthly-cycles])
-          loading?   @(rf/subscribe [:revops/monthly-cycle-loading?])
-          user       @(rf/subscribe [:auth/current-user])
-          route      @(rf/subscribe [:current-route-name])
-          target     (pick-cycle cycles)
-          last-cycle (first (->> (or cycles [])
-                                 (sort-by (juxt :year :month) #(compare %2 %1))))
-          suggestion (suggest-cycle cycles last-cycle)
-          cycle-id   (:id target)
-          detail     @(rf/subscribe [:revops/monthly-cycle])
-          cycle      (when (and detail target (= (:id detail) cycle-id)) detail)]
-      (when (and cycle-id (or (not detail) (not= (:id detail) cycle-id)))
-        (rf/dispatch [:revops/fetch-monthly-cycle-detail cycle-id]))
-      [layout/page-shell
-       {:current-route route :user user
-        :crumbs ["plataforma rv" "admin" "ciclo mensal"]
-        :title (if cycle
-                 (str (cycle-label cycle)
-                      " · " (case (:status cycle)
-                              "OPEN" "Em andamento"
-                              "LOCKED" "Fechado"
-                              (:status cycle)))
-                 "Ciclo Mensal")
-        :subtitle "Sequência da apuração: EVs, CNs e — no fechamento do trimestre — os bônus"
-        :header-actions (when cycle (delete-cycle-btn cycle))}
+  (let [expanded (r/atom #{})
+        toggle!  (fn [k] (swap! expanded
+                                #(if (contains? % k) (disj % k) (conj % k))))]
+    (fn []
+      (let [cycles    @(rf/subscribe [:revops/monthly-cycles])
+            loading?  @(rf/subscribe [:revops/monthly-cycle-loading?])
+            user      @(rf/subscribe [:auth/current-user])
+            route     @(rf/subscribe [:current-route-name])
+            selection (or @(rf/subscribe [:revops/monthly-cycle-selection])
+                          (when-let [t (pick-cycle cycles)]
+                            {:month (:month t) :year (:year t)})
+                          (current-cycle-suggestion))
+            target    (cycle-for-month cycles selection)
+            detail    @(rf/subscribe [:revops/monthly-cycle])
+            cycle     (when (and detail target (= (:id detail) (:id target)))
+                        detail)
+            read-only? (= "LOCKED" (:status cycle))]
+        (when (and target (or (not detail) (not= (:id detail) (:id target))))
+          (rf/dispatch [:revops/fetch-monthly-cycle-detail (:id target)]))
+        [layout/page-shell
+         {:current-route route :user user
+          :crumbs ["plataforma rv" "admin" "ciclo mensal"]
+          :title "Ciclo Mensal"
+          :subtitle "Sequência da apuração: EVs, CNs e — no fechamento do trimestre — os bônus"
+          :header-actions (when cycle (delete-cycle-btn cycle))}
 
-       [header-banner cycles cycle suggestion]
+         [cycle-selector cycles selection]
 
-       (cond
-         loading?
-         [:div.card [:div {:style {:padding "32px" :text-align "center"
-                                    :color "var(--fg-3)"}} "Carregando…"]]
+         (cond
+           (not target)
+           [open-cycle-cta selection]
 
-         (and (not cycle) (empty? (or cycles [])))
-         [:div.card
-          [:div.empty
-           [:h4 "Nenhum ciclo aberto"]
-           [:p "Use o botão acima para abrir o próximo ciclo mensal."]]]
+           (or loading? (not cycle))
+           [:div.card [:div {:style {:padding "32px" :text-align "center"
+                                      :color "var(--fg-3)"}} "Carregando…"]]
 
-         (not cycle)
-         [:div.card [:div {:style {:padding "32px" :text-align "center"
-                                    :color "var(--fg-3)"}}
-                     "Selecione um ciclo para ver os detalhes."]]
-
-         :else
-         (let [comps (components-for cycle)]
+           :else
            [:<>
-            ;; Stepper using the OPEN cycle's status as the cohort summary.
-            [:div.card {:style {:padding "18px 20px"}}
-             [:h3 "Progresso geral"]
-             [stepper (or (:status cycle) "OPEN")]]
-
-            (when (:is_quarter_end cycle)
-              [:div.callout {:style {:margin-top "16px"}}
-               [layout/icon "info" {:width 20 :height 20}]
-               [:div {:style {:flex 1}}
-                [:strong (str "Fechamento do Q" (:quarter cycle))]
-                [:div {:style {:font-size "13px" :color "var(--fg-3)"}}
-                 "Último mês do trimestre: além das apurações, este ciclo inclui Bônus CN, Bônus EV e Bônus Liderança."]]])
-
-            ;; Component cards, grouped per team, in sequence order.
-            (for [team (:teams cycle)]
-              ^{:key (or (:team_id team) (:team_name team))}
-              [:div {:style {:margin-top "20px"}}
-               [:h3 {:style {:margin-bottom "8px"}}
-                (:team_name team)]
-               [:div.muted {:style {:font-family "var(--font-mono)"
-                                     :font-size "11px"
-                                     :margin-bottom "12px"}}
-                (str (:ev_count team) " EVs · " (:cn_count team) " CNs")]
-               [:div.form-grid.-three
-                (for [[i [k label]] (map-indexed vector comps)]
-                  ^{:key k}
-                  [component-card-for-team team (inc i) label k
-                   (get-in team [:components (keyword k)]
-                            (get-in team [:components k]))])]])]))])))
+            [:div.card {:style {:padding "16px 20px" :margin-top "16px"}}
+             [progress-bar cycle]]
+            (if read-only?
+              (let [nm (next-month {:month (:month cycle)
+                                    :year  (:year cycle)})]
+                [:div.callout {:style {:margin-top "16px"}}
+                 [layout/icon "info" {:width 20 :height 20}]
+                 [:div {:style {:flex 1}}
+                  [:strong "Ciclo fechado"]
+                  [:div {:style {:font-size "13px" :color "var(--fg-3)"}}
+                   (str "Travado em "
+                        (some-> (:locked_at cycle) (subs 0 10))
+                        ". Histórico em modo leitura.")]]
+                 (when-not (cycle-for-month cycles nm)
+                   [:button.btn.btn-primary.btn-sm
+                    {:on-click #(do (rf/dispatch [:revops/select-cycle-month nm])
+                                    (rf/dispatch [:revops/open-monthly-cycle nm]))}
+                    (str "Abrir " (cycle-label nm))])])
+              [next-action-band cycle])
+            [rail cycle read-only? expanded toggle!]])]))))
