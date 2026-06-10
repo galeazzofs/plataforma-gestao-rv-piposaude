@@ -123,8 +123,8 @@
          (.padStart (str (mod (.getFullYear d) 100)) 2 "0"))))
 
 ;; ----- Row 1: KPI cards ------------------------------------------------
-;; Potencial a pagar = A apurar + Projetado, restricted to policies still
-;;   inside their 12-month commission lifecycle.
+;; Potencial a pagar = A apurar + Projetado, valued at potencial contratual/12
+;;   per remaining month of the 12-month commission clock (never raw NF).
 ;; Comissão Paga     = Σ policies.total_paid_comissao + total_paid_agenciamento.
 ;; Obrigação aberta  = non-realized monthly competencies in current filter.
 
@@ -602,7 +602,7 @@
       [:div.card.fluxo-card
        [:div.card-head
         [:div [:h3 "Fluxo de caixa projetado"]
-         [:div.card-sub "recebíveis projetados · comissão + agenciamento"]]
+         [:div.card-sub "comissão a pagar projetada · por competência mensal"]]
         (when as-of [:span.card-asof (str "atualizado " as-of)])]
        (if filtered?
          [:div.horizon-strip.period-summary

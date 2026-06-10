@@ -3,6 +3,13 @@
 This module has no database dependency. Callers pass policy snapshots and
 matched financial rows; the engine returns monthly Realizado / A apurar /
 Projetado entries plus totals that Finance can later expose.
+
+Money scales (decided 2026-06-10, see docs/adr/0001): imported NF rows carry
+gross commission revenue received from operadoras — a different scale from
+the EV payable (commission_potential = MRR × 12 × EV pct). Payable values
+(A apurar / Projetado) therefore always use the contractual monthly potential
+(commission_potential / 12); NF rows only decide month states, clock
+reservation and Realizado amounts.
 """
 from __future__ import annotations
 
@@ -66,7 +73,6 @@ class PolicyFinancialState:
     commission_potential: Decimal | int | str | float
     projection_start_month: str
     initial_installments_paid: int = 0
-    commission_paid_legacy: Decimal | int | str | float = Decimal("0")
     commission_status: str | None = None
 
 
@@ -160,28 +166,14 @@ def positive_commission_month_count(months: dict[str, MonthlyRevenue]) -> int:
     return sum(1 for revenue in months.values() if revenue.comissao > 0)
 
 
-def compute_real_weighted_average(
-    *,
-    commission_paid_legacy: Decimal | int | str | float | None,
-    initial_installments_paid: int | None,
-    locked_months: dict[str, MonthlyRevenue],
+def contractual_monthly_potential(
     commission_potential: Decimal | int | str | float | None,
 ) -> Decimal:
-    """Weighted monthly Comissao.
+    """Monthly payable Comissao: always commission_potential / 12.
 
-    Real signal wins: legacy Comissao + locked platform Comissao, divided by
-    legacy months + positive locked Comissao months. Contractual monthly
-    potential is fallback only. No cap is applied.
+    Real NF history never recalibrates this — NF rows are gross operadora
+    revenue, not the EV payable scale.
     """
-    legacy_months = max(0, int(initial_installments_paid or 0))
-    legacy_paid = _money(commission_paid_legacy)
-    locked_commissao = _money(sum((m.comissao for m in locked_months.values()), Decimal("0")))
-    locked_positive_months = positive_commission_month_count(locked_months)
-    real_months = legacy_months + locked_positive_months
-
-    if real_months > 0:
-        return _money((legacy_paid + locked_commissao) / Decimal(real_months))
-
     potential = _money(commission_potential)
     if potential <= 0:
         return Decimal("0.00")
@@ -194,10 +186,12 @@ def build_monthly_financial_engine(
 ) -> MonthlyFinancialResult:
     """Build monthly payable obligation entries.
 
-    LOCKED rows become Realizado and do not enter payable_potential.
-    Pending matched rows become A apurar and replace projection for that
-    policy-month. Pending positive net Comissao reserves one clock month but
-    does not recalibrate future projection average.
+    LOCKED rows become Realizado (at their NF amounts, money actually
+    received) and do not enter payable_potential. Pending matched rows with
+    positive net Comissao become A apurar valued at the contractual monthly
+    potential and reserve one clock month; agenciamento-only pending months
+    are not payable and do not reserve the clock. Projection fills the
+    remaining clock months at the contractual monthly potential.
     """
     locked_by_policy, pending_by_policy = split_locked_and_pending(rows)
     entries: list[MonthlyFinancialEntry] = []
@@ -238,12 +232,7 @@ def build_monthly_financial_engine(
             ))
             realized_total += revenue.total
 
-        monthly_projected = compute_real_weighted_average(
-            commission_paid_legacy=policy.commission_paid_legacy,
-            initial_installments_paid=policy.initial_installments_paid,
-            locked_months=locked_months,
-            commission_potential=policy.commission_potential,
-        )
+        monthly_projected = contractual_monthly_potential(policy.commission_potential)
 
         locked_count = positive_commission_month_count(locked_months)
         clock_months = min(12, max(0, int(policy.initial_installments_paid or 0)) + locked_count)
@@ -253,20 +242,21 @@ def build_monthly_financial_engine(
             if clock_months >= 12:
                 break
             revenue = pending_months[month]
-            if revenue.total != 0:
+            if not revenue.reserves_commission_month:
+                continue
+            if monthly_projected > 0:
                 entries.append(MonthlyFinancialEntry(
                     policy_id=policy.policy_id,
                     month=month,
                     state=A_APURAR,
-                    amount=revenue.total,
-                    comissao=revenue.comissao,
-                    agenciamento=revenue.agenciamento,
-                    reserves_commission_month=revenue.reserves_commission_month,
+                    amount=monthly_projected,
+                    comissao=monthly_projected,
+                    agenciamento=Decimal("0.00"),
+                    reserves_commission_month=True,
                 ))
-                pending_total += revenue.total
-            if revenue.reserves_commission_month:
-                clock_months += 1
-                pending_reserved += 1
+                pending_total += monthly_projected
+            clock_months += 1
+            pending_reserved += 1
 
         pending_month_keys = set(pending_months.keys())
         occupied_months = set(locked_months.keys()) | pending_month_keys

@@ -294,18 +294,20 @@ def test_dashboard_pending_import_replaces_projected_policy_month(
     assert resp.status_code == 200
     data = resp.get_json()["data"]
     jan = next(p for p in data["fluxo_caixa"]["series"] if p["ym"] == "2026-01")
-    assert jan["a_apurar"] == "80.00"
+    # The imported NF marks January as A apurar, but its payable value is the
+    # contractual monthly (720 / 12 = 60), not the gross NF amount.
+    assert jan["a_apurar"] == "60.00"
     assert jan["projetado"] is None
     assert jan["estado"] == "A_APURAR"
-    assert data["fluxo_caixa"]["period_summary"]["a_apurar"] == "80.00"
+    assert data["fluxo_caixa"]["period_summary"]["a_apurar"] == "60.00"
     assert data["fluxo_caixa"]["period_summary"]["projetado"] == "120.00"
-    assert data["fluxo_caixa"]["period_summary"]["potencial_a_pagar"] == "200.00"
-    assert data["potencial_a_pagar"] == "200.00"
-    assert data["comissao_potencial"] == "200.00"
-    assert data["saldo_devedor_total"] == "200.00"
+    assert data["fluxo_caixa"]["period_summary"]["potencial_a_pagar"] == "180.00"
+    assert data["potencial_a_pagar"] == "180.00"
+    assert data["comissao_potencial"] == "180.00"
+    assert data["saldo_devedor_total"] == "180.00"
 
 
-def test_dashboard_locked_apuracao_shows_realizado_and_recalibrates_projection(
+def test_dashboard_locked_apuracao_shows_realizado_and_does_not_recalibrate_projection(
     client, db_session, frozen_finance_today
 ):
     _seed_m_pct_table()
@@ -350,8 +352,10 @@ def test_dashboard_locked_apuracao_shows_realizado_and_recalibrates_projection(
     assert jan["estado"] == "REALIZADO"
     assert data["fluxo_caixa"]["period_summary"]["realizado"] == "80.00"
     assert data["fluxo_caixa"]["period_summary"]["a_apurar"] == "0"
-    assert data["fluxo_caixa"]["period_summary"]["projetado"] == "160.00"
-    assert data["potencial_a_pagar"] == "160.00"
+    # The locked NF consumes one clock month but the projection stays at the
+    # contractual monthly (60): Feb + Mar visible in Q1 = 120.
+    assert data["fluxo_caixa"]["period_summary"]["projetado"] == "120.00"
+    assert data["potencial_a_pagar"] == "120.00"
 
 
 def test_dashboard_excludes_settled_policy_from_payable_potential(

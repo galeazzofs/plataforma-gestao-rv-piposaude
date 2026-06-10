@@ -8,6 +8,9 @@ Optional filters: ?year=YYYY&quarter=1..4. Both default to all-time.
 
 Data sources, in priority order:
 - Policy.commission_potential (model property, MRR × 12 × commission_pct).
+  The payable projection is always commission_potential / 12 per remaining
+  clock month — NF revenue never recalibrates it (different money scale,
+  see docs/adr/0001).
 - Policy.total_paid_comissao / total_paid_agenciamento (recomputed when
   an Appraisal transitions to LOCKED, see policy_paid_totals.py).
 - Commission.total_actual (per-quarter EV commission once the apuração
@@ -163,23 +166,6 @@ def _month_matches_period(
     return True
 
 
-def _sum_paid_for_policy(p: Policy) -> Decimal:
-    """Best signal of "what was paid for this policy", until the
-    Policy.total_paid_* columns are populated by an upstream pipeline."""
-    explicit = (p.total_paid_comissao or Decimal("0")) + (
-        p.total_paid_agenciamento or Decimal("0")
-    )
-    if explicit > 0:
-        return explicit
-    # Fall back to summing finalised Commission rows for the policy.
-    derived = Decimal("0")
-    for c in p.commissions or []:
-        if c.is_final and c.total_actual is not None:
-            derived += c.total_actual
-    legacy = p.commission_paid_legacy or Decimal("0")
-    return derived + legacy
-
-
 def _month_from_date(value: date | None, fallback: date) -> str:
     source = value or fallback
     return source.strftime("%Y-%m")
@@ -212,7 +198,6 @@ def _finance_policy_states(active_policies, fallback: date) -> list[PolicyFinanc
             commission_potential=policy.commission_potential or Decimal("0"),
             projection_start_month=_policy_projection_start_month(policy, fallback),
             initial_installments_paid=policy.initial_installments_paid or 0,
-            commission_paid_legacy=policy.commission_paid_legacy or Decimal("0"),
             commission_status=(
                 policy.commission_status.value
                 if hasattr(policy.commission_status, "value")
@@ -298,73 +283,6 @@ def _monthly_finance_view(today: date):
         entries_by_month[entry.month]["apolices"].add(entry.policy_id)
 
     return engine, entries_by_month
-
-
-# ---------------------------------------------------------------------------
-# Per-policy projection (Row 3)
-# ---------------------------------------------------------------------------
-
-
-def _project_policy(
-    p: Policy, ref_date: date, future_months: int
-) -> dict[str, Decimal]:
-    """Build {YYYY-MM: amount} for one policy's expected future payments.
-
-    Rules:
-    - Already-paid months are not projected (we never re-schedule).
-    - If installments_paid >= 1: monthly = (paid_total / installments_paid)
-      — i.e. running average of what's already been paid per month.
-    - If installments_paid == 0: monthly = commission_potential / 12.
-    - Settled / cancelled / fully-paid policies contribute nothing.
-    """
-    if p.commission_status in (
-        CommissionStatus.SETTLED,
-        CommissionStatus.CANCELLED,
-    ):
-        return {}
-
-    months_paid = min(p.installments_paid or 0, 12)
-    months_remaining = max(0, 12 - months_paid)
-    if months_remaining == 0:
-        return {}
-
-    if months_paid >= 1:
-        paid_total = _sum_paid_for_policy(p)
-        if paid_total <= 0:
-            # Falls back to potential-based projection if the policy has
-            # installments counted but no money recorded yet.
-            potencial = p.commission_potential
-            if potencial is None or potencial <= 0:
-                return {}
-            monthly = (potencial / Decimal("12")).quantize(Decimal("0.01"))
-        else:
-            monthly = (paid_total / Decimal(months_paid)).quantize(
-                Decimal("0.01")
-            )
-    else:
-        potencial = p.commission_potential
-        if potencial is None or potencial <= 0:
-            return {}
-        monthly = (potencial / Decimal("12")).quantize(Decimal("0.01"))
-
-    if monthly <= 0:
-        return {}
-
-    start = _payment_start(p) or ref_date
-    horizon_end = ref_date + relativedelta(months=future_months)
-
-    buckets: dict[str, Decimal] = {}
-    for i in range(months_remaining):
-        scheduled = start + relativedelta(months=months_paid + i)
-        # Skip months in the past (already paid or missed).
-        if (scheduled.year, scheduled.month) < (ref_date.year, ref_date.month):
-            continue
-        if scheduled > horizon_end:
-            break
-        ym = scheduled.strftime("%Y-%m")
-        buckets[ym] = buckets.get(ym, Decimal("0")) + monthly
-
-    return buckets
 
 
 # ---------------------------------------------------------------------------

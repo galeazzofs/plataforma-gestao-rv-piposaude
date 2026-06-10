@@ -56,17 +56,17 @@ _Avoid_: first received month, first agenciamento month
 Manually curated pre-platform Comissao months already paid for a policy.
 _Avoid_: recalculated legacy months, imported agenciamento months
 
-**Media mensal legada de Comissao**:
-Pre-platform paid Comissao divided by manually curated legacy Comissao months.
-_Avoid_: contractual monthly potential
-
 **Mensal projetado de Comissao**:
-The monthly amount Finance uses to project future Comissao payments for a policy.
-_Avoid_: paid monthly amount, agenciamento monthly amount
+The monthly amount Finance uses to project future Comissao payments for a policy: always **Comissao potencial da apolice** divided by 12.
+_Avoid_: paid monthly amount, agenciamento monthly amount, NF-derived average, media real ponderada (superseded 2026-06-10, see ADR-0001)
 
-**Media real ponderada de Comissao**:
-Legacy Comissao plus platform Comissao divided by legacy months plus positive platform Comissao months.
-_Avoid_: platform-only average, contractual average
+**Escala NF bruta**:
+The money scale of imported NF rows — gross commission revenue Pipo receives from operadoras. Roughly 10-30x larger than the EV payable for the same policy-month.
+_Avoid_: payable amount, EV commission, obligation
+
+**Escala pagavel ao EV**:
+The money scale of what Pipo pays EVs — NF revenue times the EV commission percentage (Commission.monthly_actual, commission_potential, commission_paid_legacy).
+_Avoid_: NF amount, gross revenue, faturamento
 
 **Receita nao comissionavel**:
 Financial-import revenue that must not count anywhere in the platform's commission, projected cash-flow, paid-total, potential-commission, or payable-obligation calculations.
@@ -111,21 +111,21 @@ _Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 - A **Mes de comissao pago** exists only when the **Liquido mensal de Comissao** is positive.
 - **Primeiro mes de Comissao** starts the **Relogio de 12 meses da apolice**.
 - **Meses legados de Comissao** reduce remaining months in the **Relogio de 12 meses da apolice** and must not be automatically recalculated or overwritten.
-- **Media mensal legada de Comissao** calibrates **Potencial a pagar** when no platform Comissao months exist yet.
-- **Mensal projetado de Comissao** uses **Media real ponderada de Comissao** when any real legacy or platform Comissao exists, and policy contractual monthly potential only as fallback.
-- **Media real ponderada de Comissao** is not capped by **Comissao potencial da apolice** because policy MRR is also a forecast.
+- **Escala NF bruta** and **Escala pagavel ao EV** must never be summed, averaged, or compared as if they were the same quantity.
+- **Potencial a pagar** is always on the **Escala pagavel ao EV**: **Mensal projetado de Comissao** times the remaining months of the **Relogio de 12 meses da apolice**.
+- **Mensal projetado de Comissao** is always **Comissao potencial da apolice** / 12; imported or LOCKED NF revenue never recalibrates it (ADR-0001, 2026-06-10 — supersedes the former media real ponderada).
 - **Mes financeiro** defines monthly grouping for the **Relogio de 12 meses da apolice**, **Liquido mensal de Comissao**, Finance dashboards, and projected cash flow.
 - Finance uses **Competencia mensal** for cash-flow display: the monthly apuracao changes monthly values from projected to realized when LOCKED, but does not move them into the apuracao execution month.
 - Finance monthly cash flow distinguishes **Realizado**, **A apurar**, and **Projetado** values.
-- **A apurar** uses imported matched financial rows when available and falls back to projection only when no imported value exists for that competency.
+- Imported matched financial rows decide which competencies are **A apurar**; the payable value of an **A apurar** month is the **Mensal projetado de Comissao**, never the raw NF amount (**Escala NF bruta**).
 - For each policy and **Mes financeiro**, **A apurar** replaces **Projetado** when imported matched values exist; the same policy-month must never be counted twice.
-- **A apurar** values do not recalibrate **Mensal projetado de Comissao** until their apuracao becomes LOCKED.
+- **A apurar** values never recalibrate **Mensal projetado de Comissao**.
 - **A apurar** months with positive net Comissao reserve a month in the 12-month clock for projection purposes, but do not officially update paid months until LOCKED.
 - **Agenciamento** is paid and accumulated on the policy, but does not increment the **Relogio de 12 meses da apolice**.
 - **Agenciamento** can appear by itself in an **A apurar** month, often at the beginning of a policy, and still does not start or reserve the commission clock.
 - **Agenciamento** is not projected into future Finance cash flow unless a future rule explicitly makes it predictable.
 - **Agenciamento** is payable during an open **Relogio de 12 meses da apolice**, including the same financial month that completes the twelfth Comissao month.
-- Imported **Agenciamento** in an **A apurar** month contributes to **Potencial a pagar** until LOCKED; future **Projetado** months do not include Agenciamento.
+- **Agenciamento** does not enter **Potencial a pagar** at all (neither **A apurar** nor **Projetado**); it is paid through the apuracao and appears in Realizado/paid totals once LOCKED (revised 2026-06-10, ADR-0001).
 - **Apolice totalmente paga** is excluded from future apuracao, **Potencial a pagar**, and Finance projected cash flow.
 - Finance projected cash flow is the monthly distribution of **Potencial a pagar** and must reconcile to it.
 - Financial-month processing checks whether a policy was already an **Apolice totalmente paga** before the month; if not, eligible Comissao and Agenciamento for that month are paid before the policy can become fully paid for future months.
@@ -168,14 +168,11 @@ _Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 > **Dev:** "Can we recalculate legacy months from imported data?"
 > **Domain expert:** "No. The existing legacy month counts were manually curated and must be preserved."
 
-> **Dev:** "If a policy has legacy paid commission but no platform commission months yet, how should Finance project it?"
-> **Domain expert:** "Use legacy paid Comissao divided by legacy Comissao months, then multiply by remaining months."
+> **Dev:** "Should locked NF months or legacy paid amounts recalibrate Finance's monthly projection?" _(revised 2026-06-10, ADR-0001)_
+> **Domain expert:** "No. NF rows carry the gross commission Pipo receives from operadoras — a different money scale from what Pipo pays. The projection takes the comissao potencial and distributes it across the remaining clock months."
 
-> **Dev:** "What should Finance use for monthly projection when real platform Comissao, legacy Comissao, and contractual potential all exist?"
-> **Domain expert:** "Combine real legacy Comissao and real platform Comissao as a weighted average; use contractual monthly potential only when no real Comissao exists."
-
-> **Dev:** "Should Finance cap the real weighted average at the policy's contractual monthly potential?"
-> **Domain expert:** "No. MRR is also a forecast; real NF revenue can be higher and should drive the Finance forecast."
+> **Dev:** "Commissions were paid before the platform existed — does that change the projection?"
+> **Domain expert:** "No. Legacy months only consume the 12-month clock; the projected value per remaining month is still the contractual monthly potential."
 
 > **Dev:** "If a policy reaches 12 paid Comissao months, should later revenue still generate payment?"
 > **Domain expert:** "No. Once a policy is fully paid, it should not generate future apuracao, Potencial a pagar, or projected cash flow."
@@ -204,14 +201,11 @@ _Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 > **Dev:** "What should April-June show as in July before Q2 is LOCKED?"
 > **Domain expert:** "A apurar. They already belong to past monthly competencies but are not realized until the quarterly apuracao is locked."
 
-> **Dev:** "If NFs for an open quarter have already been imported, should A apurar use them or keep the forecast?"
-> **Domain expert:** "Use the imported matched values. Forecast is only the fallback when no imported value exists yet."
+> **Dev:** "If NFs for an open period have already been imported, what changes in the cash flow?" _(revised 2026-06-10, ADR-0001)_
+> **Domain expert:** "The month shows as A apurar instead of Projetado, and a positive Comissao month reserves the clock. The payable value stays the contractual monthly potential — never the raw NF amount."
 
 > **Dev:** "Does A apurar add on top of Projetado?"
 > **Domain expert:** "No. A apurar replaces Projetado for that policy-month when imported matched values exist."
-
-> **Dev:** "Should an imported but not locked month recalibrate future projections?"
-> **Domain expert:** "No. It replaces that month only; it enters the projection average after the quarterly apuracao is LOCKED."
 
 > **Dev:** "Should an A apurar month with positive Comissao prevent projecting an extra thirteenth month?"
 > **Domain expert:** "Yes. It reserves one clock month for projection, but only becomes an official paid month when LOCKED."
@@ -219,8 +213,8 @@ _Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 > **Dev:** "If an A apurar month only has Agenciamento, does it reserve a commission month?"
 > **Domain expert:** "No. It is payable while the policy is open, but it does not start or reserve the Comissao clock."
 
-> **Dev:** "Does pending imported Agenciamento enter Potencial a pagar?"
-> **Domain expert:** "Yes, while it is A apurar. Future projected months do not include Agenciamento."
+> **Dev:** "Does pending imported Agenciamento enter Potencial a pagar?" _(revised 2026-06-10, ADR-0001)_
+> **Domain expert:** "No. Agenciamento is paid through the apuracao when the month locks; the projected payable only covers Comissao at the contractual monthly potential."
 
 > **Dev:** "If a policy reaches 12/12 in April during a Q2 apuracao, can May or June still generate payment?"
 > **Domain expert:** "No. Process months chronologically and stop eligibility after the month that completes 12/12."
@@ -234,3 +228,4 @@ _Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 ## Flagged Ambiguities
 
 - "tipo de receita" was previously treated inconsistently across calculation and finance views. Resolved: only **Comissao** and **Agenciamento** are **Receita comissionavel**.
+- The Finance payable previously mixed **Escala NF bruta** and **Escala pagavel ao EV** in one KPI (R$3.69M instead of ~R$792k, found 2026-06-10). Resolved by ADR-0001: payable values always use **Mensal projetado de Comissao** = potencial contratual / 12; NF rows only drive month states, clock reservation, and Realizado.
