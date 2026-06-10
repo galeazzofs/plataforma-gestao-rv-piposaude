@@ -172,17 +172,18 @@ def finalize_cn_appraisal(appraisal_id):
         return jsonify({"error": {"code": "ALREADY_FINAL"}}), 409
 
     # Walk through the state machine to LOCKED. This preserves the
-    # invariants enforced by transition_cn_monthly_appraisal.
+    # invariants enforced by transition_cn_monthly_appraisal. Rows
+    # already inside the chain get only their remaining forward steps —
+    # walking the full chain would attempt a backward transition.
     chain = [
         AppraisalStatus.VALIDATING,
         AppraisalStatus.LIDER_REVIEW,
         AppraisalStatus.REVOPS_REVIEW,
         AppraisalStatus.LOCKED,
     ]
+    start = chain.index(appraisal.status) + 1 if appraisal.status in chain else 0
     try:
-        for s in chain:
-            if appraisal.status == s:
-                continue
+        for s in chain[start:]:
             transition_cn_monthly_appraisal(appraisal, s)
     except InvalidTransitionError as e:
         db.session.rollback()
