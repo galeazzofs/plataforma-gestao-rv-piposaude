@@ -833,20 +833,21 @@
  (fn [_ [_ cycle-id success-msg resp]]
    (let [skipped (get-in resp [:data :skipped])
          msg     (if (seq skipped)
-                   (str success-msg " · " (count skipped)
-                        " pulado(s) — ver detalhes")
+                   (str success-msg " · " (count skipped) " pulado(s)")
                    success-msg)]
-     {:dispatch-n [[:revops/fetch-monthly-cycle-detail cycle-id]
-                   [:revops/fetch-monthly-cycles]
-                   [:ui/show-toast {:type :success :message msg}]]})))
+     {:dispatch-n
+      (cond-> [[:revops/fetch-monthly-cycles]
+               [:ui/show-toast {:type :success :message msg}]]
+        cycle-id (conj [:revops/fetch-monthly-cycle-detail cycle-id]))})))
 
 (rf/reg-event-fx
  :revops/cycle-action-error
  (fn [_ [_ cycle-id resp]]
    (let [msg (or (get-in resp [:error :message])
                  "Erro ao executar a ação")]
-     {:dispatch-n [[:revops/fetch-monthly-cycle-detail cycle-id]
-                   [:ui/show-toast {:type :error :message msg}]]})))
+     {:dispatch-n
+      (cond-> [[:ui/show-toast {:type :error :message msg}]]
+        cycle-id (conj [:revops/fetch-monthly-cycle-detail cycle-id]))})))
 
 ;; ---- Appraisal contestation (issue #36) ----
 
