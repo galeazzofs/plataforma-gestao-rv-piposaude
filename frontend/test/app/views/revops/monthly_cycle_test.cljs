@@ -102,7 +102,8 @@
     (testing "CN apuração PENDING → navigate to the detail page (inputs live there)"
       (let [a (mc/next-action "cn_apuracao" {:status "PENDING"} cycle)]
         (is (= :navigate (:kind a)))
-        (is (= :revops/cn-appraisal (:route a)))))
+        (is (= :revops/cn-appraisal (:route a)))
+        (is (= {:month 6 :year 2026} (:query a)))))
     (testing "CN apuração CALCULATING → bulk transition to VALIDATING"
       (let [a (mc/next-action "cn_apuracao" {:status "CALCULATING"} cycle)]
         (is (= "/commissions/cn/appraisal/transition-month" (:url a)))
@@ -123,8 +124,9 @@
       (is (= "/commissions/ev/bonus/finalize"
              (:url (mc/next-action "ev_bonus" {:status "CALCULATING"} cycle)))))
     (testing "Liderança PENDING → navigate (inputs live there)"
-      (is (= :navigate
-             (:kind (mc/next-action "leadership_bonus" {:status "PENDING"} cycle)))))
+      (let [a (mc/next-action "leadership_bonus" {:status "PENDING"} cycle)]
+        (is (= :navigate (:kind a)))
+        (is (= {:quarter 2 :year 2026} (:query a)))))
     (testing "Liderança transitions need the row id"
       (is (nil? (mc/next-action "leadership_bonus"
                                 {:status "LIDER_REVIEW" :appraisal_id nil}
@@ -152,7 +154,8 @@
       (let [a (mc/next-action "cn_apuracao"
                               {:status "CALCULATING" :rows 1 :expected 2} cycle)]
         (is (= :navigate (:kind a)))
-        (is (= :revops/cn-appraisal (:route a)))))
+        (is (= :revops/cn-appraisal (:route a)))
+        (is (= {:month 6 :year 2026} (:query a)))))
     (testing "Bônus CN PENDING body carries quarter and year"
       (is (= {:quarter 2 :year 2026}
              (:body (mc/next-action "cn_bonus" {:status "PENDING"} cycle)))))

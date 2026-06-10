@@ -139,14 +139,16 @@
       (case status
         "PENDING"
         {:kind :navigate :label "Preparar e rodar →"
-         :route :revops/cn-appraisal}
+         :route :revops/cn-appraisal
+         :query {:month month :year year}}
         ("DRAFT" "CALCULATING")
         (if (and rows expected (< rows expected))
           ;; Incomplete row set (e.g. CN hired after the run): bulk
           ;; transitions would no-op — the remedy is re-running from the
           ;; detail page, which recreates non-LOCKED rows for all CNs.
           {:kind :navigate :label "Completar apuração →"
-           :route :revops/cn-appraisal}
+           :route :revops/cn-appraisal
+           :query {:month month :year year}}
           {:kind :request :label "Liberar para validação"
            :method :post :url ep/cn-appraisal-transition-month
            :body {:month month :year year :to "VALIDATING"}
@@ -200,7 +202,8 @@
       (case status
         "PENDING"
         {:kind :navigate :label "Preparar e rodar →"
-         :route :revops/leadership}
+         :route :revops/leadership
+         :query {:quarter quarter :year year}}
         "CALCULATING"
         (when appraisal_id
           {:kind :request :label "Liberar para validação"
@@ -310,6 +313,11 @@
                       (when month (str " · mês " month)))
                  "—")
 
+               (= k "leadership_bonus")
+               (if (and rows (pos? rows))
+                 (str rows " de " (or expected rows) " liderança(s)")
+                 "—")
+
                (and rows (pos? rows))
                (str (or final 0) " / " rows " finais"
                     (when expected (str " · " rows " de " expected)))
@@ -322,14 +330,14 @@
        [:span.badge.badge-review {:style {:margin-top "6px"}}
         "⚠ contestação aberta"])]))
 
-(defn- action-button [cycle {:keys [kind label confirm? route] :as action}]
+(defn- action-button [cycle {:keys [kind label confirm? route query] :as action}]
   (when action
     [:button.btn.btn-primary.btn-sm
      {:on-click
       (fn []
         (cond
           (= kind :navigate)
-          (rf/dispatch [:navigate route])
+          (rf/dispatch [:navigate [route nil (or query {})]])
 
           (and confirm?
                (not (js/confirm (str label "? Esta ação avança o ciclo."))))

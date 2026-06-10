@@ -52,7 +52,8 @@ def _ev_apuracao_status(month: int, year: int) -> dict:
     appraisal = Appraisal.query.filter_by(month=month, year=year).first()
     if appraisal is None:
         return {"status": "PENDING", "appraisal_id": None,
-                "validations_total": 0, "validations_done": 0}
+                "validations_total": 0, "validations_done": 0,
+                "has_contestation": False}
 
     validations = EvValidation.query.filter_by(
         appraisal_id=appraisal.id,
@@ -69,6 +70,7 @@ def _ev_apuracao_status(month: int, year: int) -> dict:
         "appraisal_id": str(appraisal.id),
         "validations_total": len(validations),
         "validations_done": done,
+        "has_contestation": bool(getattr(appraisal, "has_contestation", False)),
     }
 
 
@@ -113,7 +115,7 @@ def _cn_apuracao_status(month: int, year: int, hold_open: bool = True) -> dict:
     rows = CnMonthlyAppraisal.query.filter_by(year=year, month=month).all()
     if not rows:
         return {"status": "PENDING", "rows": 0, "expected": expected,
-                "month": month}
+                "month": month, "has_contestation": False}
     status = _summarize_status_set([r.status for r in rows])
     if hold_open:
         status = _hold_open_if_incomplete(status, len(rows), expected)
@@ -122,6 +124,7 @@ def _cn_apuracao_status(month: int, year: int, hold_open: bool = True) -> dict:
         "rows": len(rows),
         "expected": expected,
         "month": month,
+        "has_contestation": any(r.has_contestation for r in rows),
     }
 
 

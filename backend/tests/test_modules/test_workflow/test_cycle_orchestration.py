@@ -425,6 +425,27 @@ def test_leadership_component_multiple_rows_has_no_appraisal_id(
     assert comp["appraisal_id"] is None
 
 
+def test_apuracao_components_expose_contestation(db_session, two_teams_setup):
+    """A blocking contestation must be visible on the rail for both
+    apurações — locking over an open contestation silently is the bug."""
+    s = two_teams_setup
+    appraisal = Appraisal(
+        month=s["month"], year=s["year"],
+        status=AppraisalStatus.REVOPS_REVIEW,
+        created_by=s["admin"].id,
+        has_contestation=True,
+    )
+    db.session.add(appraisal)
+    row = _add_cn_monthly(s["cn_a"], s["month"], s["year"],
+                          AppraisalStatus.REVOPS_REVIEW)
+    row.has_contestation = True
+    db.session.flush()
+
+    components = build_cycle_payload(s["cycle"])["components"]
+    assert components["ev_apuracao"]["has_contestation"] is True
+    assert components["cn_apuracao"]["has_contestation"] is True
+
+
 def test_locked_cycle_components_skip_expected_guard(
     db_session, two_teams_setup,
 ):
