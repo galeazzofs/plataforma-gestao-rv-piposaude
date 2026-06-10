@@ -409,7 +409,7 @@
                 [:button.btn.btn-primary.btn-sm
                  {:disabled (clojure.string/blank? @resolve-text)
                   :on-click (fn []
-                              (rf/dispatch [:revops/resolve-contestation
+                              (rf/dispatch [:revops/resolve-appraisal-contestation
                                             id @resolve-text])
                               (reset! resolve-text ""))}
                  "Resolver e devolver para validação"]]])]]

@@ -570,7 +570,7 @@
  (fn [db _] (assoc-in db [:admin :contestations-loading?] false)))
 
 (rf/reg-event-fx
- :revops/resolve-contestation
+ :revops/resolve-validation-contestation
  (fn [_ [_ id resolution]]
    {:http {:method     :post
            :url        (str "/validations/" id "/resolve")
@@ -821,7 +821,7 @@
            :on-failure [:revops/contestation-action-err]}}))
 
 (rf/reg-event-fx
- :revops/resolve-contestation
+ :revops/resolve-appraisal-contestation
  (fn [_ [_ id resolution-note]]
    {:http {:method     :post
            :url        (str "/appraisals/" id "/resolve-contestation")
