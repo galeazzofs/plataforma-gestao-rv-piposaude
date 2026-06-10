@@ -1,6 +1,7 @@
 import logging
 from decimal import Decimal, InvalidOperation
 from flask import Blueprint, jsonify, request, g
+from sqlalchemy import func
 from app.auth.decorators import require_auth
 from app.models import (
     AppraisalStatus, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
@@ -98,6 +99,43 @@ def upsert_cn_goals():
         db.session.rollback()
         return jsonify({"error": {"code": "INTERNAL_ERROR", "message": str(e)}}), 500
     return jsonify({"data": {"updated": len(items)}}), 200
+
+
+@cn_commissions_bp.route("/goals/coverage")
+@require_auth
+def cn_goals_coverage():
+    """Per-month count of active CNs with a goal row for the year.
+
+    Mirrors validate_cn_goals(): a month is covered for a CN when the
+    CnMonthlyGoal row exists (the sao_target value is irrelevant), so the
+    UI can show which months would still block the apuração.
+    """
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    year = request.args.get("year", type=int)
+    if not year:
+        return jsonify({"error": {"code": "VALIDATION_ERROR",
+                                  "message": "year required"}}), 400
+
+    active_cns = User.query.filter_by(role=UserRole.CN, active=True).count()
+    rows = (
+        db.session.query(CnMonthlyGoal.month, func.count(CnMonthlyGoal.id))
+        .join(User, User.id == CnMonthlyGoal.cn_id)
+        .filter(
+            CnMonthlyGoal.year == year,
+            User.role == UserRole.CN,
+            User.active.is_(True),
+        )
+        .group_by(CnMonthlyGoal.month)
+        .all()
+    )
+    counts = dict(rows)
+    return jsonify({"data": {
+        "active_cns": active_cns,
+        "months": {str(m): counts.get(m, 0) for m in range(1, 13)},
+    }})
 
 
 # ── Apuração ───────────────────────────────────────────────────────────────

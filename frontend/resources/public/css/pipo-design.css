@@ -2343,6 +2343,78 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   .ev-balance-value{font-size:34px}
 }
 
+/* ==========================================================================
+   CN monthly goals (Metas Mensais · CN)
+   ========================================================================== */
+
+/* Month chips: coverage dot — which months already have metas set. */
+.chip .chip-cov{
+  width:6px;height:6px;border-radius:50%;flex-shrink:0;
+  background:var(--neutral-regular);
+}
+.chip .chip-cov.full{background:var(--success-dark)}
+.chip .chip-cov.part{background:var(--warning-dark)}
+.chip.active .chip-cov.full{background:var(--success-light)}
+.chip.active .chip-cov.part{background:var(--warning-light)}
+
+/* Table toolbar — period title + coverage on the left, actions right. */
+.table-toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:16px 20px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;
+}
+.table-toolbar .toolbar-title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.table-toolbar .toolbar-title h3{font-family:var(--font-heading);font-size:15px;font-weight:600;color:var(--fg-1)}
+.table-toolbar .toolbar-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.goals-table-scroll{overflow-x:auto}
+
+/* Unsaved edits living in another period. */
+.dirty-hint{font-family:var(--font-mono);font-size:11px;color:var(--warning-text)}
+.dirty-hint button{
+  font-family:inherit;font-size:inherit;color:inherit;background:none;border:0;
+  padding:0;cursor:pointer;text-decoration:underline;
+}
+.dirty-hint button:focus-visible{outline:2px solid var(--black);outline-offset:2px}
+
+/* SAO goal input: right-aligned numeric value. */
+.goal-input{
+  display:inline-flex;align-items:center;
+  background:var(--bg-1);border:1px solid var(--border-subtle);
+  border-radius:var(--r-sm);width:168px;
+  transition:box-shadow var(--d) var(--ease),border-color var(--d) var(--ease);
+}
+.goal-input input{
+  flex:1;min-width:0;border:0;outline:none;background:transparent;
+  font-family:var(--font-body);font-size:14px;color:var(--fg-1);
+  text-align:right;padding:8px 10px;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.goal-input:hover{box-shadow:var(--shadow-hover)}
+.goal-input:focus-within{box-shadow:0 0 0 2px var(--black) inset}
+.goal-input.is-invalid{border-color:var(--danger-dark)}
+.goal-input.is-invalid:focus-within{box-shadow:0 0 0 2px var(--danger-dark) inset}
+
+/* Cell stack around the input: edit row + dirty/error captions. */
+.goal-cell{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.goal-cell .goal-edit-row{display:flex;align-items:center;gap:6px}
+.goal-was{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted)}
+.goal-error{font-family:var(--font-mono);font-size:10.5px;color:var(--danger-dark)}
+.goal-revert{
+  width:24px;height:24px;border-radius:var(--r-sm);border:1px solid var(--border-subtle);
+  background:var(--bg-1);color:var(--fg-3);display:inline-flex;align-items:center;
+  justify-content:center;cursor:pointer;flex-shrink:0;padding:0;
+  transition:box-shadow var(--d) var(--ease);
+}
+.goal-revert:hover{box-shadow:var(--shadow-hover);color:var(--fg-1)}
+.goal-revert:focus-visible{outline:none;box-shadow:0 0 0 2px var(--black) inset}
+.goal-revert svg{width:12px;height:12px}
+
+/* Totals row. */
+.table .totals-row td{background:var(--bg-2)}
+.totals-label{
+  font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--fg-3);
+  letter-spacing:0.02em;text-transform:lowercase;
+}
+
 /* Honor user motion preferences. */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{

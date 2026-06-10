@@ -50,6 +50,7 @@
 
 ;; CN commissions
 (def cn-goals           "/commissions/cn/goals")
+(def cn-goals-coverage  "/commissions/cn/goals/coverage")
 (def cn-appraisal       "/commissions/cn/appraisal")
 (defn cn-appraisal-transition [id] (str "/commissions/cn/appraisal/" id "/transition"))
 (defn cn-appraisal-contest [id] (str "/commissions/cn/appraisal/" id "/contest"))

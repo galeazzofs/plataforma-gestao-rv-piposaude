@@ -21,7 +21,10 @@
 
    :devtools
    {:http-root "resources/public"
-    :http-port 8080}}
+    :http-port 8080
+    ;; Em dev o app chama /api/v1 relativo (mesmo contrato do nginx em
+    ;; prod); o shadow encaminha o que não é asset para o Flask local.
+    :proxy-url "http://localhost:5000"}}
 
   :test
   {:target :karma
