@@ -402,3 +402,46 @@ def test_bonus_component_incomplete_final_set_stays_calculating(
     assert comp["final"] == 1
     assert comp["expected"] == 2  # ev_a + ev_b
     assert comp["status"] == "CALCULATING"
+
+
+def test_leadership_component_multiple_rows_has_no_appraisal_id(
+    db_session, two_teams_setup,
+):
+    """With 2+ leadership rows the inline-action id is ambiguous → None."""
+    s = two_teams_setup
+    for lider in (s["lider_a"], s["lider_b"]):
+        db.session.add(LiderVendasQuarterAppraisal(
+            lider_vendas_id=lider.id, quarter=s["quarter"], year=s["year"],
+            meta_mrr=Decimal("100000"), meta_sql=10,
+            realizado_mrr=Decimal("100000"), realizado_sql=10,
+            pct_mrr=Decimal("1.0"), pct_sql=Decimal("1.0"),
+            multiplicador=Decimal("2.0"), bonus_amount=Decimal("16000"),
+            status=AppraisalStatus.VALIDATING,
+        ))
+    db.session.flush()
+
+    comp = build_cycle_payload(s["cycle"])["components"]["leadership_bonus"]
+    assert comp["rows"] == 2
+    assert comp["appraisal_id"] is None
+
+
+def test_locked_cycle_components_skip_expected_guard(
+    db_session, two_teams_setup,
+):
+    """A LOCKED cycle is frozen history: a hire after the lock must not
+    downgrade its components to CALCULATING."""
+    s = two_teams_setup
+    cycle = MonthlyCycle(
+        month=5, year=s["year"],
+        status=MonthlyCycleStatus.LOCKED,
+        created_by=s["admin"].id,
+    )
+    db.session.add(cycle)
+    # Only one of the two active CNs has a (LOCKED) row.
+    _add_cn_monthly(s["cn_a"], 5, s["year"], AppraisalStatus.LOCKED)
+    db.session.flush()
+
+    comp = build_cycle_payload(cycle)["components"]["cn_apuracao"]
+    assert comp["rows"] == 1
+    assert comp["expected"] == 2
+    assert comp["status"] == "LOCKED"

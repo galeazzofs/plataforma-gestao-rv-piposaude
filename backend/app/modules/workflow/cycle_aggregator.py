@@ -108,50 +108,54 @@ def _hold_open_if_incomplete(status: str, rows: int, expected: int) -> str:
     return status
 
 
-def _cn_apuracao_status(month: int, year: int) -> dict:
+def _cn_apuracao_status(month: int, year: int, hold_open: bool = True) -> dict:
     expected = _active_count(UserRole.CN)
     rows = CnMonthlyAppraisal.query.filter_by(year=year, month=month).all()
     if not rows:
         return {"status": "PENDING", "rows": 0, "expected": expected,
                 "month": month}
     status = _summarize_status_set([r.status for r in rows])
+    if hold_open:
+        status = _hold_open_if_incomplete(status, len(rows), expected)
     return {
-        "status": _hold_open_if_incomplete(status, len(rows), expected),
+        "status": status,
         "rows": len(rows),
         "expected": expected,
         "month": month,
     }
 
 
-def _bonus_rows_status(rows: list, expected: int) -> dict:
+def _bonus_rows_status(rows: list, expected: int, hold_open: bool = True) -> dict:
     final = sum(1 for r in rows if r.is_final)
     if not rows:
         return {"status": "PENDING", "rows": 0, "final": 0,
                 "expected": expected}
     status = "LOCKED" if all(r.is_final for r in rows) else "CALCULATING"
+    if hold_open:
+        status = _hold_open_if_incomplete(status, len(rows), expected)
     return {
-        "status": _hold_open_if_incomplete(status, len(rows), expected),
+        "status": status,
         "rows": len(rows),
         "final": final,
         "expected": expected,
     }
 
 
-def _cn_bonus_status(quarter: int, year: int) -> dict:
+def _cn_bonus_status(quarter: int, year: int, hold_open: bool = True) -> dict:
     rows = CnQuarterBonus.query.filter_by(quarter=quarter, year=year).all()
-    return _bonus_rows_status(rows, _active_count(UserRole.CN))
+    return _bonus_rows_status(rows, _active_count(UserRole.CN), hold_open)
 
 
-def _ev_bonus_status(quarter: int, year: int) -> dict:
+def _ev_bonus_status(quarter: int, year: int, hold_open: bool = True) -> dict:
     rows = EvQuarterAchievement.query.filter_by(
         quarter=quarter, year=year,
     ).all()
     return _bonus_rows_status(
-        rows, _active_count(UserRole.EV, exclude_left=True),
+        rows, _active_count(UserRole.EV, exclude_left=True), hold_open,
     )
 
 
-def _leadership_status(quarter: int, year: int) -> dict:
+def _leadership_status(quarter: int, year: int, hold_open: bool = True) -> dict:
     expected = _active_count(UserRole.LIDER_VENDAS)
     rows = LiderVendasQuarterAppraisal.query.filter_by(
         quarter=quarter, year=year,
@@ -160,8 +164,10 @@ def _leadership_status(quarter: int, year: int) -> dict:
         return {"status": "PENDING", "rows": 0, "expected": expected,
                 "appraisal_id": None, "has_contestation": False}
     status = _summarize_status_set([r.status for r in rows])
+    if hold_open:
+        status = _hold_open_if_incomplete(status, len(rows), expected)
     return {
-        "status": _hold_open_if_incomplete(status, len(rows), expected),
+        "status": status,
         "rows": len(rows),
         "expected": expected,
         # The inline transition buttons need a row id; with the single
@@ -175,14 +181,20 @@ def _leadership_status(quarter: int, year: int) -> dict:
 def _components(cycle: MonthlyCycle) -> dict:
     month, year = cycle.month, cycle.year
     quarter = _quarter_of(month)
+    # A LOCKED cycle is frozen history: `expected` reflects the CURRENT
+    # user table, so the incompleteness guard would falsely reopen
+    # components after team changes. Only enforce it while OPEN.
+    hold_open = cycle.status != MonthlyCycleStatus.LOCKED
     components = {
         "ev_apuracao": _ev_apuracao_status(month, year),
-        "cn_apuracao": _cn_apuracao_status(month, year),
+        "cn_apuracao": _cn_apuracao_status(month, year, hold_open),
     }
     if month % 3 == 0:
-        components["cn_bonus"] = _cn_bonus_status(quarter, year)
-        components["ev_bonus"] = _ev_bonus_status(quarter, year)
-        components["leadership_bonus"] = _leadership_status(quarter, year)
+        components["cn_bonus"] = _cn_bonus_status(quarter, year, hold_open)
+        components["ev_bonus"] = _ev_bonus_status(quarter, year, hold_open)
+        components["leadership_bonus"] = _leadership_status(
+            quarter, year, hold_open,
+        )
     return components
 
 

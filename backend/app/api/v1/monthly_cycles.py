@@ -93,7 +93,7 @@ def list_cycles():
 @monthly_cycles_bp.route("/<cycle_id>")
 @require_auth
 def get_cycle(cycle_id):
-    """Return a cycle with team-grouped status of each sequence component."""
+    """Return a cycle with the global status of each sequence component."""
     cycle = db.session.get(MonthlyCycle, cycle_id)
     if cycle is None:
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
