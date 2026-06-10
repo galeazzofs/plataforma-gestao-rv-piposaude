@@ -97,8 +97,8 @@ A policy that no longer generates future payments because its lifecycle was inte
 _Avoid_: fully paid policy, settled policy
 
 **Ciclo Mensal**:
-The monthly orchestration cycle that runs the apuracao sequence — Apuracao EV, Apuracao CN, and, only on quarter-end months (March, June, September, December), Bonus CN, Bonus EV and Bonus Lideranca.
-_Avoid_: ciclo trimestral, quarterly cycle
+The monthly orchestration cycle that runs the apuracao sequence — Apuracao EV, Apuracao CN, and, only on quarter-end months (March, June, September, December), Bonus CN, Bonus EV and Bonus Lideranca. Operated from a single step-rail page with global (team-less) component aggregation.
+_Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 
 ## Relationships
 
