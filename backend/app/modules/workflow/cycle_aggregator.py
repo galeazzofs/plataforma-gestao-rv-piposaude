@@ -1,55 +1,57 @@
-"""Build the team-grouped component status for a QuarterlyCycle.
+"""Build the team-grouped component status for a MonthlyCycle.
 
-The cycle is an orchestration shell over five trimestral components:
+The cycle is an orchestration shell over the monthly apuração sequence:
 
-  1. Comissão EV          — quarterly Appraisal (shared across all teams)
-  2. Bônus EV             — EvQuarterAchievement (per EV)
-  3. Bônus CN             — CnQuarterBonus (per CN)
-  4. Comissão CN mês 3    — CnMonthlyAppraisal of the last quarter month
-  5. Comissão Liderança   — LiderVendasQuarterAppraisal (per Líder)
+  1. Apuração EV        — monthly Appraisal (shared across all teams)
+  2. Apuração CN        — CnMonthlyAppraisal of the cycle month (per CN)
+
+and, only on quarter-end months (3, 6, 9, 12), the quarterly bonuses:
+
+  3. Bônus CN           — CnQuarterBonus (per CN)
+  4. Bônus EV           — EvQuarterAchievement (per EV)
+  5. Bônus Liderança    — LiderVendasQuarterAppraisal (per Líder)
 
 For each team we report the per-component aggregate so the unified
 cycle page can render progress per Líder de Vendas team.
 """
-from collections import defaultdict
-from typing import Optional
-
 from app.extensions import db
 from app.models import (
     Appraisal, AppraisalStatus, CnMonthlyAppraisal, CnQuarterBonus,
     EvQuarterAchievement, EvValidation, LiderVendasQuarterAppraisal,
-    QuarterlyCycle, QuarterlyCycleStatus, Team, User, UserRole,
+    MonthlyCycle, MonthlyCycleStatus, Team, User, UserRole,
     ValidationStatus,
 )
 
 
-_LAST_MONTH_OF_QUARTER = {1: 3, 2: 6, 3: 9, 4: 12}
+BASE_SEQUENCE = ["ev_apuracao", "cn_apuracao"]
+QUARTER_END_SEQUENCE = BASE_SEQUENCE + ["cn_bonus", "ev_bonus", "leadership_bonus"]
 
 
-def _quarter_appraisals(quarter: int, year: int) -> list:
-    """The Comissão EV is apurada monthly; a quarter spans up to three
-    monthly Appraisals (the calendar months it contains)."""
-    start_month = (quarter - 1) * 3 + 1
-    return Appraisal.query.filter(
-        Appraisal.year == year,
-        Appraisal.month.in_([start_month, start_month + 1, start_month + 2]),
-    ).all()
+def component_sequence(month: int) -> list:
+    """Ordered component keys for a cycle month. Quarterly bonuses only
+    exist on the last month of each quarter."""
+    return QUARTER_END_SEQUENCE if month % 3 == 0 else BASE_SEQUENCE
 
 
-def _ev_appraisal_status(appraisals: list, ev_ids: list) -> dict:
-    """Status of the Comissão EV component, viewed for one team.
+def _quarter_of(month: int) -> int:
+    return (month - 1) // 3 + 1
 
-    The Comissão EV is apurada monthly now, so a quarter spans up to three
-    monthly Appraisals. Team-local validation progress is summed across them;
-    the component only reaches LOCKED when all three months are LOCKED.
-    """
-    if not appraisals or not ev_ids:
+
+def _month_appraisal(month: int, year: int):
+    return Appraisal.query.filter_by(month=month, year=year).first()
+
+
+def _ev_apuracao_status(appraisal, ev_ids: list) -> dict:
+    """Status of the Apuração EV component, viewed for one team.
+
+    The Appraisal is global for the month; validation progress is
+    team-local (only this team's EVs count)."""
+    if appraisal is None or not ev_ids:
         return {"status": "PENDING", "validations_total": 0,
                 "validations_done": 0}
 
-    appraisal_ids = [a.id for a in appraisals]
     validations = EvValidation.query.filter(
-        EvValidation.appraisal_id.in_(appraisal_ids),
+        EvValidation.appraisal_id == appraisal.id,
         EvValidation.ev_id.in_(ev_ids),
     ).all()
     total = len(validations)
@@ -60,16 +62,7 @@ def _ev_appraisal_status(appraisals: list, ev_ids: list) -> dict:
             ValidationStatus.RESOLVED,
         )
     )
-    statuses = [a.status for a in appraisals]
-    locked_count = sum(1 for s in statuses if s == AppraisalStatus.LOCKED)
-    if locked_count == 3:
-        status = "LOCKED"
-    elif locked_count > 0:
-        # Some monthly appraisals are LOCKED but the quarter isn't complete.
-        status = AppraisalStatus.REVOPS_REVIEW.value
-    else:
-        status = _summarize_status_set(statuses)
-    return {"status": status, "validations_total": total,
+    return {"status": appraisal.status.value, "validations_total": total,
             "validations_done": done}
 
 
@@ -99,6 +92,23 @@ def _summarize_status_set(statuses: list) -> str:
         if level in s:
             return level.value
     return "DRAFT"
+
+
+def _cn_apuracao_status(cn_ids: list, month: int, year: int) -> dict:
+    if not cn_ids:
+        return {"status": "PENDING", "rows": 0, "month": month}
+    rows = CnMonthlyAppraisal.query.filter(
+        CnMonthlyAppraisal.cn_id.in_(cn_ids),
+        CnMonthlyAppraisal.year == year,
+        CnMonthlyAppraisal.month == month,
+    ).all()
+    if not rows:
+        return {"status": "PENDING", "rows": 0, "month": month}
+    return {
+        "status": _summarize_status_set([r.status for r in rows]),
+        "rows": len(rows),
+        "month": month,
+    }
 
 
 def _ev_bonus_status(ev_ids: list, quarter: int, year: int) -> dict:
@@ -137,24 +147,6 @@ def _cn_bonus_status(cn_ids: list, quarter: int, year: int) -> dict:
     }
 
 
-def _cn_last_month_status(cn_ids: list, quarter: int, year: int) -> dict:
-    last_month = _LAST_MONTH_OF_QUARTER[quarter]
-    if not cn_ids:
-        return {"status": "PENDING", "rows": 0, "month": last_month}
-    rows = CnMonthlyAppraisal.query.filter(
-        CnMonthlyAppraisal.cn_id.in_(cn_ids),
-        CnMonthlyAppraisal.year == year,
-        CnMonthlyAppraisal.month == last_month,
-    ).all()
-    if not rows:
-        return {"status": "PENDING", "rows": 0, "month": last_month}
-    return {
-        "status": _summarize_status_set([r.status for r in rows]),
-        "rows": len(rows),
-        "month": last_month,
-    }
-
-
 def _leadership_status(lider_id, quarter: int, year: int) -> dict:
     row = LiderVendasQuarterAppraisal.query.filter_by(
         lider_vendas_id=lider_id, quarter=quarter, year=year,
@@ -164,10 +156,28 @@ def _leadership_status(lider_id, quarter: int, year: int) -> dict:
     return {"status": row.status.value, "has_contestation": row.has_contestation}
 
 
-def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
+def _components_for(appraisal, ev_ids, cn_ids, leader_id,
+                    month: int, year: int) -> dict:
+    """Components of one team's block, following the apuração sequence."""
+    quarter = _quarter_of(month)
+    components = {
+        "ev_apuracao": _ev_apuracao_status(appraisal, ev_ids),
+        "cn_apuracao": _cn_apuracao_status(cn_ids, month, year),
+    }
+    if month % 3 == 0:
+        components["cn_bonus"] = _cn_bonus_status(cn_ids, quarter, year)
+        components["ev_bonus"] = _ev_bonus_status(ev_ids, quarter, year)
+        components["leadership_bonus"] = (
+            _leadership_status(leader_id, quarter, year)
+            if leader_id else {"status": "PENDING"}
+        )
+    return components
+
+
+def build_cycle_payload(cycle: MonthlyCycle) -> dict:
     """Return the full per-team / per-component payload for a cycle."""
-    quarter, year = cycle.quarter, cycle.year
-    appraisals = _quarter_appraisals(quarter, year)
+    month, year = cycle.month, cycle.year
+    appraisal = _month_appraisal(month, year)
 
     teams = Team.query.order_by(Team.name).all()
     cn_users = User.query.filter_by(
@@ -190,16 +200,9 @@ def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
             "leader_id": str(team.leader_id) if team.leader_id else None,
             "ev_count": len(ev_ids),
             "cn_count": len(cn_ids),
-            "components": {
-                "ev_quarter":     _ev_appraisal_status(appraisals, ev_ids),
-                "ev_quarterly_bonus": _ev_bonus_status(ev_ids, quarter, year),
-                "cn_quarterly_bonus": _cn_bonus_status(cn_ids, quarter, year),
-                "cn_monthly":     _cn_last_month_status(cn_ids, quarter, year),
-                "leadership":     (
-                    _leadership_status(team.leader_id, quarter, year)
-                    if team.leader_id else {"status": "PENDING"}
-                ),
-            },
+            "components": _components_for(
+                appraisal, ev_ids, cn_ids, team.leader_id, month, year,
+            ),
         })
 
     # CNs not assigned to any team — surface so they don't disappear.
@@ -210,20 +213,18 @@ def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
             "leader_id": None,
             "ev_count": 0,
             "cn_count": len(unteamed_cn_ids),
-            "components": {
-                "ev_quarter":     {"status": "PENDING",
-                                    "validations_total": 0, "validations_done": 0},
-                "ev_quarterly_bonus": {"status": "PENDING", "rows": 0, "final": 0},
-                "cn_quarterly_bonus": _cn_bonus_status(unteamed_cn_ids, quarter, year),
-                "cn_monthly":     _cn_last_month_status(unteamed_cn_ids, quarter, year),
-                "leadership":     {"status": "PENDING"},
-            },
+            "components": _components_for(
+                None, [], unteamed_cn_ids, None, month, year,
+            ),
         })
 
     return {
         "id": str(cycle.id),
-        "quarter": quarter,
+        "month": month,
         "year": year,
+        "quarter": cycle.quarter,
+        "is_quarter_end": cycle.is_quarter_end,
+        "sequence": component_sequence(month),
         "status": cycle.status.value,
         "created_by": str(cycle.created_by),
         "created_at": cycle.created_at.isoformat() if cycle.created_at else None,
@@ -232,7 +233,7 @@ def build_cycle_payload(cycle: QuarterlyCycle) -> dict:
     }
 
 
-def all_components_locked(cycle: QuarterlyCycle) -> bool:
+def all_components_locked(cycle: MonthlyCycle) -> bool:
     """True iff every component on every team in the cycle is LOCKED."""
     payload = build_cycle_payload(cycle)
     for team in payload["teams"]:
@@ -245,15 +246,15 @@ def all_components_locked(cycle: QuarterlyCycle) -> bool:
     return True
 
 
-def maybe_lock_cycle(cycle: QuarterlyCycle) -> bool:
+def maybe_lock_cycle(cycle: MonthlyCycle) -> bool:
     """Auto-LOCK the cycle if every component is LOCKED. Returns True
     when the cycle transitioned to LOCKED in this call."""
     from datetime import datetime, timezone
-    if cycle.status == QuarterlyCycleStatus.LOCKED:
+    if cycle.status == MonthlyCycleStatus.LOCKED:
         return False
     if not all_components_locked(cycle):
         return False
-    cycle.status = QuarterlyCycleStatus.LOCKED
+    cycle.status = MonthlyCycleStatus.LOCKED
     cycle.locked_at = datetime.now(timezone.utc)
     db.session.flush()
     return True

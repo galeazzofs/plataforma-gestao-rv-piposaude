@@ -14,7 +14,7 @@
    {:key :lider-vendas/dashboard :label "Painel do Líder"      :icon "team"      :route :lider-vendas/dashboard}
 
    {:section "apuração"}
-   {:key :revops/quarterly-cycle :label "Ciclo Trimestral"     :icon "calendar" :route :revops/quarterly-cycle}
+   {:key :revops/monthly-cycle   :label "Ciclo Mensal"         :icon "calendar" :route :revops/monthly-cycle}
    {:key :revops/appraisal       :label "Apurações"            :icon "cog"     :route :revops/appraisal}
    {:key :revops/appraisal-preview :label "Prévia Mensal"      :icon "trend"   :route :revops/appraisal-preview}
    {:key :revops/cn-appraisal    :label "Apuração CN"          :icon "percent" :route :revops/cn-appraisal}

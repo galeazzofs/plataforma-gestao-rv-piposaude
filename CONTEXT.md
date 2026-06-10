@@ -29,7 +29,7 @@ The financial import month (`nf_mes_recebimento`) used for monthly grouping, ave
 _Avoid_: exact receipt date for monthly Finance reporting
 
 **Competencia mensal**:
-The month to which commission and finance values belong in reporting, regardless of the quarterly apuracao month.
+The month to which commission and finance values belong in reporting, regardless of when the apuracao runs.
 _Avoid_: apuracao execution month, payment batch month
 
 **Realizado**:
@@ -37,7 +37,7 @@ A monthly Finance value that belongs to a LOCKED apuracao.
 _Avoid_: projected, pending close
 
 **A apurar**:
-A monthly Finance value for a past or current competency whose quarterly apuracao is not LOCKED yet.
+A monthly Finance value for a past or current competency whose apuracao is not LOCKED yet.
 _Avoid_: realized, pure future projection
 
 **Projetado**:
@@ -96,6 +96,10 @@ _Avoid_: expired, unmatched
 A policy that no longer generates future payments because its lifecycle was interrupted before completion.
 _Avoid_: fully paid policy, settled policy
 
+**Ciclo Mensal**:
+The monthly orchestration cycle that runs the apuracao sequence — Apuracao EV, Apuracao CN, and, only on quarter-end months (March, June, September, December), Bonus CN, Bonus EV and Bonus Lideranca.
+_Avoid_: ciclo trimestral, quarterly cycle
+
 ## Relationships
 
 - **Receita comissionavel** is exactly **Comissao** plus **Agenciamento**.
@@ -111,11 +115,11 @@ _Avoid_: fully paid policy, settled policy
 - **Mensal projetado de Comissao** uses **Media real ponderada de Comissao** when any real legacy or platform Comissao exists, and policy contractual monthly potential only as fallback.
 - **Media real ponderada de Comissao** is not capped by **Comissao potencial da apolice** because policy MRR is also a forecast.
 - **Mes financeiro** defines monthly grouping for the **Relogio de 12 meses da apolice**, **Liquido mensal de Comissao**, Finance dashboards, and projected cash flow.
-- Finance uses **Competencia mensal** for cash-flow display: quarterly apuracao changes monthly values from projected to realized when LOCKED, but does not move them into the apuracao execution month.
+- Finance uses **Competencia mensal** for cash-flow display: the monthly apuracao changes monthly values from projected to realized when LOCKED, but does not move them into the apuracao execution month.
 - Finance monthly cash flow distinguishes **Realizado**, **A apurar**, and **Projetado** values.
 - **A apurar** uses imported matched financial rows when available and falls back to projection only when no imported value exists for that competency.
 - For each policy and **Mes financeiro**, **A apurar** replaces **Projetado** when imported matched values exist; the same policy-month must never be counted twice.
-- **A apurar** values do not recalibrate **Mensal projetado de Comissao** until their quarterly apuracao becomes LOCKED.
+- **A apurar** values do not recalibrate **Mensal projetado de Comissao** until their apuracao becomes LOCKED.
 - **A apurar** months with positive net Comissao reserve a month in the 12-month clock for projection purposes, but do not officially update paid months until LOCKED.
 - **Agenciamento** is paid and accumulated on the policy, but does not increment the **Relogio de 12 meses da apolice**.
 - **Agenciamento** can appear by itself in an **A apurar** month, often at the beginning of a policy, and still does not start or reserve the commission clock.
@@ -125,13 +129,15 @@ _Avoid_: fully paid policy, settled policy
 - **Apolice totalmente paga** is excluded from future apuracao, **Potencial a pagar**, and Finance projected cash flow.
 - Finance projected cash flow is the monthly distribution of **Potencial a pagar** and must reconcile to it.
 - Financial-month processing checks whether a policy was already an **Apolice totalmente paga** before the month; if not, eligible Comissao and Agenciamento for that month are paid before the policy can become fully paid for future months.
-- Financial-month processing is chronological within a quarterly apuracao; once a policy reaches 12/12 in a month, later months in the same quarter are no longer eligible.
+- Financial-month processing is chronological; once a policy reaches 12/12 in a month, later months are no longer eligible.
 - **Apolice totalmente paga** should be visually explicit in policy views because it must not enter any financial calculation.
 - **Apolice totalmente paga** remains visible in policy views for history and audit, but is excluded from operational calculation views and projections.
 - Imported rows excluded because of **Apolice totalmente paga** appear in the review area under **Apolices finalizadas**, not inside payable EV apuracao detail.
-- **APOLICE_FINALIZADA** rows should explain the month in which the policy reached 12/12 when that happened inside the same quarterly apuracao.
+- **APOLICE_FINALIZADA** rows should explain the month in which the policy reached 12/12 when that happened inside the same apuracao.
 - **Apolice totalmente paga** and **Apolice cancelada** both have zero **Potencial a pagar**, but are distinct states with different business reasons.
 - **Apolice cancelada** is set before apuracao starts and is excluded from that apuracao and future financial calculations.
+- The **Ciclo Mensal** replaces the former quarterly cycle: one cycle per month, auto-LOCKED when every component in its sequence is LOCKED.
+- Bonus CN, Bonus EV and Bonus Lideranca remain quarterly aggregations; they attach to the **Ciclo Mensal** of the quarter-end month.
 
 ## Example Dialogue
 

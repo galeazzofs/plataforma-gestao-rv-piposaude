@@ -506,10 +506,10 @@ def finalize_cn_quarterly_bonus():
     db.session.commit()
 
     # Issue #37b: locking the last bonus row for a quarter may complete
-    # the cycle. Re-evaluate.
+    # the quarter-end month's cycle. Re-evaluate.
     from app.modules.workflow.state_machine import _maybe_lock_attached_cycle
     try:
-        _maybe_lock_attached_cycle(quarter, year)
+        _maybe_lock_attached_cycle(quarter * 3, year)
         db.session.commit()
     except Exception:
         db.session.rollback()

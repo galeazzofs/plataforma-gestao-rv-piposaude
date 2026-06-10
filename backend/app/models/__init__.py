@@ -17,7 +17,7 @@ from app.models.cn_monthly_goal import CnMonthlyGoal
 from app.models.cn_monthly_appraisal import CnMonthlyAppraisal
 from app.models.lider_vendas_quarter_appraisal import LiderVendasQuarterAppraisal
 from app.models.cn_quarter_bonus import CnQuarterBonus
-from app.models.quarterly_cycle import QuarterlyCycle, QuarterlyCycleStatus
+from app.models.monthly_cycle import MonthlyCycle, MonthlyCycleStatus
 
 __all__ = [
     "User", "UserRole", "CnNivel", "CnPorte",
@@ -39,5 +39,5 @@ __all__ = [
     "CnMonthlyAppraisal",
     "LiderVendasQuarterAppraisal",
     "CnQuarterBonus",
-    "QuarterlyCycle", "QuarterlyCycleStatus",
+    "MonthlyCycle", "MonthlyCycleStatus",
 ]

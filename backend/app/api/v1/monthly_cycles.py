@@ -1,22 +1,24 @@
 from flask import Blueprint, jsonify, request, g
 
 from app.auth.decorators import require_auth, require_role
-from app.models import QuarterlyCycle, QuarterlyCycleStatus, UserRole
+from app.models import MonthlyCycle, MonthlyCycleStatus, UserRole
 from app.api.middlewares import log_audit
 from app.extensions import db
 from app.modules.workflow.cycle_aggregator import build_cycle_payload
 
 
-quarterly_cycles_bp = Blueprint(
-    "quarterly_cycles", __name__, url_prefix="/api/v1/quarterly-cycles"
+monthly_cycles_bp = Blueprint(
+    "monthly_cycles", __name__, url_prefix="/api/v1/monthly-cycles"
 )
 
 
-def _serialize(cycle: QuarterlyCycle) -> dict:
+def _serialize(cycle: MonthlyCycle) -> dict:
     return {
         "id": str(cycle.id),
-        "quarter": cycle.quarter,
+        "month": cycle.month,
         "year": cycle.year,
+        "quarter": cycle.quarter,
+        "is_quarter_end": cycle.is_quarter_end,
         "status": cycle.status.value,
         "created_by": str(cycle.created_by),
         "created_at": cycle.created_at.isoformat() if cycle.created_at else None,
@@ -26,103 +28,103 @@ def _serialize(cycle: QuarterlyCycle) -> dict:
 
 
 
-@quarterly_cycles_bp.route("", methods=["POST"])
+@monthly_cycles_bp.route("", methods=["POST"])
 @require_role(UserRole.ADMIN)
 def create_cycle():
-    """Open a quarterly cycle. Blocks duplicates of the same (quarter, year)."""
+    """Open a monthly cycle. Blocks duplicates of the same (month, year)."""
     data = request.get_json() or {}
-    quarter = data.get("quarter")
+    month = data.get("month")
     year = data.get("year")
 
     try:
-        quarter = int(quarter)
+        month = int(month)
         year = int(year)
     except (TypeError, ValueError):
         return jsonify({
             "error": {"code": "VALIDATION_ERROR",
-                      "message": "quarter and year required (integers)"},
+                      "message": "month and year required (integers)"},
         }), 400
 
-    if quarter not in (1, 2, 3, 4):
+    if month not in range(1, 13):
         return jsonify({
             "error": {"code": "VALIDATION_ERROR",
-                      "message": "quarter must be 1..4"},
+                      "message": "month must be 1..12"},
         }), 400
 
-    existing = QuarterlyCycle.query.filter_by(quarter=quarter, year=year).first()
+    existing = MonthlyCycle.query.filter_by(month=month, year=year).first()
     if existing is not None:
         return jsonify({
             "error": {
                 "code": "CONFLICT",
                 "message": (
-                    f"QuarterlyCycle for Q{quarter}/{year} already exists "
+                    f"MonthlyCycle for {month:02d}/{year} already exists "
                     f"(status: {existing.status.value})"
                 ),
             },
         }), 409
 
-    cycle = QuarterlyCycle(
-        quarter=quarter, year=year,
-        status=QuarterlyCycleStatus.OPEN,
+    cycle = MonthlyCycle(
+        month=month, year=year,
+        status=MonthlyCycleStatus.OPEN,
         created_by=g.current_user.id,
     )
     db.session.add(cycle)
     db.session.flush()
     log_audit(
-        "quarterly_cycles", cycle.id, "CREATE",
-        new_values={"quarter": quarter, "year": year, "status": "OPEN"},
+        "monthly_cycles", cycle.id, "CREATE",
+        new_values={"month": month, "year": year, "status": "OPEN"},
     )
     db.session.commit()
     return jsonify({"data": _serialize(cycle)}), 201
 
 
-@quarterly_cycles_bp.route("")
+@monthly_cycles_bp.route("")
 @require_auth
 def list_cycles():
-    """List quarterly cycles, newest first."""
+    """List monthly cycles, newest first."""
     cycles = (
-        QuarterlyCycle.query
-        .order_by(QuarterlyCycle.year.desc(), QuarterlyCycle.quarter.desc())
+        MonthlyCycle.query
+        .order_by(MonthlyCycle.year.desc(), MonthlyCycle.month.desc())
         .all()
     )
     return jsonify({"data": [_serialize(c) for c in cycles]})
 
 
-@quarterly_cycles_bp.route("/<cycle_id>")
+@monthly_cycles_bp.route("/<cycle_id>")
 @require_auth
 def get_cycle(cycle_id):
-    """Return a cycle with team-grouped status of each of the 5 components."""
-    cycle = db.session.get(QuarterlyCycle, cycle_id)
+    """Return a cycle with team-grouped status of each sequence component."""
+    cycle = db.session.get(MonthlyCycle, cycle_id)
     if cycle is None:
         return jsonify({"error": {"code": "NOT_FOUND"}}), 404
 
     return jsonify({"data": build_cycle_payload(cycle)})
 
 
-@quarterly_cycles_bp.route("/<cycle_id>", methods=["DELETE"])
+@monthly_cycles_bp.route("/<cycle_id>", methods=["DELETE"])
 @require_role(UserRole.ADMIN)
 def delete_cycle(cycle_id):
-    """Delete a quarterly cycle. LOCKED cycles are frozen and cannot be removed."""
-    cycle = db.session.get(QuarterlyCycle, cycle_id)
+    """Delete a monthly cycle. LOCKED cycles are frozen and cannot be removed."""
+    cycle = db.session.get(MonthlyCycle, cycle_id)
     if cycle is None:
         return jsonify({"error": {"code": "NOT_FOUND",
-                                  "message": "QuarterlyCycle not found"}}), 404
+                                  "message": "MonthlyCycle not found"}}), 404
 
-    if cycle.status == QuarterlyCycleStatus.LOCKED:
+    if cycle.status == MonthlyCycleStatus.LOCKED:
         return jsonify({
             "error": {
                 "code": "CONFLICT",
                 "message": (
-                    f"QuarterlyCycle Q{cycle.quarter}/{cycle.year} is LOCKED "
+                    f"MonthlyCycle {cycle.month:02d}/{cycle.year} is LOCKED "
                     "and cannot be deleted."
                 ),
             },
         }), 409
 
-    quarter, year = cycle.quarter, cycle.year
+    month, year = cycle.month, cycle.year
     log_audit(
-        "quarterly_cycles", cycle.id, "DELETE",
-        old_values={"quarter": quarter, "year": year,
+        "monthly_cycles", cycle.id, "DELETE",
+        old_values={"month": month, "year": year,
                     "status": cycle.status.value},
     )
     db.session.delete(cycle)

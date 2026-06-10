@@ -43,7 +43,7 @@
      ["/appraisal"          {:name :revops/appraisal        :role #{:ADMIN}}]
      ["/appraisal-preview"  {:name :revops/appraisal-preview :role #{:ADMIN}}]
      ["/appraisal/:id/review" {:name :revops/appraisal-review :role #{:ADMIN}}]
-     ["/quarterly-cycle"    {:name :revops/quarterly-cycle  :role #{:ADMIN}}]
+     ["/monthly-cycle"      {:name :revops/monthly-cycle    :role #{:ADMIN}}]
      ["/cn-goals"           {:name :revops/cn-goals        :role #{:ADMIN}}]
      ["/cn-appraisal"       {:name :revops/cn-appraisal    :role #{:ADMIN}}]
      ["/ev-bonus"           {:name :revops/ev-bonus        :role #{:ADMIN}}]

@@ -141,21 +141,21 @@ def transition_appraisal(appraisal, new_status, **kwargs):
     _emit_appraisal_slack(appraisal, old_status, new_status)
 
     if new_status == AppraisalStatus.LOCKED:
-        # The cycle stays quarterly; map this monthly appraisal to its quarter.
-        _maybe_lock_attached_cycle((appraisal.month - 1) // 3 + 1, appraisal.year)
+        _maybe_lock_attached_cycle(appraisal.month, appraisal.year)
 
     return appraisal
 
 
-def _maybe_lock_attached_cycle(quarter: int, year: int):
-    """Re-evaluate the QuarterlyCycle for (quarter, year) and auto-LOCK if
+def _maybe_lock_attached_cycle(month: int, year: int):
+    """Re-evaluate the MonthlyCycle for (month, year) and auto-LOCK if
     every component is now LOCKED. Emits the cycle-locked Slack
     notification when the cycle transitions in this call. Called from any
-    component that reaches LOCKED."""
-    from app.models import QuarterlyCycle
+    component that reaches LOCKED — quarterly components (bonuses,
+    leadership) map to the cycle of their quarter-end month."""
+    from app.models import MonthlyCycle
     from app.modules.workflow.cycle_aggregator import maybe_lock_cycle
-    cycle = QuarterlyCycle.query.filter_by(
-        quarter=quarter, year=year,
+    cycle = MonthlyCycle.query.filter_by(
+        month=month, year=year,
     ).first()
     if cycle is None:
         return
@@ -163,7 +163,7 @@ def _maybe_lock_attached_cycle(quarter: int, year: int):
     if locked_now:
         _safe_slack(
             "notify_cycle_locked",
-            lambda: _import_slack().notify_cycle_locked(quarter, year),
+            lambda: _import_slack().notify_cycle_locked(month, year),
         )
 
 
@@ -202,7 +202,8 @@ def transition_lider_vendas_appraisal(
     db.session.flush()
 
     if new_status == AppraisalStatus.LOCKED:
-        _maybe_lock_attached_cycle(appraisal.quarter, appraisal.year)
+        # Leadership stays quarterly; its cycle is the quarter-end month.
+        _maybe_lock_attached_cycle(appraisal.quarter * 3, appraisal.year)
 
     return appraisal
 
@@ -239,11 +240,9 @@ def transition_cn_monthly_appraisal(appraisal: CnMonthlyAppraisal, new_status):
     db.session.flush()
 
     if new_status == AppraisalStatus.LOCKED:
-        # CnMonthlyAppraisal is one of the 5 cycle components, so its
-        # last LOCK should re-evaluate the cycle for this row's
-        # (quarter, year). Last quarter month maps via the cycle aggregator.
-        quarter = (appraisal.month - 1) // 3 + 1
-        _maybe_lock_attached_cycle(quarter, appraisal.year)
+        # The Apuração CN is a component of its month's cycle, so its
+        # last LOCK should re-evaluate the cycle for (month, year).
+        _maybe_lock_attached_cycle(appraisal.month, appraisal.year)
 
     return appraisal
 
@@ -290,7 +289,7 @@ def _emit_appraisal_slack(appraisal: Appraisal,
                 _safe_slack(
                     "notify_validating_released",
                     lambda u=ev: slack.notify_validating_released(
-                        u, "ev_quarter", month, year,
+                        u, "ev_apuracao", month, year,
                     ),
                 )
 
