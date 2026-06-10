@@ -3,11 +3,9 @@ from app.auth.decorators import require_auth
 from app.models import UserRole, EvQuarterAchievement
 from app.extensions import db
 from app.modules.commissions.ev_bonus import run_ev_quarterly_bonus
+from app.modules.workflow.state_machine import _maybe_lock_attached_cycle
 
 ev_bonus_bp = Blueprint("ev_bonus", __name__, url_prefix="/api/v1/commissions/ev")
-
-# NOTE: EV bonus finalization (locking is_final=True) is out of scope for this branch.
-# The EvQuarterAchievement.is_final flag is set externally via the quarterly close flow.
 
 
 @ev_bonus_bp.route("/bonus", methods=["POST"])
@@ -67,3 +65,40 @@ def _serialize(a):
         "salario_base_snapshot": str(a.salario_base_snapshot) if a.salario_base_snapshot is not None else None,
         "is_final": a.is_final,
     }
+
+
+@ev_bonus_bp.route("/bonus/finalize", methods=["POST"])
+@require_auth
+def finalize_bonus():
+    """Lock all non-final EV quarter achievements for (quarter, year).
+    Mirrors the CN quarterly-bonus finalize; the last final row may
+    complete the quarter-end month's cycle. ADMIN only."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    body = request.get_json() or {}
+    try:
+        quarter = int(body.get("quarter"))
+        year = int(body.get("year"))
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "quarter and year required (integers)"},
+        }), 400
+
+    rows = EvQuarterAchievement.query.filter_by(
+        quarter=quarter, year=year, is_final=False,
+    ).all()
+    for row in rows:
+        row.is_final = True
+    db.session.commit()
+
+    # Locking the last bonus row may complete the quarter-end cycle.
+    try:
+        _maybe_lock_attached_cycle(quarter * 3, year)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    return jsonify({"data": {"finalized": len(rows)}})
