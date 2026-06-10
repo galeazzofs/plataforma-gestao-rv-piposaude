@@ -79,7 +79,7 @@
            [btn/button {:variant :primary
                         :disabled (str/blank? @resolution)
                         :on-click (fn []
-                                    (rf/dispatch [:revops/resolve-contestation (:id contestation) @resolution])
+                                    (rf/dispatch [:revops/resolve-validation-contestation (:id contestation) @resolution])
                                     (reset! resolution "")
                                     (on-close))}
             "Resolver"]]])])))
