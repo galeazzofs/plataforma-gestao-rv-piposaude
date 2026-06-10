@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal, InvalidOperation
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
@@ -17,6 +18,8 @@ from app.modules.workflow.state_machine import (
     transition_cn_monthly_appraisal,
     InvalidTransitionError,
 )
+
+_log = logging.getLogger(__name__)
 
 cn_commissions_bp = Blueprint(
     "cn_commissions", __name__, url_prefix="/api/v1/commissions/cn"
@@ -615,6 +618,7 @@ def finalize_cn_quarterly_bonus():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        _log.exception("cycle re-evaluation after CN bonus finalize failed")
 
     return jsonify({"data": {"finalized": len(rows)}})
 

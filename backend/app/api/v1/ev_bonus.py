@@ -1,9 +1,13 @@
+import logging
+
 from flask import Blueprint, jsonify, request, g
 from app.auth.decorators import require_auth
 from app.models import UserRole, EvQuarterAchievement
 from app.extensions import db
 from app.modules.commissions.ev_bonus import run_ev_quarterly_bonus
 from app.modules.workflow.state_machine import _maybe_lock_attached_cycle
+
+_log = logging.getLogger(__name__)
 
 ev_bonus_bp = Blueprint("ev_bonus", __name__, url_prefix="/api/v1/commissions/ev")
 
@@ -87,6 +91,21 @@ def finalize_bonus():
                       "message": "quarter and year required (integers)"},
         }), 400
 
+    if quarter not in range(1, 5):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR", "message": "quarter must be 1..4"},
+        }), 400
+
+    # Compute-then-lock: run the bonus calculator before flipping flags so
+    # no NULL bonus_amount is ever irreversibly locked.
+    try:
+        run_ev_quarterly_bonus(quarter, year)
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": {"code": "BONUS_RUN_FAILED", "message": str(e)},
+        }), 422
+
     rows = EvQuarterAchievement.query.filter_by(
         quarter=quarter, year=year, is_final=False,
     ).all()
@@ -100,5 +119,6 @@ def finalize_bonus():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        _log.exception("cycle re-evaluation after EV bonus finalize failed")
 
     return jsonify({"data": {"finalized": len(rows)}})
