@@ -173,6 +173,16 @@
    (get-in db [:appraisal :monthly-cycle-selection])))
 
 (rf/reg-sub
+ :revops/monthly-cycle-requested-id
+ (fn [db _]
+   (get-in db [:appraisal :monthly-cycle-requested-id])))
+
+(rf/reg-sub
+ :revops/monthly-cycle-error?
+ (fn [db _]
+   (get-in db [:appraisal :monthly-cycle-error?])))
+
+(rf/reg-sub
  :revops/preview-result
  (fn [db _]
    (get-in db [:appraisal :preview :result])))

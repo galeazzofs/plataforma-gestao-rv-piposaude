@@ -526,11 +526,15 @@
                             {:month (:month t) :year (:year t)})
                           (current-cycle-suggestion))
             target    (cycle-for-month cycles selection)
-            detail    @(rf/subscribe [:revops/monthly-cycle])
-            cycle     (when (and detail target (= (:id detail) (:id target)))
-                        detail)
+            detail         @(rf/subscribe [:revops/monthly-cycle])
+            requested-id   @(rf/subscribe [:revops/monthly-cycle-requested-id])
+            error?         @(rf/subscribe [:revops/monthly-cycle-error?])
+            cycle          (when (and detail target (= (:id detail) (:id target)))
+                             detail)
             read-only? (= "LOCKED" (:status cycle))]
-        (when (and target (or (not detail) (not= (:id detail) (:id target))))
+        (when (and target
+                   (not= (:id target) requested-id)
+                   (or (not detail) (not= (:id detail) (:id target))))
           (rf/dispatch [:revops/fetch-monthly-cycle-detail (:id target)]))
         [layout/page-shell
          {:current-route route :user user
@@ -544,6 +548,17 @@
          (cond
            (not target)
            [open-cycle-cta selection]
+
+           (and error? (not cycle))
+           [:div.card
+            [:div {:style {:padding "32px" :text-align "center"
+                           :color "var(--fg-3)"}}
+             [:div {:style {:margin-bottom "12px"}}
+              "Erro ao carregar o ciclo."]
+             [:button.btn.btn-secondary.btn-sm
+              {:on-click #(rf/dispatch [:revops/fetch-monthly-cycle-detail
+                                        (:id target)])}
+              "Tentar novamente"]]]
 
            (or loading? (not cycle))
            [:div.card [:div {:style {:padding "32px" :text-align "center"

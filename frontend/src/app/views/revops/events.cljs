@@ -727,7 +727,10 @@
 (rf/reg-event-fx
  :revops/fetch-monthly-cycle-detail
  (fn [{:keys [db]} [_ id]]
-   {:db   (assoc-in db [:appraisal :monthly-cycle-loading?] true)
+   {:db   (-> db
+              (assoc-in [:appraisal :monthly-cycle-loading?] true)
+              (assoc-in [:appraisal :monthly-cycle-requested-id] id)
+              (assoc-in [:appraisal :monthly-cycle-error?] false))
     :http {:method     :get
            :url        (str "/monthly-cycles/" id)
            :on-success [:revops/monthly-cycle-detail-loaded]
@@ -743,7 +746,9 @@
 (rf/reg-event-db
  :revops/monthly-cycle-detail-error
  (fn [db _]
-   (assoc-in db [:appraisal :monthly-cycle-loading?] false)))
+   (-> db
+       (assoc-in [:appraisal :monthly-cycle-loading?] false)
+       (assoc-in [:appraisal :monthly-cycle-error?] true))))
 
 (rf/reg-event-db
  :revops/monthly-cycles-loaded
