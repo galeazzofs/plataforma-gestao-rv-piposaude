@@ -145,16 +145,11 @@ def test_payload_quarter_end_has_full_sequence(db_session, two_teams_setup):
         "ev_apuracao", "cn_apuracao", "cn_bonus", "ev_bonus",
         "leadership_bonus",
     ]
-
-    team_names = [t["team_name"] for t in payload["teams"]]
-    assert s["team_a"].name in team_names
-    assert s["team_b"].name in team_names
-
-    for team_block in payload["teams"]:
-        assert set(team_block["components"].keys()) == {
-            "ev_apuracao", "cn_apuracao", "cn_bonus", "ev_bonus",
-            "leadership_bonus",
-        }
+    assert "teams" not in payload
+    assert set(payload["components"].keys()) == {
+        "ev_apuracao", "cn_apuracao", "cn_bonus", "ev_bonus",
+        "leadership_bonus",
+    }
 
 
 def test_payload_mid_quarter_has_only_apuracoes(db_session, two_teams_setup):
@@ -170,20 +165,19 @@ def test_payload_mid_quarter_has_only_apuracoes(db_session, two_teams_setup):
     payload = build_cycle_payload(cycle)
     assert payload["is_quarter_end"] is False
     assert payload["sequence"] == ["ev_apuracao", "cn_apuracao"]
-    for team_block in payload["teams"]:
-        assert set(team_block["components"].keys()) == {
-            "ev_apuracao", "cn_apuracao",
-        }
+    assert "teams" not in payload
+    assert set(payload["components"].keys()) == {"ev_apuracao", "cn_apuracao"}
 
 
-def test_cycle_does_not_lock_when_team_b_is_behind(db_session, two_teams_setup):
+def test_cycle_does_not_lock_while_any_cn_row_missing(db_session, two_teams_setup):
+    """A LOCKED-only CN row set that misses an active CN must hold the
+    component (and the cycle) open — the per-team payload guaranteed this
+    via the missing team's PENDING; the global payload uses `expected`."""
     s = two_teams_setup
-    # Team A: every component LOCKED
+    # CN A: every component LOCKED; CN B: no rows at all.
     _lock_team_components(
         s["ev_a"], s["cn_a"], s["lider_a"], s["month"], s["year"],
     )
-    # Team B: still pending (no rows)
-    # Plus the month's Appraisal — not LOCKED yet
     appraisal = Appraisal(
         month=s["month"], year=s["year"],
         status=AppraisalStatus.LIDER_REVIEW,
@@ -191,6 +185,11 @@ def test_cycle_does_not_lock_when_team_b_is_behind(db_session, two_teams_setup):
     )
     db.session.add(appraisal)
     db.session.flush()
+
+    components = build_cycle_payload(s["cycle"])["components"]
+    assert components["cn_apuracao"]["rows"] == 1
+    assert components["cn_apuracao"]["expected"] == 2
+    assert components["cn_apuracao"]["status"] == "CALCULATING"
 
     assert all_components_locked(s["cycle"]) is False
     assert maybe_lock_cycle(s["cycle"]) is False
@@ -339,3 +338,67 @@ def test_cycle_locks_from_leadership_lock(db_session, two_teams_setup):
 
     db.session.refresh(s["cycle"])
     assert s["cycle"].status == MonthlyCycleStatus.LOCKED
+
+
+def test_ev_apuracao_component_exposes_appraisal_id(db_session, two_teams_setup):
+    s = two_teams_setup
+    appraisal = Appraisal(
+        month=s["month"], year=s["year"],
+        status=AppraisalStatus.DRAFT,
+        created_by=s["admin"].id,
+    )
+    db.session.add(appraisal)
+    db.session.flush()
+
+    comp = build_cycle_payload(s["cycle"])["components"]["ev_apuracao"]
+    assert comp["status"] == "DRAFT"
+    assert comp["appraisal_id"] == str(appraisal.id)
+
+
+def test_ev_apuracao_component_pending_without_appraisal(
+    db_session, two_teams_setup,
+):
+    s = two_teams_setup
+    comp = build_cycle_payload(s["cycle"])["components"]["ev_apuracao"]
+    assert comp["status"] == "PENDING"
+    assert comp["appraisal_id"] is None
+    assert comp["validations_total"] == 0
+
+
+def test_leadership_component_exposes_single_row_id(db_session, two_teams_setup):
+    s = two_teams_setup
+    row = LiderVendasQuarterAppraisal(
+        lider_vendas_id=s["lider_a"].id, quarter=s["quarter"], year=s["year"],
+        meta_mrr=Decimal("100000"), meta_sql=10,
+        realizado_mrr=Decimal("100000"), realizado_sql=10,
+        pct_mrr=Decimal("1.0"), pct_sql=Decimal("1.0"),
+        multiplicador=Decimal("2.0"), bonus_amount=Decimal("16000"),
+        status=AppraisalStatus.REVOPS_REVIEW,
+    )
+    db.session.add(row)
+    db.session.flush()
+
+    comp = build_cycle_payload(s["cycle"])["components"]["leadership_bonus"]
+    assert comp["status"] == "REVOPS_REVIEW"
+    assert comp["appraisal_id"] == str(row.id)
+    assert comp["rows"] == 1
+    assert comp["expected"] == 2  # fixture has 2 active LIDER_VENDAS
+
+
+def test_bonus_component_incomplete_final_set_stays_calculating(
+    db_session, two_teams_setup,
+):
+    """All-final bonus rows that miss an eligible user must not read LOCKED."""
+    s = two_teams_setup
+    db.session.add(EvQuarterAchievement(
+        ev_id=s["ev_a"].id, quarter=s["quarter"], year=s["year"],
+        total_mrr=Decimal("100000"), mrr_target=Decimal("100000"),
+        achievement_pct=Decimal("1.0"), is_final=True,
+    ))
+    db.session.flush()
+
+    comp = build_cycle_payload(s["cycle"])["components"]["ev_bonus"]
+    assert comp["rows"] == 1
+    assert comp["final"] == 1
+    assert comp["expected"] == 2  # ev_a + ev_b
+    assert comp["status"] == "CALCULATING"

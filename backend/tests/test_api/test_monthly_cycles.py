@@ -151,9 +151,9 @@ def test_get_cycle_returns_base_sequence_components(client, admin):
     assert body["year"] == 2031
     assert body["is_quarter_end"] is False
     assert body["sequence"] == ["ev_apuracao", "cn_apuracao"]
-    assert "teams" in body
-    for team in body["teams"]:
-        assert set(team["components"].keys()) == {"ev_apuracao", "cn_apuracao"}
+    assert "teams" not in body
+    assert set(body["components"].keys()) == {"ev_apuracao", "cn_apuracao"}
+    assert body["components"]["ev_apuracao"]["status"] == "PENDING"
 
 
 def test_get_quarter_end_cycle_returns_bonus_components(client, admin):
@@ -177,11 +177,11 @@ def test_get_quarter_end_cycle_returns_bonus_components(client, admin):
         "ev_apuracao", "cn_apuracao", "cn_bonus", "ev_bonus",
         "leadership_bonus",
     ]
-    for team in body["teams"]:
-        assert set(team["components"].keys()) == {
-            "ev_apuracao", "cn_apuracao", "cn_bonus", "ev_bonus",
-            "leadership_bonus",
-        }
+    assert "teams" not in body
+    assert set(body["components"].keys()) == {
+        "ev_apuracao", "cn_apuracao", "cn_bonus", "ev_bonus",
+        "leadership_bonus",
+    }
 
 
 def test_get_cycle_404(client, admin):

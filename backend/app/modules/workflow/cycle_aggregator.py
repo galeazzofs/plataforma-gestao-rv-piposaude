@@ -1,8 +1,8 @@
-"""Build the team-grouped component status for a MonthlyCycle.
+"""Build the global component status for a MonthlyCycle.
 
 The cycle is an orchestration shell over the monthly apuração sequence:
 
-  1. Apuração EV        — monthly Appraisal (shared across all teams)
+  1. Apuração EV        — monthly Appraisal (one per month)
   2. Apuração CN        — CnMonthlyAppraisal of the cycle month (per CN)
 
 and, only on quarter-end months (3, 6, 9, 12), the quarterly bonuses:
@@ -11,14 +11,16 @@ and, only on quarter-end months (3, 6, 9, 12), the quarterly bonuses:
   4. Bônus EV           — EvQuarterAchievement (per EV)
   5. Bônus Liderança    — LiderVendasQuarterAppraisal (per Líder)
 
-For each team we report the per-component aggregate so the unified
-cycle page can render progress per Líder de Vendas team.
+Components are aggregated globally — there is no per-team partition.
+Each component also reports `expected` (eligible-user count) where rows
+are per-user: an all-LOCKED set that misses an eligible user must not
+read LOCKED, otherwise the cycle could auto-close with work missing.
 """
 from app.extensions import db
 from app.models import (
     Appraisal, AppraisalStatus, CnMonthlyAppraisal, CnQuarterBonus,
     EvQuarterAchievement, EvValidation, LiderVendasQuarterAppraisal,
-    MonthlyCycle, MonthlyCycleStatus, Team, User, UserRole,
+    MonthlyCycle, MonthlyCycleStatus, User, UserRole,
     ValidationStatus,
 )
 
@@ -37,24 +39,24 @@ def _quarter_of(month: int) -> int:
     return (month - 1) // 3 + 1
 
 
-def _month_appraisal(month: int, year: int):
-    return Appraisal.query.filter_by(month=month, year=year).first()
+def _active_count(role: UserRole, exclude_left: bool = False) -> int:
+    q = User.query.filter_by(role=role, active=True)
+    if exclude_left:
+        q = q.filter_by(left_company=False)
+    return q.count()
 
 
-def _ev_apuracao_status(appraisal, ev_ids: list) -> dict:
-    """Status of the Apuração EV component, viewed for one team.
+def _ev_apuracao_status(month: int, year: int) -> dict:
+    """Status of the Apuração EV component: the month's Appraisal plus
+    its global validation progress."""
+    appraisal = Appraisal.query.filter_by(month=month, year=year).first()
+    if appraisal is None:
+        return {"status": "PENDING", "appraisal_id": None,
+                "validations_total": 0, "validations_done": 0}
 
-    The Appraisal is global for the month; validation progress is
-    team-local (only this team's EVs count)."""
-    if appraisal is None or not ev_ids:
-        return {"status": "PENDING", "validations_total": 0,
-                "validations_done": 0}
-
-    validations = EvValidation.query.filter(
-        EvValidation.appraisal_id == appraisal.id,
-        EvValidation.ev_id.in_(ev_ids),
+    validations = EvValidation.query.filter_by(
+        appraisal_id=appraisal.id,
     ).all()
-    total = len(validations)
     done = sum(
         1 for v in validations
         if v.status in (
@@ -62,12 +64,16 @@ def _ev_apuracao_status(appraisal, ev_ids: list) -> dict:
             ValidationStatus.RESOLVED,
         )
     )
-    return {"status": appraisal.status.value, "validations_total": total,
-            "validations_done": done}
+    return {
+        "status": appraisal.status.value,
+        "appraisal_id": str(appraisal.id),
+        "validations_total": len(validations),
+        "validations_done": done,
+    }
 
 
 def _summarize_status_set(statuses: list) -> str:
-    """Reduce a list of component-row statuses into one team-level status.
+    """Reduce a list of component-row statuses into one status.
 
     Rules:
       - empty / no rows → PENDING
@@ -94,156 +100,117 @@ def _summarize_status_set(statuses: list) -> str:
     return "DRAFT"
 
 
-def _cn_apuracao_status(cn_ids: list, month: int, year: int) -> dict:
-    if not cn_ids:
-        return {"status": "PENDING", "rows": 0, "month": month}
-    rows = CnMonthlyAppraisal.query.filter(
-        CnMonthlyAppraisal.cn_id.in_(cn_ids),
-        CnMonthlyAppraisal.year == year,
-        CnMonthlyAppraisal.month == month,
-    ).all()
+def _hold_open_if_incomplete(status: str, rows: int, expected: int) -> str:
+    """An all-LOCKED row set that misses an eligible user is not done:
+    someone's apuração was never created. Hold the component open."""
+    if status == "LOCKED" and rows < expected:
+        return "CALCULATING"
+    return status
+
+
+def _cn_apuracao_status(month: int, year: int) -> dict:
+    expected = _active_count(UserRole.CN)
+    rows = CnMonthlyAppraisal.query.filter_by(year=year, month=month).all()
     if not rows:
-        return {"status": "PENDING", "rows": 0, "month": month}
+        return {"status": "PENDING", "rows": 0, "expected": expected,
+                "month": month}
+    status = _summarize_status_set([r.status for r in rows])
     return {
-        "status": _summarize_status_set([r.status for r in rows]),
+        "status": _hold_open_if_incomplete(status, len(rows), expected),
         "rows": len(rows),
+        "expected": expected,
         "month": month,
     }
 
 
-def _ev_bonus_status(ev_ids: list, quarter: int, year: int) -> dict:
-    if not ev_ids:
-        return {"status": "PENDING", "rows": 0, "final": 0}
-    rows = EvQuarterAchievement.query.filter(
-        EvQuarterAchievement.ev_id.in_(ev_ids),
-        EvQuarterAchievement.quarter == quarter,
-        EvQuarterAchievement.year == year,
-    ).all()
+def _bonus_rows_status(rows: list, expected: int) -> dict:
     final = sum(1 for r in rows if r.is_final)
     if not rows:
-        return {"status": "PENDING", "rows": 0, "final": 0}
+        return {"status": "PENDING", "rows": 0, "final": 0,
+                "expected": expected}
+    status = "LOCKED" if all(r.is_final for r in rows) else "CALCULATING"
     return {
-        "status": "LOCKED" if all(r.is_final for r in rows) else "CALCULATING",
+        "status": _hold_open_if_incomplete(status, len(rows), expected),
         "rows": len(rows),
         "final": final,
+        "expected": expected,
     }
 
 
-def _cn_bonus_status(cn_ids: list, quarter: int, year: int) -> dict:
-    if not cn_ids:
-        return {"status": "PENDING", "rows": 0, "final": 0}
-    rows = CnQuarterBonus.query.filter(
-        CnQuarterBonus.cn_id.in_(cn_ids),
-        CnQuarterBonus.quarter == quarter,
-        CnQuarterBonus.year == year,
+def _cn_bonus_status(quarter: int, year: int) -> dict:
+    rows = CnQuarterBonus.query.filter_by(quarter=quarter, year=year).all()
+    return _bonus_rows_status(rows, _active_count(UserRole.CN))
+
+
+def _ev_bonus_status(quarter: int, year: int) -> dict:
+    rows = EvQuarterAchievement.query.filter_by(
+        quarter=quarter, year=year,
     ).all()
-    final = sum(1 for r in rows if r.is_final)
+    return _bonus_rows_status(
+        rows, _active_count(UserRole.EV, exclude_left=True),
+    )
+
+
+def _leadership_status(quarter: int, year: int) -> dict:
+    expected = _active_count(UserRole.LIDER_VENDAS)
+    rows = LiderVendasQuarterAppraisal.query.filter_by(
+        quarter=quarter, year=year,
+    ).all()
     if not rows:
-        return {"status": "PENDING", "rows": 0, "final": 0}
+        return {"status": "PENDING", "rows": 0, "expected": expected,
+                "appraisal_id": None, "has_contestation": False}
+    status = _summarize_status_set([r.status for r in rows])
     return {
-        "status": "LOCKED" if all(r.is_final for r in rows) else "CALCULATING",
+        "status": _hold_open_if_incomplete(status, len(rows), expected),
         "rows": len(rows),
-        "final": final,
+        "expected": expected,
+        # The inline transition buttons need a row id; with the single
+        # Líder P/M there is exactly one. Ambiguous (2+) → None, the UI
+        # falls back to the detail page.
+        "appraisal_id": str(rows[0].id) if len(rows) == 1 else None,
+        "has_contestation": any(r.has_contestation for r in rows),
     }
 
 
-def _leadership_status(lider_id, quarter: int, year: int) -> dict:
-    row = LiderVendasQuarterAppraisal.query.filter_by(
-        lider_vendas_id=lider_id, quarter=quarter, year=year,
-    ).first()
-    if row is None:
-        return {"status": "PENDING"}
-    return {"status": row.status.value, "has_contestation": row.has_contestation}
-
-
-def _components_for(appraisal, ev_ids, cn_ids, leader_id,
-                    month: int, year: int) -> dict:
-    """Components of one team's block, following the apuração sequence."""
+def _components(cycle: MonthlyCycle) -> dict:
+    month, year = cycle.month, cycle.year
     quarter = _quarter_of(month)
     components = {
-        "ev_apuracao": _ev_apuracao_status(appraisal, ev_ids),
-        "cn_apuracao": _cn_apuracao_status(cn_ids, month, year),
+        "ev_apuracao": _ev_apuracao_status(month, year),
+        "cn_apuracao": _cn_apuracao_status(month, year),
     }
     if month % 3 == 0:
-        components["cn_bonus"] = _cn_bonus_status(cn_ids, quarter, year)
-        components["ev_bonus"] = _ev_bonus_status(ev_ids, quarter, year)
-        components["leadership_bonus"] = (
-            _leadership_status(leader_id, quarter, year)
-            if leader_id else {"status": "PENDING"}
-        )
+        components["cn_bonus"] = _cn_bonus_status(quarter, year)
+        components["ev_bonus"] = _ev_bonus_status(quarter, year)
+        components["leadership_bonus"] = _leadership_status(quarter, year)
     return components
 
 
 def build_cycle_payload(cycle: MonthlyCycle) -> dict:
-    """Return the full per-team / per-component payload for a cycle."""
-    month, year = cycle.month, cycle.year
-    appraisal = _month_appraisal(month, year)
-
-    teams = Team.query.order_by(Team.name).all()
-    cn_users = User.query.filter_by(
-        role=UserRole.CN, active=True,
-    ).order_by(User.name).all()
-    unteamed_cn_ids = [u.id for u in cn_users if u.team_id is None]
-
-    team_blocks = []
-    for team in teams:
-        members = User.query.filter_by(team_id=team.id, active=True).all()
-        ev_ids = [
-            m.id for m in members
-            if m.role == UserRole.EV and not m.left_company
-        ]
-        cn_ids = [m.id for m in members if m.role == UserRole.CN]
-
-        team_blocks.append({
-            "team_id": str(team.id),
-            "team_name": team.name,
-            "leader_id": str(team.leader_id) if team.leader_id else None,
-            "ev_count": len(ev_ids),
-            "cn_count": len(cn_ids),
-            "components": _components_for(
-                appraisal, ev_ids, cn_ids, team.leader_id, month, year,
-            ),
-        })
-
-    # CNs not assigned to any team — surface so they don't disappear.
-    if unteamed_cn_ids:
-        team_blocks.append({
-            "team_id": None,
-            "team_name": "Sem time",
-            "leader_id": None,
-            "ev_count": 0,
-            "cn_count": len(unteamed_cn_ids),
-            "components": _components_for(
-                None, [], unteamed_cn_ids, None, month, year,
-            ),
-        })
-
+    """Return the global per-component payload for a cycle."""
     return {
         "id": str(cycle.id),
-        "month": month,
-        "year": year,
+        "month": cycle.month,
+        "year": cycle.year,
         "quarter": cycle.quarter,
         "is_quarter_end": cycle.is_quarter_end,
-        "sequence": component_sequence(month),
+        "sequence": component_sequence(cycle.month),
         "status": cycle.status.value,
         "created_by": str(cycle.created_by),
         "created_at": cycle.created_at.isoformat() if cycle.created_at else None,
         "locked_at": cycle.locked_at.isoformat() if cycle.locked_at else None,
-        "teams": team_blocks,
+        "components": _components(cycle),
     }
 
 
 def all_components_locked(cycle: MonthlyCycle) -> bool:
-    """True iff every component on every team in the cycle is LOCKED."""
+    """True iff every component in the cycle is LOCKED. PENDING counts as
+    not-locked: a cycle with no work in a component must not auto-LOCK."""
     payload = build_cycle_payload(cycle)
-    for team in payload["teams"]:
-        for comp in team["components"].values():
-            # PENDING is treated as not-locked even though there is
-            # nothing to lock — the cycle should not auto-LOCK on a team
-            # that has no work in it.
-            if comp.get("status") != "LOCKED":
-                return False
-    return True
+    return all(
+        comp.get("status") == "LOCKED"
+        for comp in payload["components"].values()
+    )
 
 
 def maybe_lock_cycle(cycle: MonthlyCycle) -> bool:
