@@ -23,9 +23,6 @@ class Appraisal(db.Model):
     id = db.Column(GUID, primary_key=True, default=uuid.uuid4)
     month = db.Column(db.Integer, nullable=False)  # 1–12
     year = db.Column(db.Integer, nullable=False)
-    cycle_id = db.Column(
-        GUID, db.ForeignKey("quarterly_cycles.id"), nullable=True, index=True,
-    )
     status = db.Column(
         db.Enum(AppraisalStatus, name="appraisal_status"),
         default=AppraisalStatus.DRAFT,

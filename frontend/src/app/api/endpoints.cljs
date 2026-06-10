@@ -54,12 +54,16 @@
 (defn cn-appraisal-transition [id] (str "/commissions/cn/appraisal/" id "/transition"))
 (defn cn-appraisal-contest [id] (str "/commissions/cn/appraisal/" id "/contest"))
 (defn cn-appraisal-finalize [id] (str "/commissions/cn/appraisal/" id "/finalize"))
+;; bulk month-level actions — no id arg
+(def cn-appraisal-transition-month "/commissions/cn/appraisal/transition-month")
+(def cn-appraisal-finalize-month   "/commissions/cn/appraisal/finalize-month")
 (def cn-simulate        "/commissions/cn/simulate")
 (def cn-quarterly-bonus           "/commissions/cn/quarterly-bonus")
 (def cn-quarterly-bonus-finalize  "/commissions/cn/quarterly-bonus/finalize")
 
 ;; EV bonus
 (def ev-bonus           "/commissions/ev/bonus")
+(def ev-bonus-finalize  "/commissions/ev/bonus/finalize")
 
 ;; Leadership
 (def leadership-preview    "/commissions/leadership/preview")

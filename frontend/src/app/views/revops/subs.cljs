@@ -153,19 +153,34 @@
    (get-in db [:admin :achievements-loading?])))
 
 (rf/reg-sub
- :revops/quarterly-cycles
+ :revops/monthly-cycles
  (fn [db _]
-   (get-in db [:appraisal :quarterly-cycles])))
+   (get-in db [:appraisal :monthly-cycles])))
 
 (rf/reg-sub
- :revops/quarterly-cycle
+ :revops/monthly-cycle
  (fn [db _]
-   (get-in db [:appraisal :quarterly-cycle])))
+   (get-in db [:appraisal :monthly-cycle])))
 
 (rf/reg-sub
- :revops/quarterly-cycle-loading?
+ :revops/monthly-cycle-loading?
  (fn [db _]
-   (get-in db [:appraisal :quarterly-cycle-loading?])))
+   (get-in db [:appraisal :monthly-cycle-loading?])))
+
+(rf/reg-sub
+ :revops/monthly-cycle-selection
+ (fn [db _]
+   (get-in db [:appraisal :monthly-cycle-selection])))
+
+(rf/reg-sub
+ :revops/monthly-cycle-requested-id
+ (fn [db _]
+   (get-in db [:appraisal :monthly-cycle-requested-id])))
+
+(rf/reg-sub
+ :revops/monthly-cycle-error?
+ (fn [db _]
+   (get-in db [:appraisal :monthly-cycle-error?])))
 
 (rf/reg-sub
  :revops/preview-result

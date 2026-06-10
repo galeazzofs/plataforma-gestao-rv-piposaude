@@ -47,7 +47,7 @@ def test_validating_released_dms_user(db_session):
 
     ctx, mock = _capture_calls()
     with ctx:
-        ok = slack_module.notify_validating_released(user, "ev_quarter", 1, 2030)
+        ok = slack_module.notify_validating_released(user, "ev_apuracao", 1, 2030)
 
     assert ok is True
     assert mock.called
@@ -121,7 +121,7 @@ def test_cycle_locked_fans_out_to_channel_and_lideres(db_session):
     b = _user(UserRole.LIDER_VENDAS, "LiderB", slack_id="U-B")
     ctx, mock = _capture_calls()
     with ctx:
-        slack_module.notify_cycle_locked(2, 2030)
+        slack_module.notify_cycle_locked(6, 2030)
 
     channels = [c.kwargs["channel"] for c in mock.call_args_list]
     assert "#ops-channel" in channels
@@ -135,7 +135,7 @@ def test_send_dm_skips_when_no_slack_id(db_session):
     user = _user(UserRole.EV, "Sem Slack", slack_id=None)
     ctx, mock = _capture_calls()
     with ctx:
-        ok = slack_module.notify_validating_released(user, "ev_quarter", 1, 2030)
+        ok = slack_module.notify_validating_released(user, "ev_apuracao", 1, 2030)
     assert ok is False
     assert not mock.called
 
@@ -153,5 +153,5 @@ def test_send_failure_does_not_raise(db_session):
     user = _user(UserRole.EV, "Falha", slack_id="U-F")
     bad_mock = MagicMock(side_effect=Exception("Slack down"))
     with patch("slack_sdk.WebClient.chat_postMessage", bad_mock):
-        ok = slack_module.notify_validating_released(user, "ev_quarter", 1, 2030)
+        ok = slack_module.notify_validating_released(user, "ev_apuracao", 1, 2030)
     assert ok is False

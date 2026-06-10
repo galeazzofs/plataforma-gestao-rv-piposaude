@@ -42,6 +42,9 @@ frontend/.clj-kondo/.cache/
 backend/test_*.py
 backend/listar_*.py
 
+# pytest basetemp dirs from agent verification runs
+backend/.pytest-tmp-*/
+
 # Legacy migration data (contains PII - keep out of repo)
 backend/apolices_legado.csv
 *.csv

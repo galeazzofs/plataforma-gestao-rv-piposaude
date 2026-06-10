@@ -43,7 +43,7 @@
      ["/appraisal"          {:name :revops/appraisal        :role #{:ADMIN}}]
      ["/appraisal-preview"  {:name :revops/appraisal-preview :role #{:ADMIN}}]
      ["/appraisal/:id/review" {:name :revops/appraisal-review :role #{:ADMIN}}]
-     ["/quarterly-cycle"    {:name :revops/quarterly-cycle  :role #{:ADMIN}}]
+     ["/monthly-cycle"      {:name :revops/monthly-cycle    :role #{:ADMIN}}]
      ["/cn-goals"           {:name :revops/cn-goals        :role #{:ADMIN}}]
      ["/cn-appraisal"       {:name :revops/cn-appraisal    :role #{:ADMIN}}]
      ["/ev-bonus"           {:name :revops/ev-bonus        :role #{:ADMIN}}]
@@ -122,14 +122,13 @@
    (get-in route [:data :name])))
 
 ;; Navigate effect — pushes state into browser history via reitit
-;; Accepts either a route-name keyword or a [route-name params] vector
+;; Accepts a route-name keyword, [route-name params] or
+;; [route-name params query-params]
 (rf/reg-fx
  :navigate!
- (fn [route-or-pair]
-   (if (vector? route-or-pair)
-     (let [[route-name params] route-or-pair]
-       (if params
-         (rfe/push-state route-name params)
-         (rfe/push-state route-name)))
-     (rfe/push-state route-or-pair))))
+ (fn [route-or-vec]
+   (if (vector? route-or-vec)
+     (let [[route-name params query] route-or-vec]
+       (rfe/push-state route-name (or params {}) (or query {})))
+     (rfe/push-state route-or-vec))))
 

@@ -740,99 +740,145 @@
  :revops/policies-error
  (fn [db _] (assoc-in db [:admin :policies-loading?] false)))
 
-;; ---- Quarterly Cycles (issues #32, #40) ----
+;; ---- Monthly Cycles ----
 
 (rf/reg-event-fx
- :revops/fetch-quarterly-cycles
+ :revops/fetch-monthly-cycles
  (fn [_ _]
    {:http {:method     :get
-           :url        "/quarterly-cycles"
-           :on-success [:revops/quarterly-cycles-loaded]
-           :on-failure [:revops/quarterly-cycles-error]}}))
+           :url        "/monthly-cycles"
+           :on-success [:revops/monthly-cycles-loaded]
+           :on-failure [:revops/monthly-cycles-error]}}))
 
 (rf/reg-event-fx
- :revops/fetch-quarterly-cycle-detail
+ :revops/fetch-monthly-cycle-detail
  (fn [{:keys [db]} [_ id]]
-   {:db   (assoc-in db [:appraisal :quarterly-cycle-loading?] true)
+   {:db   (-> db
+              (assoc-in [:appraisal :monthly-cycle-loading?] true)
+              (assoc-in [:appraisal :monthly-cycle-requested-id] id)
+              (assoc-in [:appraisal :monthly-cycle-error?] false))
     :http {:method     :get
-           :url        (str "/quarterly-cycles/" id)
-           :on-success [:revops/quarterly-cycle-detail-loaded]
-           :on-failure [:revops/quarterly-cycle-detail-error]}}))
+           :url        (str "/monthly-cycles/" id)
+           :on-success [:revops/monthly-cycle-detail-loaded]
+           :on-failure [:revops/monthly-cycle-detail-error]}}))
 
 (rf/reg-event-db
- :revops/quarterly-cycle-detail-loaded
+ :revops/monthly-cycle-detail-loaded
  (fn [db [_ resp]]
    (-> db
-       (assoc-in [:appraisal :quarterly-cycle] (:data resp))
-       (assoc-in [:appraisal :quarterly-cycle-loading?] false))))
+       (assoc-in [:appraisal :monthly-cycle] (:data resp))
+       (assoc-in [:appraisal :monthly-cycle-loading?] false))))
 
 (rf/reg-event-db
- :revops/quarterly-cycle-detail-error
+ :revops/monthly-cycle-detail-error
  (fn [db _]
-   (assoc-in db [:appraisal :quarterly-cycle-loading?] false)))
+   (-> db
+       (assoc-in [:appraisal :monthly-cycle-loading?] false)
+       (assoc-in [:appraisal :monthly-cycle-error?] true))))
 
 (rf/reg-event-db
- :revops/quarterly-cycles-loaded
+ :revops/monthly-cycles-loaded
  (fn [db [_ response]]
-   (assoc-in db [:appraisal :quarterly-cycles] (:data response))))
+   (assoc-in db [:appraisal :monthly-cycles] (:data response))))
 
 (rf/reg-event-db
- :revops/quarterly-cycles-error
+ :revops/monthly-cycles-error
  (fn [db _] db))
 
 (rf/reg-event-fx
- :revops/open-quarterly-cycle
- (fn [_ [_ {:keys [quarter year]}]]
+ :revops/open-monthly-cycle
+ (fn [_ [_ {:keys [month year]}]]
    {:http {:method     :post
-           :url        "/quarterly-cycles"
-           :body       {:quarter quarter :year year}
-           :on-success [:revops/quarterly-cycle-opened]
-           :on-failure [:revops/quarterly-cycle-open-error]}}))
+           :url        "/monthly-cycles"
+           :body       {:month month :year year}
+           :on-success [:revops/monthly-cycle-opened]
+           :on-failure [:revops/monthly-cycle-open-error]}}))
 
 (rf/reg-event-fx
- :revops/quarterly-cycle-opened
+ :revops/monthly-cycle-opened
  (fn [_ [_ response]]
-   (let [c (:data response)]
-     {:dispatch-n [[:revops/fetch-quarterly-cycles]
+   (let [c (:data response)
+         mm (let [m (:month c)] (if (< m 10) (str "0" m) (str m)))]
+     {:dispatch-n [[:revops/fetch-monthly-cycles]
                    [:ui/show-toast
                     {:type :success
-                     :message (str "Ciclo Q" (:quarter c) "/" (:year c) " aberto.")}]]})))
+                     :message (str "Ciclo " mm "/" (:year c) " aberto.")}]]})))
 
 (rf/reg-event-fx
- :revops/quarterly-cycle-open-error
+ :revops/monthly-cycle-open-error
  (fn [_ [_ resp]]
    (let [msg (or (get-in resp [:error :message]) "Erro ao abrir ciclo")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 (rf/reg-event-fx
- :revops/delete-quarterly-cycle
+ :revops/delete-monthly-cycle
  (fn [{:keys [db]} [_ id]]
    {:db   (-> db
-              (update-in [:appraisal :quarterly-cycles]
+              (update-in [:appraisal :monthly-cycles]
                          (fn [items] (filterv #(not= (:id %) id) (or items []))))
               (update-in [:appraisal]
-                         (fn [a] (if (= (get-in a [:quarterly-cycle :id]) id)
-                                   (dissoc a :quarterly-cycle)
+                         (fn [a] (if (= (get-in a [:monthly-cycle :id]) id)
+                                   (dissoc a :monthly-cycle)
                                    a))))
     :http {:method     :delete
-           :url        (str "/quarterly-cycles/" id)
-           :on-success [:revops/quarterly-cycle-deleted]
-           :on-failure [:revops/quarterly-cycle-delete-error]}}))
+           :url        (str "/monthly-cycles/" id)
+           :on-success [:revops/monthly-cycle-deleted]
+           :on-failure [:revops/monthly-cycle-delete-error]}}))
 
 (rf/reg-event-fx
- :revops/quarterly-cycle-deleted
+ :revops/monthly-cycle-deleted
  (fn [_ _]
-   {:dispatch-n [[:revops/fetch-quarterly-cycles]
+   {:dispatch-n [[:revops/fetch-monthly-cycles]
                  [:ui/show-toast
-                  {:type :success :message "Ciclo trimestral excluído."}]]}))
+                  {:type :success :message "Ciclo mensal excluído."}]]}))
 
 (rf/reg-event-fx
- :revops/quarterly-cycle-delete-error
+ :revops/monthly-cycle-delete-error
  (fn [_ [_ resp]]
    (let [msg (or (get-in resp [:error :message])
                  "Erro ao excluir ciclo")]
-     {:dispatch-n [[:revops/fetch-quarterly-cycles]
+     {:dispatch-n [[:revops/fetch-monthly-cycles]
                    [:ui/show-toast {:type :error :message msg}]]})))
+
+;; ---- Monthly cycle: inline orchestration actions ----
+;; One generic event powers every step button on the cycle rail:
+;; run the request, then refetch the cycle payload (single source of
+;; truth — no optimistic state) and toast the outcome.
+
+(rf/reg-event-db
+ :revops/select-cycle-month
+ (fn [db [_ selection]]
+   (assoc-in db [:appraisal :monthly-cycle-selection] selection)))
+
+(rf/reg-event-fx
+ :revops/cycle-action
+ (fn [_ [_ {:keys [method url body success-msg cycle-id]}]]
+   {:http {:method     (or method :post)
+           :url        url
+           :body       body
+           :on-success [:revops/cycle-action-done cycle-id success-msg]
+           :on-failure [:revops/cycle-action-error cycle-id]}}))
+
+(rf/reg-event-fx
+ :revops/cycle-action-done
+ (fn [_ [_ cycle-id success-msg resp]]
+   (let [skipped (get-in resp [:data :skipped])
+         msg     (if (seq skipped)
+                   (str success-msg " · " (count skipped) " pulado(s)")
+                   success-msg)]
+     {:dispatch-n
+      (cond-> [[:revops/fetch-monthly-cycles]
+               [:ui/show-toast {:type :success :message msg}]]
+        cycle-id (conj [:revops/fetch-monthly-cycle-detail cycle-id]))})))
+
+(rf/reg-event-fx
+ :revops/cycle-action-error
+ (fn [_ [_ cycle-id resp]]
+   (let [msg (or (get-in resp [:error :message])
+                 "Erro ao executar a ação")]
+     {:dispatch-n
+      (cond-> [[:ui/show-toast {:type :error :message msg}]]
+        cycle-id (conj [:revops/fetch-monthly-cycle-detail cycle-id]))})))
 
 ;; ---- Appraisal contestation (issue #36) ----
 

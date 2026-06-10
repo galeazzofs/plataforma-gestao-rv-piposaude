@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 _COMPONENT_LABELS = {
-    "ev_quarter": "Comissão EV",
-    "ev_quarterly_bonus": "Bônus EV",
-    "cn_quarterly_bonus": "Bônus CN",
-    "cn_monthly": "Comissão CN",
-    "leadership": "Comissão Liderança",
+    "ev_apuracao": "Comissão EV",
+    "cn_apuracao": "Comissão CN",
+    "cn_bonus": "Bônus CN",
+    "ev_bonus": "Bônus EV",
+    "leadership_bonus": "Comissão Liderança",
 }
 
 
@@ -121,10 +121,6 @@ def _finance_channel():
     return current_app.config.get("SLACK_FINANCE_CHANNEL")
 
 
-def _period(quarter: int, year: int) -> str:
-    return f"Q{quarter}/{year}"
-
-
 def _period_month(month: int, year: int) -> str:
     return f"{month:02d}/{year}"
 
@@ -201,9 +197,9 @@ def notify_revops_approved(month: int, year: int) -> bool:
     return send_slack_channel(_finance_channel(), text, blocks)
 
 
-def notify_cycle_locked(quarter: int, year: int) -> bool:
-    """Channel + DM each Líder when the QuarterlyCycle reaches LOCKED."""
-    period = _period(quarter, year)
+def notify_cycle_locked(month: int, year: int) -> bool:
+    """Channel + DM each Líder when the MonthlyCycle reaches LOCKED."""
+    period = _period_month(month, year)
     channel_text = f"O ciclo {period} foi fechado. Pagamentos liberados."
     blocks = build_appraisal_blocks(
         title=f"Ciclo fechado · {period}",
