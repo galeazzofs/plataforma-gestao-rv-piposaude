@@ -168,6 +168,11 @@
    (get-in db [:appraisal :monthly-cycle-loading?])))
 
 (rf/reg-sub
+ :revops/monthly-cycle-selection
+ (fn [db _]
+   (get-in db [:appraisal :monthly-cycle-selection])))
+
+(rf/reg-sub
  :revops/preview-result
  (fn [db _]
    (get-in db [:appraisal :preview :result])))

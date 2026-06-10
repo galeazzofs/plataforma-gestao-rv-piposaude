@@ -809,6 +809,45 @@
      {:dispatch-n [[:revops/fetch-monthly-cycles]
                    [:ui/show-toast {:type :error :message msg}]]})))
 
+;; ---- Monthly cycle: inline orchestration actions ----
+;; One generic event powers every step button on the cycle rail:
+;; run the request, then refetch the cycle payload (single source of
+;; truth — no optimistic state) and toast the outcome.
+
+(rf/reg-event-db
+ :revops/select-cycle-month
+ (fn [db [_ selection]]
+   (assoc-in db [:appraisal :monthly-cycle-selection] selection)))
+
+(rf/reg-event-fx
+ :revops/cycle-action
+ (fn [_ [_ {:keys [method url body success-msg cycle-id]}]]
+   {:http {:method     (or method :post)
+           :url        url
+           :body       body
+           :on-success [:revops/cycle-action-done cycle-id success-msg]
+           :on-failure [:revops/cycle-action-error cycle-id]}}))
+
+(rf/reg-event-fx
+ :revops/cycle-action-done
+ (fn [_ [_ cycle-id success-msg resp]]
+   (let [skipped (get-in resp [:data :skipped])
+         msg     (if (seq skipped)
+                   (str success-msg " · " (count skipped)
+                        " pulado(s) — ver detalhes")
+                   success-msg)]
+     {:dispatch-n [[:revops/fetch-monthly-cycle-detail cycle-id]
+                   [:revops/fetch-monthly-cycles]
+                   [:ui/show-toast {:type :success :message msg}]]})))
+
+(rf/reg-event-fx
+ :revops/cycle-action-error
+ (fn [_ [_ cycle-id resp]]
+   (let [msg (or (get-in resp [:error :message])
+                 "Erro ao executar a ação")]
+     {:dispatch-n [[:revops/fetch-monthly-cycle-detail cycle-id]
+                   [:ui/show-toast {:type :error :message msg}]]})))
+
 ;; ---- Appraisal contestation (issue #36) ----
 
 (rf/reg-event-fx
