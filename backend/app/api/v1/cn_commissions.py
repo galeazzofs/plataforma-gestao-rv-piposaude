@@ -319,6 +319,108 @@ def transition_cn_appraisal_endpoint(appraisal_id):
     return jsonify({"data": _serialize_appraisal(appraisal)})
 
 
+@cn_commissions_bp.route("/appraisal/transition-month", methods=["POST"])
+@require_auth
+def transition_cn_month():
+    """Bulk-advance every CN monthly appraisal of (month, year).
+
+    Rows already in the target status are ignored; rows with an open
+    contestation or an invalid source state are skipped and reported —
+    they never block the rest. ADMIN only."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    body = request.get_json() or {}
+    try:
+        month = int(body["month"])
+        year = int(body["year"])
+        new_status = AppraisalStatus(body["to"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "month, year and to (valid status) required"},
+        }), 400
+
+    rows = CnMonthlyAppraisal.query.filter_by(month=month, year=year).all()
+    if not rows:
+        return jsonify({
+            "error": {"code": "NOT_FOUND",
+                      "message": f"No CN appraisals for {month:02d}/{year}"},
+        }), 404
+
+    advanced, skipped = 0, []
+    for row in rows:
+        if row.status == new_status:
+            continue
+        if row.has_contestation:
+            skipped.append({"cn_id": str(row.cn_id),
+                            "reason": "contestação aberta"})
+            continue
+        try:
+            transition_cn_monthly_appraisal(row, new_status)
+            advanced += 1
+        except InvalidTransitionError as e:
+            skipped.append({"cn_id": str(row.cn_id), "reason": str(e)})
+    db.session.commit()
+    return jsonify({"data": {"advanced": advanced, "skipped": skipped,
+                             "to": new_status.value}})
+
+
+@cn_commissions_bp.route("/appraisal/finalize-month", methods=["POST"])
+@require_auth
+def finalize_cn_month():
+    """Bulk-finalize: walk every non-LOCKED CN appraisal of (month, year)
+    through the state machine to LOCKED. Contested rows are skipped.
+    The last LOCK re-evaluates the month's cycle (inside the state
+    machine). ADMIN only."""
+    user = g.current_user
+    if user.role != UserRole.ADMIN:
+        return jsonify({"error": {"code": "FORBIDDEN"}}), 403
+
+    body = request.get_json() or {}
+    try:
+        month = int(body["month"])
+        year = int(body["year"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "month and year required (integers)"},
+        }), 400
+
+    rows = CnMonthlyAppraisal.query.filter_by(month=month, year=year).all()
+    if not rows:
+        return jsonify({
+            "error": {"code": "NOT_FOUND",
+                      "message": f"No CN appraisals for {month:02d}/{year}"},
+        }), 404
+
+    chain = [
+        AppraisalStatus.VALIDATING,
+        AppraisalStatus.LIDER_REVIEW,
+        AppraisalStatus.REVOPS_REVIEW,
+        AppraisalStatus.LOCKED,
+    ]
+    advanced, skipped = 0, []
+    for row in rows:
+        if row.status == AppraisalStatus.LOCKED:
+            continue
+        if row.has_contestation:
+            skipped.append({"cn_id": str(row.cn_id),
+                            "reason": "contestação aberta"})
+            continue
+        try:
+            # Only apply steps that come after the row's current status.
+            start = chain.index(row.status) + 1 if row.status in chain else 0
+            for s in chain[start:]:
+                transition_cn_monthly_appraisal(row, s)
+            advanced += 1
+        except (InvalidTransitionError, ValueError) as e:
+            skipped.append({"cn_id": str(row.cn_id), "reason": str(e)})
+    db.session.commit()
+    return jsonify({"data": {"advanced": advanced, "skipped": skipped}})
+
+
 # ── Simulator ──────────────────────────────────────────────────────────────
 
 @cn_commissions_bp.route("/simulate", methods=["POST"])
