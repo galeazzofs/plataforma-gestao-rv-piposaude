@@ -194,3 +194,42 @@ def test_finalize_month_requires_admin(client, setup):
         headers=_auth_header(setup["cn_a"]),
     )
     assert resp.status_code == 403
+
+
+def test_finalize_month_walks_mixed_statuses(client, setup):
+    """Rows anywhere in the finalize chain get exactly their remaining forward
+    steps. A DRAFT row is skipped with the state-machine reason and left
+    untouched: DRAFT's only valid edge is DRAFT→CALCULATING, but finalize
+    starts the walk at VALIDATING, so the first transition raises
+    InvalidTransitionError immediately."""
+    s = setup
+    cn_c = _make_user(UserRole.CN, "BulkCnC")
+    cn_d = _make_user(UserRole.CN, "BulkCnD")
+    draft      = _add_cn_row(s["cn_a"], AppraisalStatus.DRAFT)
+    calc       = _add_cn_row(s["cn_b"], AppraisalStatus.CALCULATING)
+    validating = _add_cn_row(cn_c, AppraisalStatus.VALIDATING)
+    review     = _add_cn_row(cn_d, AppraisalStatus.REVOPS_REVIEW)
+
+    resp = client.post(
+        "/api/v1/commissions/cn/appraisal/finalize-month",
+        json={"month": MONTH, "year": YEAR},
+        headers=_auth_header(s["admin"]),
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+
+    for row in (calc, validating, review):
+        db.session.refresh(row)
+    db.session.refresh(draft)
+
+    # DRAFT has no edge to VALIDATING: skipped with state-machine reason,
+    # left untouched. The other 3 rows walk all the way to LOCKED.
+    assert data["advanced"] == 3
+    assert len(data["skipped"]) == 1
+    assert data["skipped"][0]["cn_id"] == str(s["cn_a"].id)
+    assert data["skipped"][0]["reason"]
+
+    assert draft.status == AppraisalStatus.DRAFT
+    assert calc.status == AppraisalStatus.LOCKED
+    assert validating.status == AppraisalStatus.LOCKED
+    assert review.status == AppraisalStatus.LOCKED

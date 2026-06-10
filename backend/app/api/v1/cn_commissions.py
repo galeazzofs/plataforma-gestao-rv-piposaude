@@ -415,7 +415,7 @@ def finalize_cn_month():
             for s in chain[start:]:
                 transition_cn_monthly_appraisal(row, s)
             advanced += 1
-        except (InvalidTransitionError, ValueError) as e:
+        except InvalidTransitionError as e:
             skipped.append({"cn_id": str(row.cn_id), "reason": str(e)})
     db.session.commit()
     return jsonify({"data": {"advanced": advanced, "skipped": skipped}})
