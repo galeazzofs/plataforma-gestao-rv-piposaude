@@ -1,5 +1,7 @@
 (ns app.views.revops.monthly-cycle
   (:require [re-frame.core :as rf]
+            [reagent.core :as r]
+            [app.api.endpoints :as ep]
             [app.ds.layout :as layout]
             [app.auth.subs]))
 
@@ -50,6 +52,166 @@
 
 (defn cycle-label [{:keys [month year]}]
   (str (nth month-names (dec month) month) "/" year))
+
+;; ── Pure rail helpers ───────────────────────────────────────────────
+
+(defn component-of
+  "Component map for key `k` — payload keys may arrive as keywords or
+   strings depending on the JSON decoding path."
+  [cycle k]
+  (or (get-in cycle [:components (keyword k)])
+      (get-in cycle [:components k])))
+
+(defn current-step-key
+  "First component in sequence order that is not LOCKED — the step the
+   admin should be working on. nil when everything is locked."
+  [cycle]
+  (->> (components-for cycle)
+       (map first)
+       (remove #(= "LOCKED" (:status (component-of cycle %))))
+       first))
+
+(defn progress
+  "{:done n :total m} counting LOCKED components."
+  [cycle]
+  (let [ks (map first (components-for cycle))]
+    {:done  (count (filter #(= "LOCKED" (:status (component-of cycle %))) ks))
+     :total (count ks)}))
+
+(defn prev-month [{:keys [month year]}]
+  (if (> month 1)
+    {:month (dec month) :year year}
+    {:month 12 :year (dec year)}))
+
+(defn cycle-for-month [cycles {:keys [month year]}]
+  (first (filter #(and (= (:month %) month) (= (:year %) year))
+                 (or cycles []))))
+
+(defn next-action
+  "Primary inline action for component `k` in its current state.
+   {:kind :request ...} actions run through :revops/cycle-action;
+   {:kind :navigate :route ...} deep-link to the detail page (work that
+   needs inputs). nil = nothing for the admin to click right now."
+  [k component cycle]
+  (let [{:keys [status appraisal_id]} component
+        {:keys [month year quarter]} cycle]
+    (case k
+      "ev_apuracao"
+      (case status
+        "PENDING"
+        {:kind :request :label "Criar apuração (DRAFT)"
+         :method :post :url (ep/appraisals)
+         :body {:month month :year year}
+         :success-msg "Apuração criada em DRAFT."}
+        "DRAFT"
+        (when appraisal_id
+          {:kind :request :label "Rodar cálculo"
+           :method :post :url (str "/appraisals/" appraisal_id "/transition")
+           :body {:to "CALCULATING"}
+           :success-msg "Cálculo concluído. Revise antes de liberar."})
+        "CALCULATING"
+        (when appraisal_id
+          {:kind :request :label "Liberar para validação"
+           :method :post :url (str "/appraisals/" appraisal_id "/transition")
+           :body {:to "VALIDATING"}
+           :success-msg "Liberado para validação dos EVs."})
+        "VALIDATING" nil
+        "LIDER_REVIEW"
+        (when appraisal_id
+          {:kind :request :label "Avançar para revisão RevOps"
+           :method :post :url (str "/appraisals/" appraisal_id "/transition")
+           :body {:to "REVOPS_REVIEW"}
+           :success-msg "Enviado para revisão RevOps."})
+        "REVOPS_REVIEW"
+        (when appraisal_id
+          {:kind :request :label "Travar (LOCKED)" :confirm? true
+           :method :post :url (str "/appraisals/" appraisal_id "/transition")
+           :body {:to "LOCKED"}
+           :success-msg "Apuração EV travada."})
+        nil)
+
+      "cn_apuracao"
+      (case status
+        "PENDING"
+        {:kind :navigate :label "Preparar e rodar →"
+         :route :revops/cn-appraisal}
+        ("DRAFT" "CALCULATING")
+        {:kind :request :label "Liberar para validação"
+         :method :post :url ep/cn-appraisal-transition-month
+         :body {:month month :year year :to "VALIDATING"}
+         :success-msg "CNs liberados para validação."}
+        "VALIDATING"
+        {:kind :request :label "Avançar para revisão do líder"
+         :method :post :url ep/cn-appraisal-transition-month
+         :body {:month month :year year :to "LIDER_REVIEW"}
+         :success-msg "CNs avançados para revisão do líder."}
+        "LIDER_REVIEW"
+        {:kind :request :label "Avançar para revisão RevOps"
+         :method :post :url ep/cn-appraisal-transition-month
+         :body {:month month :year year :to "REVOPS_REVIEW"}
+         :success-msg "CNs avançados para revisão RevOps."}
+        "REVOPS_REVIEW"
+        {:kind :request :label "Finalizar todos" :confirm? true
+         :method :post :url ep/cn-appraisal-finalize-month
+         :body {:month month :year year}
+         :success-msg "Apurações CN finalizadas."}
+        nil)
+
+      "cn_bonus"
+      (case status
+        "PENDING"
+        {:kind :request :label "Rodar Bônus CN"
+         :method :post :url ep/cn-quarterly-bonus
+         :body {:quarter quarter :year year}
+         :success-msg "Bônus CN calculado."}
+        "CALCULATING"
+        {:kind :request :label "Finalizar Bônus CN" :confirm? true
+         :method :post :url ep/cn-quarterly-bonus-finalize
+         :body {:quarter quarter :year year}
+         :success-msg "Bônus CN finalizado."}
+        nil)
+
+      "ev_bonus"
+      (case status
+        "PENDING"
+        {:kind :request :label "Rodar Bônus EV"
+         :method :post :url ep/ev-bonus
+         :body {:quarter quarter :year year}
+         :success-msg "Bônus EV calculado."}
+        "CALCULATING"
+        {:kind :request :label "Finalizar Bônus EV" :confirm? true
+         :method :post :url ep/ev-bonus-finalize
+         :body {:quarter quarter :year year}
+         :success-msg "Bônus EV finalizado."}
+        nil)
+
+      "leadership_bonus"
+      (case status
+        "PENDING"
+        {:kind :navigate :label "Preparar e rodar →"
+         :route :revops/leadership}
+        "CALCULATING"
+        (when appraisal_id
+          {:kind :request :label "Liberar para validação"
+           :method :post :url (ep/leadership-transition appraisal_id)
+           :body {:to "VALIDATING"}
+           :success-msg "Liberado para validação do líder."})
+        "VALIDATING" nil
+        "LIDER_REVIEW"
+        (when appraisal_id
+          {:kind :request :label "Avançar para revisão RevOps"
+           :method :post :url (ep/leadership-transition appraisal_id)
+           :body {:to "REVOPS_REVIEW"}
+           :success-msg "Enviado para revisão RevOps."})
+        "REVOPS_REVIEW"
+        (when appraisal_id
+          {:kind :request :label "Finalizar" :confirm? true
+           :method :post :url (ep/leadership-finalize appraisal_id)
+           :body {}
+           :success-msg "Bônus Liderança finalizado."})
+        nil)
+
+      nil)))
 
 (defn- status->badge [status]
   (case status
