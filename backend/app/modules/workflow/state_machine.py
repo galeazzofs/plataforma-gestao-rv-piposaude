@@ -12,6 +12,22 @@ class InvalidTransitionError(Exception):
     pass
 
 
+def _assert_no_open_contestation(appraisal, new_status):
+    """Contestation is BLOCKING: nothing reaches LOCKED with one open,
+    regardless of domain (EV / CN / leadership) or of which endpoint drove
+    the transition (transition, single-row finalize, bulk). The fix family
+    f3b2712/9eee6fc showed per-endpoint guards get forgotten — this is the
+    single chokepoint."""
+    if (
+        new_status == AppraisalStatus.LOCKED
+        and getattr(appraisal, "has_contestation", False)
+    ):
+        raise InvalidTransitionError(
+            "Cannot LOCK while a contestation is open. "
+            "Resolve the contestation first."
+        )
+
+
 # Statuses that count as "the Líder validated own Comissão Liderança" —
 # anything past VALIDATING means the Líder moved their own row forward.
 _LIDER_VALIDATED_OWN = {
@@ -63,6 +79,8 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             f"Cannot transition from {appraisal.status.value} to {new_status.value}. "
             f"Allowed: {[s.value for s in allowed]}"
         )
+
+    _assert_no_open_contestation(appraisal, new_status)
 
     # Issue #36: VALIDATING → LIDER_REVIEW is blocked while a contestation
     # is open. Use the contest endpoint to route to REVOPS_REVIEW instead.
@@ -182,6 +200,8 @@ def transition_lider_vendas_appraisal(
             f"Allowed: {[s.value for s in allowed]}"
         )
 
+    _assert_no_open_contestation(appraisal, new_status)
+
     # Issue #36: defense-in-depth — block VALIDATING → LIDER_REVIEW while a
     # contestation is open on this row. The contest endpoint forces a
     # direct write to REVOPS_REVIEW, so this guard is normally unreachable
@@ -222,6 +242,8 @@ def transition_cn_monthly_appraisal(appraisal: CnMonthlyAppraisal, new_status):
             f"Cannot transition CN appraisal from {appraisal.status.value} "
             f"to {new_status.value}. Allowed: {[s.value for s in allowed]}"
         )
+
+    _assert_no_open_contestation(appraisal, new_status)
 
     # Issue #36: same contestation guard as LiderVendas.
     if (

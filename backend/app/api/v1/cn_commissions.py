@@ -251,6 +251,18 @@ def resolve_cn_contestation(appraisal_id):
                       "message": "no open contestation on this appraisal"},
         }), 409
 
+    # Same gate as the EV resolve: the contest route parks the row in
+    # REVOPS_REVIEW, and resolving any other state (especially LOCKED)
+    # would corrupt it by direct status write.
+    if appraisal.status != AppraisalStatus.REVOPS_REVIEW:
+        return jsonify({
+            "error": {"code": "INVALID_STATE",
+                      "message": (
+                          "Contestation can only be resolved in REVOPS_REVIEW "
+                          f"(current: {appraisal.status.value})"
+                      )},
+        }), 409
+
     body = request.get_json() or {}
     resolution = (body.get("resolution_note") or "").strip()
     if not resolution:
