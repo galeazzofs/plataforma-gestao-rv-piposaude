@@ -48,12 +48,26 @@ def list_appraisals():
 @workflow_bp.route("/<appraisal_id>")
 @require_auth
 def get_appraisal(appraisal_id):
-    """Get a single appraisal."""
+    """Get a single appraisal.
+
+    The detail payload carries every EV's commission values (RV data), so
+    it is role-scoped: ADMIN/FINANCE see everything, a líder sees only the
+    own team, EV/CN are denied — their flows use the validations endpoints.
+    """
+    user = g.current_user
+    if user.role in (UserRole.EV, UserRole.CN):
+        return jsonify({"error": {
+            "code": "FORBIDDEN",
+            "message": "Appraisal detail is restricted to RevOps, Finance and líderes.",
+        }}), 403
+
     appraisal = db.session.get(Appraisal, appraisal_id)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
 
-    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+    return jsonify({"data": _serialize_appraisal(
+        appraisal, detail=True, visible_ev_ids=_visible_ev_ids_for(user),
+    )})
 
 
 @workflow_bp.route("", methods=["POST"])
@@ -150,7 +164,9 @@ def transition(appraisal_id):
         db.session.rollback()
         return jsonify({"error": {"code": "MISSING_ACHIEVEMENTS", "message": str(e), "missing": e.missing}}), 422
 
-    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+    return jsonify({"data": _serialize_appraisal(
+        appraisal, detail=True, visible_ev_ids=_visible_ev_ids_for(user),
+    )})
 
 
 @workflow_bp.route("/<appraisal_id>", methods=["DELETE"])
@@ -426,7 +442,67 @@ def preview_appraisal():
 # ── Serializer ───────────────────────────────────────────────────────
 
 
-def _serialize_appraisal(appraisal, detail=False):
+def _visible_ev_ids_for(user):
+    """Which EVs the requesting user may see inside a detail payload.
+
+    None means unrestricted (ADMIN/FINANCE). A set restricts ev_summary to
+    those ids — for a líder, the own team; a líder without a team sees an
+    empty set, never the bucket of team-less EVs (team_id IS NULL).
+    """
+    if user.role in (UserRole.ADMIN, UserRole.FINANCE):
+        return None
+    if user.role == UserRole.LIDER_VENDAS and user.team_id is not None:
+        rows = db.session.query(User.id).filter(User.team_id == user.team_id).all()
+        return {str(r.id) for r in rows}
+    return set()
+
+
+def _scope_detail_payload(data, visible_ev_ids):
+    """Restrict a detail payload to the given EV ids, recomputing the
+    aggregates. Company-wide review tabs (unmatched / não suportado /
+    finalizadas / missing achievements) are RevOps material and are emptied
+    for a scoped view."""
+    if visible_ev_ids is None:
+        return data
+
+    ev_summary = [s for s in data["ev_summary"] if s["ev_id"] in visible_ev_ids]
+    data["ev_summary"] = ev_summary
+    data["unmatched"] = []
+    data["nao_suportado"] = []
+    data["apolices_finalizadas"] = []
+    data["missing_achievements"] = []
+
+    data["totals"] = {
+        "total_commission": sum(s["total_commission"] for s in ev_summary),
+        "nf_liquido_total": float(sum(s["nf_liquido_total"] for s in ev_summary)),
+        "ev_count": len(ev_summary),
+        "left_company_ev_count": sum(
+            1 for s in ev_summary if s.get("ev_left_company")
+        ),
+        "policy_count": sum(s["policies_count"] for s in ev_summary),
+        "matched_nf_count": sum(s["nf_count"] for s in ev_summary),
+        "unmatched_count": 0,
+        "nao_suportado_count": 0,
+        "apolices_finalizadas_count": 0,
+    }
+
+    if "validation_totals" in data:
+        counts = {
+            "total": 0, "pending": 0, "approved": 0,
+            "auto_approved": 0, "contested": 0, "resolved": 0,
+        }
+        for s in ev_summary:
+            for key in counts:
+                counts[key] += (s.get("validation_status") or {}).get(key, 0)
+        done = counts["approved"] + counts["auto_approved"] + counts["resolved"]
+        counts["done"] = done
+        counts["all_done"] = counts["total"] > 0 and done == counts["total"]
+        data["validation_totals"] = counts
+
+    return data
+
+
+def _serialize_appraisal(appraisal, detail=False, visible_ev_ids=None):
     data = {
         "id": str(appraisal.id),
         "month": appraisal.month,
@@ -453,7 +529,9 @@ def _serialize_appraisal(appraisal, detail=False):
             if appraisal.approved_by_finance else None
         )
         data["validation_count"] = len(appraisal.validations)
-        data.update(_build_appraisal_detail(appraisal))
+        data.update(_scope_detail_payload(
+            _build_appraisal_detail(appraisal), visible_ev_ids,
+        ))
     return data
 
 
