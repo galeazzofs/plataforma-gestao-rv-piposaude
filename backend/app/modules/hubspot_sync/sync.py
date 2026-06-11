@@ -333,21 +333,32 @@ def _upsert_policy(ticket_id, ticket_props, apolice, default_deal, owner_map,
 def _delete_absent_policies(seen_ticket_ids, summary):
     """Phase 4 — delete policies whose hubspot_ticket_id wasn't in this fetch.
 
-    Cascade:
+    Cascade (for deletable policies):
     - DELETE FROM commissions WHERE policy_id IN (...)
     - DELETE FROM ev_validations WHERE policy_id IN (...)
-    - UPDATE financial_imports SET policy_id = NULL WHERE policy_id IN (...)
+    - UPDATE financial_imports SET policy_id = NULL, match_status = UNMATCHED
     - DELETE FROM policies WHERE id IN (...)
 
-    Includes locked rows — lock prevents overwrite during upsert, not deletion
-    when the source disappears.
+    Includes is_locked rows — edit-lock prevents overwrite during upsert, not
+    deletion when the source disappears.
+
+    PAID HISTORY IS NEVER DELETED: a policy with any is_final commission, or
+    a MATCHED financial import inside a LOCKED appraisal month, is the
+    official record of money already paid. Archiving a ticket in HubSpot is
+    routine CRM work and must not erase it. Such policies are preserved,
+    auto-CANCELLED (cancelled policies are excluded from payable, projection
+    and future apuração), stamped with sync_absent_since on the first
+    disappearance, and surfaced in the summary for human review.
 
     Safety guard: if seen_ticket_ids is empty AND policies has rows, abort with
     an error in summary["errors"]. A zero-result fetch against a populated DB
     is more likely a HubSpot anomaly (silent pipeline change, expired token
     returning 200) than a real wipe.
     """
-    from app.models import Commission, EvValidation, FinancialImport
+    from app.models import (
+        Commission, EvValidation, FinancialImport, Appraisal, AppraisalStatus,
+        CommissionStatus,
+    )
 
     if not seen_ticket_ids and Policy.query.count() > 0:
         msg = "Delete-by-absence abortado: fetch retornou zero tickets mas DB não está vazio"
@@ -365,17 +376,77 @@ def _delete_absent_policies(seen_ticket_ids, summary):
 
     absent_ids = [p.id for p in absent]
 
-    Commission.query.filter(Commission.policy_id.in_(absent_ids)).delete(synchronize_session=False)
-    EvValidation.query.filter(EvValidation.policy_id.in_(absent_ids)).delete(synchronize_session=False)
-    FinancialImport.query.filter(FinancialImport.policy_id.in_(absent_ids)).update(
-        {FinancialImport.policy_id: None}, synchronize_session=False
-    )
-    Policy.query.filter(Policy.id.in_(absent_ids)).delete(synchronize_session=False)
+    protected_ids = {
+        pid
+        for (pid,) in db.session.query(Commission.policy_id).filter(
+            Commission.policy_id.in_(absent_ids),
+            Commission.is_final.is_(True),
+        ).distinct().all()
+    }
+    locked_pairs = {
+        (a.month, a.year)
+        for a in Appraisal.query.filter_by(status=AppraisalStatus.LOCKED).all()
+    }
+    if locked_pairs:
+        matched_rows = db.session.query(
+            FinancialImport.policy_id,
+            FinancialImport.month,
+            FinancialImport.year,
+        ).filter(
+            FinancialImport.policy_id.in_(absent_ids),
+            FinancialImport.match_status == 'MATCHED',
+        ).distinct().all()
+        protected_ids.update(
+            pid for pid, m, y in matched_rows if (m, y) in locked_pairs
+        )
 
-    summary["deleted"] = len(absent_ids)
+    preserved = [p for p in absent if p.id in protected_ids]
+    deletable_ids = [p.id for p in absent if p.id not in protected_ids]
+
+    for p in preserved:
+        if p.sync_absent_since is None:
+            p.sync_absent_since = datetime.now(timezone.utc)
+        p.commission_status = CommissionStatus.CANCELLED
+
+    if preserved:
+        summary["preserved_locked"] = len(preserved)
+        summary["preserved_locked_tickets"] = sorted(
+            p.hubspot_ticket_id for p in preserved
+        )
+        logger.warning(
+            "Delete-by-absence: %d policy(ies) com histórico pago (LOCKED) "
+            "sumiram do HubSpot e foram PRESERVADAS + canceladas para revisão "
+            "humana: %s",
+            len(preserved),
+            ", ".join(summary["preserved_locked_tickets"]),
+        )
+
+    if deletable_ids:
+        Commission.query.filter(
+            Commission.policy_id.in_(deletable_ids)
+        ).delete(synchronize_session=False)
+        EvValidation.query.filter(
+            EvValidation.policy_id.in_(deletable_ids)
+        ).delete(synchronize_session=False)
+        # Reset the match cleanly — a MATCHED row pointing at no policy would
+        # corrupt the paid-totals recompute and the review screens.
+        FinancialImport.query.filter(
+            FinancialImport.policy_id.in_(deletable_ids)
+        ).update(
+            {
+                FinancialImport.policy_id: None,
+                FinancialImport.match_status: 'UNMATCHED',
+                FinancialImport.matched_at: None,
+            },
+            synchronize_session=False,
+        )
+        Policy.query.filter(Policy.id.in_(deletable_ids)).delete(synchronize_session=False)
+
+    summary["deleted"] = len(deletable_ids)
     logger.info(
-        f"Delete-by-absence: {len(absent_ids)} policies removidas "
-        f"(commissions/ev_validations cascateadas, financial_imports unlinked)"
+        f"Delete-by-absence: {len(deletable_ids)} policies removidas "
+        f"(commissions/ev_validations cascateadas, financial_imports unlinked), "
+        f"{len(preserved)} preservadas por histórico pago"
     )
 
 
@@ -387,6 +458,8 @@ def _new_summary():
         "created": 0,
         "updated": 0,
         "deleted": 0,
+        "preserved_locked": 0,
+        "preserved_locked_tickets": [],
         "skipped": {
             "invalid_benefit": 0,
             "no_apolice_pre_ativacao": 0,
@@ -406,6 +479,14 @@ def _persist_last_sync(summary):
     PlatformSetting.set("hubspot_last_sync_created", summary["created"], user_id=None)
     PlatformSetting.set("hubspot_last_sync_updated", summary["updated"], user_id=None)
     PlatformSetting.set("hubspot_last_sync_deleted", summary["deleted"], user_id=None)
+    PlatformSetting.set(
+        "hubspot_last_sync_preserved_locked",
+        summary.get("preserved_locked", 0), user_id=None,
+    )
+    PlatformSetting.set(
+        "hubspot_last_sync_preserved_locked_tickets",
+        summary.get("preserved_locked_tickets", []), user_id=None,
+    )
     skipped = summary["skipped"] if isinstance(summary["skipped"], dict) else {}
     skipped_total = sum(skipped.values()) if skipped else (summary["skipped"] or 0)
     PlatformSetting.set("hubspot_last_sync_skipped", skipped_total, user_id=None)
