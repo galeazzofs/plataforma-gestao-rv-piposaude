@@ -3,9 +3,17 @@ from datetime import date
 from flask import Blueprint, jsonify, request, g
 from sqlalchemy import func
 from app.auth.decorators import require_auth
+from app.auth.scoping import EvScopeError, resolve_ev_scope
 from app.models import Commission, Policy, Goal, UserRole
 from app.api.middlewares import paginate_query
 from app.extensions import db
+
+
+def _forbidden_scope():
+    return jsonify({"error": {
+        "code": "FORBIDDEN",
+        "message": "ev_id outside your scope.",
+    }}), 403
 
 commissions_bp = Blueprint("commissions", __name__, url_prefix="/api/v1/commissions")
 
@@ -106,7 +114,10 @@ def commission_summary():
     from app.modules.commissions.projection import compute_ev_balance
 
     user = g.current_user
-    ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
+    try:
+        ev_id = resolve_ev_scope(user, request.args.get("ev_id"))
+    except EvScopeError:
+        return _forbidden_scope()
     quarter, error = _parse_quarter()
     if error:
         return error
@@ -157,7 +168,10 @@ def commission_projection():
     from app.modules.commissions.projection import compute_ev_projection
 
     user = g.current_user
-    ev_id = request.args.get("ev_id", str(user.id) if user.role in (UserRole.EV, UserRole.CN) else None)
+    try:
+        ev_id = resolve_ev_scope(user, request.args.get("ev_id"))
+    except EvScopeError:
+        return _forbidden_scope()
     quarter, error = _parse_quarter()
     if error:
         return error
