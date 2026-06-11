@@ -99,12 +99,14 @@ class Policy(db.Model):
 
     @property
     def commission_paid_total(self):
-        """Sum of total_actual across this policy's commissions, plus the
-        legacy manual amount for policies that pre-date the platform."""
+        """Sum of total_actual across this policy's FINAL (locked)
+        commissions, plus the legacy manual amount for policies that
+        pre-date the platform. Draft values in review are not "paid" —
+        they flap on every recalculate and only become official on LOCK."""
         from decimal import Decimal
         total = Decimal("0")
         for c in self.commissions or []:
-            if c.total_actual is not None:
+            if c.is_final and c.total_actual is not None:
                 total += c.total_actual
         if self.commission_paid_legacy is not None:
             total += self.commission_paid_legacy

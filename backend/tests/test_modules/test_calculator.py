@@ -117,6 +117,15 @@ def test_legacy_clock_baseline_preserved_with_no_locked_apuracao(db_session):
     assert policy.installments_paid == 5  # preserved, not reset to 0
 
 
+def _finalize_and_resync(month, year):
+    """Simulate the LOCK side effect at module level: the official clock and
+    status only move when the month's commissions become final (#60)."""
+    from app.modules.commissions.calculator import resync_policy_clocks_for_period
+    Commission.query.filter_by(month=month, year=year).update({"is_final": True})
+    db.session.flush()
+    resync_policy_clocks_for_period(month, year)
+
+
 class TestPerEmpresaFormula:
     """Spec 4.3 -- Comissao real = (Total liquido empresa - Perks) x %."""
 
@@ -311,6 +320,7 @@ class TestPerEmpresaFormula:
 
         run_monthly_appraisal(1, 2026)
 
+        _finalize_and_resync(1, 2026)
         db_session.refresh(policy)
         assert policy.commission_status == CommissionStatus.IN_PAYMENT
         assert policy.installments_paid >= 1
@@ -656,6 +666,7 @@ class TestCountBasedClock:
 
         comm = Commission.query.filter_by(policy_id=policy.id).first()
         assert comm is not None, "legacy policy NF must not be expired by calendar"
+        _finalize_and_resync(5, 2026)
         db_session.refresh(policy)
         assert policy.installments_paid == 8  # advanced 7 → 8, not capped/expired
         nf = FinancialImport.query.filter_by(month=5, year=2026).first()
@@ -714,4 +725,12 @@ class TestCountBasedClock:
             assert nf.match_status == "MATCHED"
             assert Commission.query.filter_by(policy_id=policy.id).first() is not None
             db_session.refresh(policy)
-            assert policy.installments_paid == 12
+            # Official clock/status only move on LOCK (#60); the run also
+            # corrects the stale SETTLED flag back to the baseline status.
+            assert policy.installments_paid == 11
+            assert policy.commission_status == CommissionStatus.IN_PAYMENT
+
+        _finalize_and_resync(5, 2026)
+        db_session.refresh(policy)
+        assert policy.installments_paid == 12
+        assert policy.commission_status == CommissionStatus.SETTLED

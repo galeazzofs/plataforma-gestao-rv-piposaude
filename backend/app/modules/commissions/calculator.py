@@ -466,6 +466,13 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
     # -- 4b. Pass 2 --- Process each policy chronologically by financial month
     for policy_id, rows in candidate_rows.items():
         policy = matched_policies[policy_id]
+        # In-run clock: baseline (locked history, set in step 2) plus the
+        # A-apurar months THIS run pays. Drives eligibility/FINALIZADA inside
+        # the run only — the COLUMN stays at the official locked-derived
+        # baseline until the month LOCKs (CONTEXT.md: an A-apurar month "does
+        # not officially update paid months until LOCKED"). The lock/reopen
+        # transitions materialize it via resync_policy_clocks_for_period.
+        effective_clock = policy.installments_paid or 0
         by_month = defaultdict(list)
         for nf in rows:
             by_month[nf.nf_mes_recebimento].append(nf)
@@ -483,10 +490,11 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
             # oscillate MATCHED↔FINALIZADA across re-runs). The 12th parcela's
             # month must show the commission; the policy only turns finalizada
             # for months AFTER that parcela is paid in a LOCKED apuração.
-            if (policy.installments_paid or 0) >= 12:
+            if effective_clock >= 12:
                 for nf in month_rows:
                     _set_nf_status(nf, APOLICE_FINALIZADA, policy.id)
-                policy.commission_status = CommissionStatus.SETTLED
+                # Status is NOT promoted here: SETTLED only derives from
+                # LOCKED months (step 7 syncs it from the official baseline).
                 continue
 
             # The 12-month commission clock is COUNT-based (CONTEXT.md:
@@ -519,9 +527,7 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
                 policy.first_payment_real = first_comissao_date
 
             if comissao_net > 0:
-                policy.installments_paid = min(12, (policy.installments_paid or 0) + 1)
-
-            _sync_policy_status(policy)
+                effective_clock = min(12, effective_clock + 1)
 
     # -- 5. Load perks per client -------------------------------------
     perks_by_client = defaultdict(Decimal)
@@ -577,11 +583,49 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
         db.session.add(comm)
 
     # -- 7. Update commission_status ----------------------------------
+    # From the OFFICIAL baseline only (locked history) — never from the
+    # in-run effective clock; A-apurar months don't change status until
+    # the month locks.
     for policy in matched_policies.values():
         _sync_policy_status(policy)
 
     db.session.flush()
     return _build_summary(month, year)
+
+
+def resync_policy_clocks_for_period(month, year):
+    """Re-derive installments_paid + commission_status from LOCKED history
+    for every policy with a commission in (month, year).
+
+    Called by the LOCK transition (after is_final flips, so the month now
+    counts) and by the REOPEN transition (after is_final clears, so it no
+    longer does) — the official 12-month clock only moves on LOCKED months.
+    Returns the number of policies updated.
+    """
+    policy_ids = [
+        pid for (pid,) in db.session.query(Commission.policy_id)
+        .filter(Commission.month == month, Commission.year == year)
+        .distinct()
+        .all()
+    ]
+    if not policy_ids:
+        return 0
+
+    locked_counts = _locked_positive_comissao_month_counts()
+    updated = 0
+    for pid in policy_ids:
+        policy = db.session.get(Policy, pid)
+        if policy is None or policy.commission_status == CommissionStatus.CANCELLED:
+            continue
+        policy.installments_paid = min(
+            12,
+            (policy.initial_installments_paid or 0) + locked_counts.get(pid, 0),
+        )
+        _sync_policy_status(policy)
+        updated += 1
+
+    db.session.flush()
+    return updated
 
 
 # -- Summary ------------------------------------------------------------------

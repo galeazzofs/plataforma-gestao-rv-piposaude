@@ -82,6 +82,36 @@ def transition_appraisal(appraisal, new_status, **kwargs):
 
     _assert_no_open_contestation(appraisal, new_status)
 
+    # Financial-month processing is CHRONOLOGICAL (CONTEXT.md). If a later
+    # month calculated or locked first, it would consume 12-month-clock slots
+    # that belong to an earlier month still in review — and the earlier
+    # month's recalc would then mark the WRONG month as APOLICE_FINALIZADA.
+    # Only existing appraisals gate (a month with no appraisal is a no-op
+    # gap, not a blocker).
+    if new_status in (AppraisalStatus.CALCULATING, AppraisalStatus.LOCKED):
+        from sqlalchemy import and_, or_
+        blocker = (
+            Appraisal.query
+            .filter(Appraisal.status != AppraisalStatus.LOCKED)
+            .filter(Appraisal.id != appraisal.id)
+            .filter(or_(
+                Appraisal.year < appraisal.year,
+                and_(
+                    Appraisal.year == appraisal.year,
+                    Appraisal.month < appraisal.month,
+                ),
+            ))
+            .order_by(Appraisal.year, Appraisal.month)
+            .first()
+        )
+        if blocker is not None:
+            raise InvalidTransitionError(
+                f"Cannot move {appraisal.month:02d}/{appraisal.year} to "
+                f"{new_status.value} while the {blocker.month:02d}/{blocker.year} "
+                f"apuração is still {blocker.status.value} — months are "
+                "processed chronologically. Lock (or delete) it first."
+            )
+
     # Issue #36: VALIDATING → LIDER_REVIEW is blocked while a contestation
     # is open. Use the contest endpoint to route to REVOPS_REVIEW instead.
     if (
@@ -150,6 +180,12 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         recompute_policy_paid_totals_for_apuracao(
             appraisal.month, appraisal.year, assume_current_locked=False,
         )
+        # And out of the official clock too (symmetric to the LOCK resync):
+        # is_final was cleared above, so the month no longer counts.
+        from app.modules.commissions.calculator import (
+            resync_policy_clocks_for_period,
+        )
+        resync_policy_clocks_for_period(appraisal.month, appraisal.year)
 
     if new_status == AppraisalStatus.VALIDATING:
         deadline = kwargs.get("validation_deadline")
@@ -177,6 +213,13 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         recompute_policy_paid_totals_for_apuracao(
             appraisal.month, appraisal.year
         )
+        # Materialize the official 12-month clock: the month's A-apurar
+        # parcelas only count once LOCKED (the calculator no longer persists
+        # mid-run increments).
+        from app.modules.commissions.calculator import (
+            resync_policy_clocks_for_period,
+        )
+        resync_policy_clocks_for_period(appraisal.month, appraisal.year)
 
     # Reset reminder state on every transition: a fresh action zeroes
     # the timer and clears any "reminder sent today" flag so the next

@@ -134,6 +134,15 @@ def test_happy_path_matches_and_calculates_commission(db_session):
     assert comm.is_final is False
 
 
+def _finalize_and_resync(month, year):
+    """Simulate the LOCK side effect at module level: the official clock and
+    status only move when the month's commissions become final (#60)."""
+    from app.modules.commissions.calculator import resync_policy_clocks_for_period
+    Commission.query.filter_by(month=month, year=year).update({"is_final": True})
+    db.session.flush()
+    resync_policy_clocks_for_period(month, year)
+
+
 # ── Vigência edge cases ───────────────────────────────────────
 
 
@@ -157,6 +166,7 @@ def test_nf_before_first_payment_still_matches(db_session):
         policy_id=policy.id, month=1, year=2026
     ).first()
     assert comm is not None and comm.total_actual == Decimal('60.00')
+    _finalize_and_resync(1, 2026)
     db.session.refresh(policy)
     assert policy.installments_paid == 1
 
@@ -180,6 +190,7 @@ def test_nf_long_after_first_payment_still_pays(db_session):
         policy_id=policy.id, month=1, year=2026
     ).first()
     assert comm is not None and comm.total_actual == Decimal('60.00')
+    _finalize_and_resync(1, 2026)
     db.session.refresh(policy)
     assert policy.installments_paid == 1
 
@@ -200,6 +211,7 @@ def test_legacy_installments_do_not_close_window(db_session):
 
     db.session.refresh(nf)
     assert nf.match_status == 'MATCHED'
+    _finalize_and_resync(1, 2026)
     db.session.refresh(policy)
     assert policy.installments_paid == 11  # 10 → 11, still below the 12 cap
 
@@ -382,9 +394,10 @@ def test_comissao_and_agenciamento_same_month_pay_both_and_count_one_month(db_se
 
     run_monthly_appraisal(1, 2026)
 
-    db.session.refresh(policy)
     comm = Commission.query.filter_by(policy_id=policy.id, month=1, year=2026).first()
     assert comm.total_actual == Decimal("72.00")
+    _finalize_and_resync(1, 2026)
+    db.session.refresh(policy)
     assert policy.installments_paid == 1
 
 
@@ -460,6 +473,8 @@ def test_eleventh_month_april_closes_and_may_goes_to_finalized_bucket(db_session
     assert nf.match_status == "MATCHED"
     assert may_nf.match_status == "APOLICE_FINALIZADA"
     assert comm.total_actual == Decimal("60.00")
+    _finalize_and_resync(1, 2026)
+    db.session.refresh(policy)
     assert policy.installments_paid == 12
     assert policy.commission_status == CommissionStatus.SETTLED
 
@@ -485,9 +500,10 @@ def test_twelfth_month_pays_agenciamento_in_same_month_before_settling(db_sessio
 
     run_monthly_appraisal(1, 2026)
 
-    db.session.refresh(policy)
     comm = Commission.query.filter_by(policy_id=policy.id, month=1, year=2026).first()
     assert comm.total_actual == Decimal("72.00")
+    _finalize_and_resync(1, 2026)
+    db.session.refresh(policy)
     assert policy.commission_status == CommissionStatus.SETTLED
 
 
@@ -678,6 +694,8 @@ def test_auto_sets_first_payment_real_when_none(db_session):
 
     db.session.refresh(policy)
     assert policy.first_payment_real == date(2026, 1, 15)
+    _finalize_and_resync(1, 2026)
+    db.session.refresh(policy)
     assert policy.installments_paid == 1
     nf = db.session.query(FinancialImport).filter_by(cliente_mae='AutoDetect Co').first()
     assert nf.match_status == 'MATCHED'
