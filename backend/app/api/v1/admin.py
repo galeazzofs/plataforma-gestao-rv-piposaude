@@ -404,6 +404,11 @@ def sync_trigger():
     Uses an atomic UPDATE + rowcount check to avoid the TOCTOU race that
     a separate read-then-write would have (two simultaneous POSTs could
     both observe `running=False` and spawn parallel sync threads).
+
+    The flag is the fast 409 + UI status ("RUNNING") only. The authoritative
+    mutual exclusion is the Postgres advisory lock inside run_sync itself,
+    which also covers the per-worker schedulers — if a scheduled sync is
+    mid-run, the thread spawned here no-ops cleanly.
     """
     import threading
     from flask import current_app
