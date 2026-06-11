@@ -717,3 +717,120 @@ def test_delete_absent_policies_empty_db_empty_seen_is_safe(db_session):
     _delete_absent_policies(set(), summary)
     assert summary["deleted"] == 0
     assert summary["errors"] == []
+
+
+# --- _delete_absent_policies: paid history is never hard-deleted ---
+
+from app.models import CommissionStatus
+
+
+def test_delete_absence_preserves_policy_with_final_commission(db_session):
+    """An absent ticket whose policy carries a LOCKED (is_final) commission is
+    the official record of money already paid — it must be preserved, auto-
+    cancelled out of future calculations and surfaced in the summary."""
+    ev = _ev("preserve-final@x")
+    p = _make_policy("PRESERVE-FINAL", ev.id)
+    c = Commission(policy_id=p.id, ev_id=ev.id, month=2, year=2025,
+                   total_actual=Decimal("123.45"), is_final=True)
+    db.session.add(c)
+    db.session.flush()
+    c_id = c.id
+
+    summary = _new_summary()
+    _delete_absent_policies({"OTHER"}, summary)
+    db.session.flush()
+
+    kept = Policy.query.filter_by(hubspot_ticket_id="PRESERVE-FINAL").one()
+    assert kept.commission_status == CommissionStatus.CANCELLED
+    assert kept.sync_absent_since is not None
+    assert Commission.query.filter_by(id=c_id).one().is_final is True
+    assert summary["deleted"] == 0
+    assert summary["preserved_locked"] == 1
+    assert "PRESERVE-FINAL" in summary["preserved_locked_tickets"]
+
+
+def test_delete_absence_preserves_policy_with_matched_nf_in_locked_month(db_session):
+    """Legacy-paid policies can have MATCHED NFs inside a LOCKED month without
+    any Commission row — that history protects them from deletion too."""
+    ev = _ev("preserve-locked-nf@x")
+    p = _make_policy("PRESERVE-NF", ev.id)
+    year = 2031  # per-test transaction isolation makes any fixed year safe
+    appraisal = Appraisal(month=3, year=year,
+                          status=AppraisalStatus.LOCKED, created_by=ev.id)
+    batch = ImportBatch(filename="t.csv", uploaded_by=ev.id)
+    db.session.add_all([appraisal, batch])
+    db.session.flush()
+    fi = FinancialImport(
+        import_batch_id=batch.id, policy_id=p.id, numero_apolice="X",
+        nf_valor_liquido=Decimal("50.00"), nf_mes_recebimento=f"{year}-03",
+        month=3, year=year, match_status="MATCHED",
+    )
+    db.session.add(fi)
+    db.session.flush()
+    fi_id = fi.id
+
+    summary = _new_summary()
+    _delete_absent_policies({"OTHER"}, summary)
+    db.session.flush()
+    db.session.expire_all()
+
+    kept = Policy.query.filter_by(hubspot_ticket_id="PRESERVE-NF").one()
+    assert kept.commission_status == CommissionStatus.CANCELLED
+    # The paid-history link stays exactly as it was.
+    fi_after = FinancialImport.query.filter_by(id=fi_id).one()
+    assert fi_after.policy_id == kept.id
+    assert fi_after.match_status == "MATCHED"
+    assert summary["deleted"] == 0
+    assert summary["preserved_locked"] == 1
+
+
+def test_delete_absence_resets_match_status_of_deleted_policy_rows(db_session):
+    """Deleting a no-history policy must not strand its imports as MATCHED
+    with policy_id NULL — they go back to UNMATCHED cleanly."""
+    from datetime import datetime, timezone
+    ev = _ev("reset-status@x")
+    p = _make_policy("RESET-DROP", ev.id)
+    batch = ImportBatch(filename="t.csv", uploaded_by=ev.id)
+    db.session.add(batch)
+    db.session.flush()
+    fi = FinancialImport(
+        import_batch_id=batch.id, policy_id=p.id, numero_apolice="X",
+        nf_valor_liquido=Decimal("10.00"), nf_mes_recebimento="2025-04",
+        month=4, year=2025, match_status="MATCHED",
+        matched_at=datetime.now(timezone.utc),
+    )
+    db.session.add(fi)
+    db.session.flush()
+    fi_id = fi.id
+
+    summary = _new_summary()
+    _delete_absent_policies({"OTHER"}, summary)
+    db.session.flush()
+    db.session.expire_all()
+
+    assert Policy.query.filter_by(hubspot_ticket_id="RESET-DROP").first() is None
+    fi_after = FinancialImport.query.filter_by(id=fi_id).one()
+    assert fi_after.policy_id is None
+    assert fi_after.match_status == "UNMATCHED"
+    assert fi_after.matched_at is None
+    assert summary["deleted"] == 1
+
+
+def test_delete_absence_preserve_does_not_restamp_timestamp(db_session):
+    """A policy already flagged absent keeps its original timestamp on
+    subsequent syncs (the flag records the FIRST disappearance)."""
+    from datetime import datetime, timezone
+    ev = _ev("preserve-stamp@x")
+    p = _make_policy("PRESERVE-STAMP", ev.id)
+    db.session.add(Commission(policy_id=p.id, ev_id=ev.id, month=5, year=2025,
+                              is_final=True))
+    original = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    p.sync_absent_since = original
+    db.session.flush()
+
+    summary = _new_summary()
+    _delete_absent_policies({"OTHER"}, summary)
+    db.session.flush()
+
+    kept = Policy.query.filter_by(hubspot_ticket_id="PRESERVE-STAMP").one()
+    assert kept.sync_absent_since == original

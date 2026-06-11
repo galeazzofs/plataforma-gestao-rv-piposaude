@@ -49,6 +49,10 @@ class Policy(db.Model):
     installments_paid = db.Column(db.Integer, default=0, nullable=False)
     initial_installments_paid = db.Column(db.Integer, default=0, nullable=False, server_default="0")
     is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
+    # Stamped by the HubSpot sync when the ticket vanished from the fetch but
+    # the policy carries paid (LOCKED) history and was preserved + cancelled
+    # instead of hard-deleted. Cleared only by human review.
+    sync_absent_since = db.Column(db.DateTime(timezone=True), nullable=True)
     commission_status = db.Column(
         db.Enum(CommissionStatus, name="commission_status"),
         default=CommissionStatus.PROJECTED,
