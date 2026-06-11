@@ -113,7 +113,9 @@ def transition(appraisal_id):
 
     Body: { "to": "CALCULATING" | "VALIDATING" | "LIDER_REVIEW" | "REVOPS_REVIEW" | "LOCKED", ... }
     """
-    appraisal = db.session.get(Appraisal, appraisal_id)
+    # Row lock: a transition racing a recalculate (or another transition)
+    # could otherwise leave a LOCKED appraisal with non-final values.
+    appraisal = db.session.get(Appraisal, appraisal_id, with_for_update=True)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
 
@@ -351,10 +353,14 @@ def resolve_contestation(appraisal_id):
 def recalculate(appraisal_id):
     """Re-run the calculator for this appraisal's (month, year).
 
-    Allowed when appraisal is in CALCULATING / VALIDATING / LIDER_REVIEW / REVOPS_REVIEW.
-    Blocked when LOCKED. Returns the enriched detail payload.
+    Values only change in CALCULATING: when the appraisal sits in a review
+    state (VALIDATING / LIDER_REVIEW / REVOPS_REVIEW), this drives it back
+    to CALCULATING through the state machine — which voids the EvValidations
+    attested against the old numbers and runs the calculator as its side
+    effect. While already in CALCULATING it just re-runs (RevOps iterating
+    before release). Blocked when LOCKED (reopen first).
     """
-    appraisal = db.session.get(Appraisal, appraisal_id)
+    appraisal = db.session.get(Appraisal, appraisal_id, with_for_update=True)
     if appraisal is None:
         return jsonify({
             "error": {"code": "NOT_FOUND", "message": "Appraisal not found"},
@@ -371,13 +377,28 @@ def recalculate(appraisal_id):
     from app.modules.commissions.calculator import (
         run_monthly_appraisal, MissingAchievementsError,
     )
+    user = g.current_user
+    old_status = appraisal.status.value
     try:
-        # Missing achievements don't block — they fall back to 0% and surface
-        # as a warning in the detail payload (same as the preview).
-        run_monthly_appraisal(
-            appraisal.month, appraisal.year, validate_achievements=False
-        )
+        if appraisal.status == AppraisalStatus.CALCULATING:
+            # Missing achievements don't block — they fall back to 0% and
+            # surface as a warning in the detail payload (same as preview).
+            run_monthly_appraisal(
+                appraisal.month, appraisal.year, validate_achievements=False
+            )
+        else:
+            transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+            log_audit(
+                "appraisals", appraisal.id, "UPDATE",
+                old_values={"status": old_status},
+                new_values={"status": AppraisalStatus.CALCULATING.value},
+            )
         db.session.commit()
+    except InvalidTransitionError as e:
+        db.session.rollback()
+        return jsonify({
+            "error": {"code": "INVALID_TRANSITION", "message": str(e)},
+        }), 422
     except MissingAchievementsError as e:
         db.session.rollback()
         return jsonify({
@@ -388,7 +409,9 @@ def recalculate(appraisal_id):
             },
         }), 422
 
-    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+    return jsonify({"data": _serialize_appraisal(
+        appraisal, detail=True, visible_ev_ids=_visible_ev_ids_for(user),
+    )})
 
 
 @workflow_bp.route("/preview", methods=["POST"])

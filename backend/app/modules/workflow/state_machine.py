@@ -109,6 +109,12 @@ def transition_appraisal(appraisal, new_status, **kwargs):
 
     # Side effects
     if new_status == AppraisalStatus.CALCULATING:
+        # Values only change in CALCULATING. Any EvValidations were attested
+        # against numbers this run is about to replace — void them; the next
+        # release to VALIDATING re-creates fresh PENDING rows for the new
+        # (policy, ev) pairs, so nothing stale (or orphaned) blocks the
+        # auto-advance.
+        EvValidation.query.filter_by(appraisal_id=appraisal.id).delete()
         # Run the synchronous calculator. Status stays in CALCULATING —
         # RevOps reviews and releases manually via "Liberar para Validação".
         # Missing achievements do NOT block the apuração: affected policies fall
@@ -117,6 +123,32 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         from app.modules.commissions.calculator import run_monthly_appraisal
         run_monthly_appraisal(
             appraisal.month, appraisal.year, validate_achievements=False
+        )
+
+    if (
+        old_status == AppraisalStatus.LOCKED
+        and new_status == AppraisalStatus.REVOPS_REVIEW
+    ):
+        # Reopen: the month's commissions return to recalculable state.
+        # Leaving is_final=True made the next recalculate treat every policy
+        # as "locked" and demote all the month's NFs to UNMATCHED with
+        # policy_id wiped — destroying the match history the 12-month clock
+        # and the paid totals derive from.
+        Commission.query.filter_by(
+            month=appraisal.month,
+            year=appraisal.year,
+            is_final=True,
+        ).update({"is_final": False}, synchronize_session=False)
+        appraisal.locked_at = None
+        appraisal.approved_by_finance = None
+        # The month is no longer official — pull it out of total_paid_* until
+        # it locks again (assume_current_locked=False: unlike the LOCK path,
+        # the current pair must NOT be force-included).
+        from app.modules.financial.policy_paid_totals import (
+            recompute_policy_paid_totals_for_apuracao,
+        )
+        recompute_policy_paid_totals_for_apuracao(
+            appraisal.month, appraisal.year, assume_current_locked=False,
         )
 
     if new_status == AppraisalStatus.VALIDATING:

@@ -364,6 +364,18 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
     matched_policies = {}                           # policy_id -> Policy
     candidate_rows = defaultdict(list)              # policy_id -> [FinancialImport]
 
+    def _demote_unmatched(nf):
+        """UNMATCHED — unless the row is already attached to a locked policy.
+        That attachment is the record the locked (is_final) commission was
+        built on; wiping policy_id would corrupt the 12-month clock and the
+        paid-totals recompute, which both read match_status == MATCHED."""
+        if (
+            nf.policy_id in locked_policy_ids
+            and nf.match_status in ('MATCHED', APOLICE_FINALIZADA)
+        ):
+            return
+        _set_nf_status(nf, 'UNMATCHED')
+
     for nf in nfs:
         revenue_type = classify_revenue_type(nf.tipo_receita)
         if revenue_type is None:
@@ -398,7 +410,7 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
             if len(fb_candidates) == 1:
                 candidates = fb_candidates
             elif len(fb_candidates) > 1:
-                _set_nf_status(nf, 'UNMATCHED')
+                _demote_unmatched(nf)
                 continue
             else:
                 alias_candidates = _fallback_index_candidates(
@@ -411,7 +423,7 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
                 if len(alias_candidates) == 1:
                     candidates = alias_candidates
                 elif len(alias_candidates) > 1:
-                    _set_nf_status(nf, 'UNMATCHED')
+                    _demote_unmatched(nf)
                     continue
                 else:
                     partial_candidates = _partial_client_fallback_candidates(
@@ -424,11 +436,11 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
                     if len(partial_candidates) == 1:
                         candidates = partial_candidates
                     elif len(partial_candidates) > 1:
-                        _set_nf_status(nf, 'UNMATCHED')
+                        _demote_unmatched(nf)
                         continue
 
         if not candidates:
-            _set_nf_status(nf, 'UNMATCHED')
+            _demote_unmatched(nf)
             continue
 
         # The 12-month clock is COUNT-based ONLY (see Pass 2): a policy earns
@@ -443,8 +455,9 @@ def run_monthly_appraisal(month, year, *, validate_achievements=True):
 
         if matched is None:
             # Every matching policy already has a final (locked) commission for
-            # this month — nothing to recompute for this NF this run.
-            _set_nf_status(nf, 'UNMATCHED')
+            # this month — nothing to recompute for this NF this run; an
+            # existing attachment to one of them is preserved.
+            _demote_unmatched(nf)
             continue
 
         matched_policies[matched.id] = matched
