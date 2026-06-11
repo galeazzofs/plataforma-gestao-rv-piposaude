@@ -501,8 +501,24 @@ def run_sync():
     apólice + default deals, and upsert into `policies`. Then delete any
     policies whose ticket id is no longer in the HubSpot result set.
 
-    Returns summary dict.
+    Serialized across processes by a Postgres advisory lock — every gunicorn
+    worker runs its own scheduler, so without it each cron tick fired N
+    concurrent syncs (IntegrityError on clients, deadlocks on policies,
+    rollbacks discarding sibling upserts). The loser is a clean no-op.
+
+    Returns summary dict, or {"skipped": "already_running"} when another
+    sync holds the lock.
     """
+    from app.modules.locks import try_advisory_lock, HUBSPOT_SYNC_LOCK
+
+    with try_advisory_lock(HUBSPOT_SYNC_LOCK) as got:
+        if not got:
+            logger.info("HubSpot sync skipped: another sync is already running")
+            return {"skipped": "already_running"}
+        return _run_sync_locked()
+
+
+def _run_sync_locked():
     client = HubSpotClient()
     summary = _new_summary()
 
