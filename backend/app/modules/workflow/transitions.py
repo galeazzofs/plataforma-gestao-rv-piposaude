@@ -9,7 +9,13 @@ from app.models import AppraisalStatus
 VALID_TRANSITIONS = {
     AppraisalStatus.DRAFT: [AppraisalStatus.CALCULATING],
     AppraisalStatus.CALCULATING: [AppraisalStatus.VALIDATING],
-    AppraisalStatus.VALIDATING: [AppraisalStatus.LIDER_REVIEW],
+    AppraisalStatus.VALIDATING: [
+        AppraisalStatus.LIDER_REVIEW,
+        # Abort validation to recalculate — values only change in
+        # CALCULATING; entering it voids the EvValidations attested
+        # against the old numbers (reset in the state machine).
+        AppraisalStatus.CALCULATING,
+    ],
     AppraisalStatus.LIDER_REVIEW: [
         AppraisalStatus.REVOPS_REVIEW,
         AppraisalStatus.CALCULATING,  # Recalculate if needed

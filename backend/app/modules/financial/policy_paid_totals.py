@@ -22,8 +22,15 @@ from app.extensions import db
 from app.models import Appraisal, AppraisalStatus, FinancialImport, Policy
 
 
-def recompute_policy_paid_totals_for_apuracao(month: int, year: int) -> int:
+def recompute_policy_paid_totals_for_apuracao(
+    month: int, year: int, *, assume_current_locked: bool = True,
+) -> int:
     """Recompute total_paid_* on every policy with a matched NF in (month, year).
+
+    assume_current_locked: the LOCK transition calls this while its own row
+    may not be flushed as LOCKED yet, so (month, year) is force-included in
+    the locked pairs. The REOPEN transition passes False — the month is
+    leaving the official totals and must NOT be counted.
 
     Returns the number of policies updated. The caller is responsible for the
     enclosing transaction — we flush but do not commit.
@@ -51,13 +58,15 @@ def recompute_policy_paid_totals_for_apuracao(month: int, year: int) -> int:
         .filter(Appraisal.status == AppraisalStatus.LOCKED)
         .all()
     )
-    if not locked_pairs:
-        # If we're transitioning the first apuração ever to LOCKED, the row
-        # hasn't been flushed yet by the caller. Include the current pair
-        # explicitly so the recompute reflects the in-flight transition.
-        locked_pairs = [(month, year)]
-    elif (month, year) not in locked_pairs:
-        locked_pairs.append((month, year))
+    if assume_current_locked:
+        if not locked_pairs:
+            # If we're transitioning the first apuração ever to LOCKED, the
+            # row hasn't been flushed yet by the caller. Include the current
+            # pair explicitly so the recompute reflects the in-flight
+            # transition.
+            locked_pairs = [(month, year)]
+        elif (month, year) not in locked_pairs:
+            locked_pairs.append((month, year))
     locked_pairs = list(set(locked_pairs))
 
     # 3. One grouped query: per-policy totals, split by tipo_receita.
