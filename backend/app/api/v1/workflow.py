@@ -175,9 +175,24 @@ def transition(appraisal_id):
 @require_role(UserRole.ADMIN)
 def delete_appraisal(appraisal_id):
     """Delete an appraisal and its associated commissions / NF matches."""
-    appraisal = db.session.get(Appraisal, appraisal_id)
+    appraisal = db.session.get(Appraisal, appraisal_id, with_for_update=True)
     if appraisal is None:
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Appraisal not found"}}), 404
+
+    if appraisal.status == AppraisalStatus.LOCKED:
+        # Deleting a LOCKED month would erase the official record of money
+        # already paid and leave Policy.total_paid_*/clock stale. Reopen
+        # first — the reopen pulls the month out of totals and clock, after
+        # which the delete only discards draft state.
+        return jsonify({
+            "error": {
+                "code": "CONFLICT",
+                "message": (
+                    "Apuração LOCKED não pode ser deletada — reabra "
+                    "(LOCKED → REVOPS_REVIEW) primeiro."
+                ),
+            },
+        }), 409
 
     month, year = appraisal.month, appraisal.year
 
@@ -185,7 +200,9 @@ def delete_appraisal(appraisal_id):
     # the appraisal can't be deleted while any exist (i.e. once released).
     EvValidation.query.filter_by(appraisal_id=appraisal.id).delete()
 
-    # Delete ALL commissions for this month (including is_final when LOCKED)
+    # Delete the month's commissions. Only non-final rows can exist here:
+    # the LOCKED guard above plus the reopen (which un-finalizes) make
+    # is_final rows unreachable in a deletable appraisal.
     Commission.query.filter_by(month=month, year=year).delete()
 
     # Reset NF match status back to UNMATCHED
