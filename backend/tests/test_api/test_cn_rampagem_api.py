@@ -49,6 +49,18 @@ def test_admin_can_set_em_rampagem(client, db_session):
     assert resp.get_json()["data"]["em_rampagem"] is True
 
 
+def test_admin_can_clear_em_rampagem_with_string_false(client, db_session):
+    admin = _make_admin(db_session)
+    cn = _make_cn(db_session, nivel="CN1")
+    cn.em_rampagem = True
+    db_session.flush()
+
+    resp = client.patch(f"/api/v1/admin/users/{cn.id}", headers=_auth(admin),
+                        json={"em_rampagem": "false"})
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["em_rampagem"] is False
+
+
 def test_simulate_rampagem_sem_sao(client, db_session):
     admin = _make_admin(db_session)
     resp = client.post("/api/v1/commissions/cn/simulate", headers=_auth(admin), json={
@@ -61,6 +73,19 @@ def test_simulate_rampagem_sem_sao(client, db_session):
     data = resp.get_json()["data"]
     assert data["calc_mode"] == "RAMPAGEM_SEM_SAO"
     assert data["commission_amount"] == "3300.00"
+
+
+def test_simulate_string_false_uses_normal_mode(client, db_session):
+    admin = _make_admin(db_session)
+    resp = client.post("/api/v1/commissions/cn/simulate", headers=_auth(admin), json={
+        "nivel": "CN1", "porte": "M", "em_rampagem": "false",
+        "sao_meta": "100", "sao_realizado": "100",
+        "vidas_meta": "50", "vidas_realizado": "50",
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    assert data["calc_mode"] == "NORMAL"
+    assert data["commission_amount"] == "2400.00"
 
 
 def test_appraisal_listing_serializes_rampagem_fields(client, db_session):

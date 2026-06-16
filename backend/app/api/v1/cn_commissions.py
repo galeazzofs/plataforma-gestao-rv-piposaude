@@ -455,7 +455,7 @@ def simulate_cn_endpoint():
     if user.role == UserRole.CN:
         em_rampagem = bool(getattr(user, "em_rampagem", False))
     else:
-        em_rampagem = bool(body.get("em_rampagem", False))
+        em_rampagem = _bool_setting(body.get("em_rampagem", False))
 
     def _b(key):
         return _decimal_or_zero(body.get(key))
@@ -494,6 +494,16 @@ def _decimal_or_zero(v):
     if v is None or v == "":
         return Decimal("0")
     return Decimal(str(v))
+
+
+def _bool_setting(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _serialize_cn_row(cn, goal, month, year):

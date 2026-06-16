@@ -255,13 +255,16 @@
           (rf/dispatch [:revops/fetch-cn-appraisal-goals m y])
           (rf/dispatch [:revops/fetch-cn-appraisals m y]))]
     (fetch-period! (:month @filter-s) (:year @filter-s))
+    (rf/dispatch [:revops/fetch-settings])
     (fn []
       (let [appraisals @(rf/subscribe [:revops/cn-appraisals])
             goals      @(rf/subscribe [:revops/cn-appraisal-goals])
             loading?   @(rf/subscribe [:revops/cn-appraisals-loading?])
             run-error  @(rf/subscribe [:revops/cn-appraisal-run-error])
+            settings   @(rf/subscribe [:revops/settings])
             user       @(rf/subscribe [:auth/current-user])
             route      @(rf/subscribe [:current-route-name])
+            ramp-bonus (:cn_rampagem_bonus_sao settings)
             m (:month @filter-s)
             y (:year @filter-s)
             appraisal-by-cn (into {} (map (juxt :cn_id identity)) (or appraisals []))
@@ -284,9 +287,6 @@
                                                       (when a (:qualis_agendadas_realizado a)))
                                sao-fora (field-val (:cn_id g) :sao_fora_da_meta
                                                    (when a (:sao_fora_da_meta a)))
-                               ;; Preview ao vivo: sem-sao usa o bônus default (300) do calc,
-                               ;; pois a página não busca cn_rampagem_bonus_sao configurado;
-                               ;; a apuração SALVA usa o valor configurado no backend.
                                preview (calc/calculate-auto
                                         {:nivel (:nivel g)
                                          :em_rampagem (:em_rampagem g)
@@ -301,7 +301,8 @@
                                          :emails_real emails-real
                                          :qualis_meta (:qualis_agendadas_meta g)
                                          :qualis_real qualis-real
-                                         :sao_fora_da_meta sao-fora})]
+                                         :sao_fora_da_meta sao-fora
+                                         :bonus_sao ramp-bonus})]
                            (assoc g
                                   :appraisal a
                                   :vidas_meta vidas-meta

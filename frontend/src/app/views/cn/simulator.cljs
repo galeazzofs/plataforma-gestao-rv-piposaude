@@ -79,7 +79,7 @@
 
 ;; Helpers
 
-(def ^:private curve-data
+(def ^:private normal-curve-data
   [{:score 0   :mult 0.0 :label "0%"}
    {:score 20  :mult 0.0 :label "20%"}
    {:score 20  :mult 0.2 :label "20%"}
@@ -92,6 +92,21 @@
    {:score 110 :mult 1.2 :label "110%"}
    {:score 110 :mult 1.8 :label "110%"}
    {:score 140 :mult 1.8 :label "140%"}
+   {:score 140 :mult 2.1 :label "140%+"}
+   {:score 160 :mult 2.1 :label "160%"}])
+
+(def ^:private rampagem-curve-data
+  [{:score 0   :mult 0.0 :label "0%"}
+   {:score 20  :mult 0.0 :label "20%"}
+   {:score 21  :mult 0.2 :label "21%"}
+   {:score 40  :mult 0.2 :label "40%"}
+   {:score 41  :mult 0.41 :label "41%"}
+   {:score 60  :mult 0.6 :label "60%"}
+   {:score 80  :mult 0.8 :label "80%"}
+   {:score 100 :mult 1.0 :label "100%"}
+   {:score 101 :mult 1.2 :label "101%"}
+   {:score 110 :mult 1.2 :label "110%"}
+   {:score 111 :mult 1.8 :label "111%"}
    {:score 140 :mult 2.1 :label "140%+"}
    {:score 160 :mult 2.1 :label "160%"}])
 
@@ -122,37 +137,74 @@
 (defn- profile-from [user form]
   (if (= (:role user) "CN")
     {:nivel (:nivel user)
-     :porte (:porte user)}
+     :porte (:porte user)
+     :em_rampagem (:em_rampagem user)}
     {:nivel (or (:nivel form) "CN1")
-     :porte (or (:porte form) "M")}))
+     :porte (or (:porte form) "M")
+     :em_rampagem (:em_rampagem form)}))
 
 (defn- enrich-form [user form]
-  (let [{:keys [nivel porte]} (profile-from user form)
+  (let [{:keys [nivel porte em_rampagem]} (profile-from user form)
         sao-meta (or (calc/->num (:sao_meta form)) 0)
         vidas-meta (or (calc/vidas-meta-from-sao sao-meta porte) 0)]
     (assoc form
            :nivel nivel
            :porte porte
-           :vidas_meta vidas-meta)))
+           :em_rampagem (boolean em_rampagem)
+           :vidas_meta vidas-meta
+           :sao_real (:sao_realizado form)
+           :neg_meta (:negocios_cadencia_meta form)
+           :neg_real (:negocios_cadencia_realizado form)
+           :emails_real (:emails_realizado form)
+           :qualis_meta (:qualis_agendadas_meta form)
+           :qualis_real (:qualis_agendadas_realizado form))))
 
 (defn- validation-errors [form]
   (let [sao-meta (calc/->num (:sao_meta form))
         sao-realizado (calc/->num (:sao_realizado form))
         vidas-meta (calc/->num (:vidas_meta form))
-        vidas-realizado (calc/->num (:vidas_realizado form))]
+        vidas-realizado (calc/->num (:vidas_realizado form))
+        neg-meta (calc/->num (:negocios_cadencia_meta form))
+        neg-real (calc/->num (:negocios_cadencia_realizado form))
+        emails-meta (calc/->num (:emails_meta form))
+        emails-real (calc/->num (:emails_realizado form))
+        qualis-meta (calc/->num (:qualis_agendadas_meta form))
+        qualis-real (calc/->num (:qualis_agendadas_realizado form))
+        sao-fora (calc/->num (:sao_fora_da_meta form))
+        bonus-sao (calc/->num (:bonus_sao form))
+        ramp? (:em_rampagem form)
+        com-sao? (and ramp? (pos? (or sao-meta 0)))]
     (cond-> {}
-      (not (pos? (or sao-meta 0)))
+      (and (not ramp?) (not (pos? (or sao-meta 0))))
       (assoc :sao_meta "Informe uma meta maior que zero.")
       (neg? (or sao-realizado 0))
       (assoc :sao_realizado "Use zero ou um valor positivo.")
-      (not (contains? calc/porte-factors (:porte form)))
+      (and (not ramp?) (not (contains? calc/porte-factors (:porte form))))
       (assoc :porte "Cadastre o porte do CN para calcular a meta de vidas.")
       (not (contains? calc/cn-bases (:nivel form)))
       (assoc :nivel "Cadastre o nivel do CN para calcular a comissao.")
-      (not (pos? (or vidas-meta 0)))
+      (and (not ramp?) (not (pos? (or vidas-meta 0))))
       (assoc :vidas_meta "Meta de vidas automatica indisponivel.")
-      (neg? (or vidas-realizado 0))
-      (assoc :vidas_realizado "Use zero ou um valor positivo."))))
+      (and (not ramp?) (neg? (or vidas-realizado 0)))
+      (assoc :vidas_realizado "Use zero ou um valor positivo.")
+      (and ramp? (neg? (or sao-meta 0)))
+      (assoc :sao_meta "Use zero ou um valor positivo.")
+      (and ramp? (not com-sao?) (not (pos? (or neg-meta 0))))
+      (assoc :negocios_cadencia_meta "Informe uma meta maior que zero.")
+      (and ramp? (not com-sao?) (neg? (or neg-real 0)))
+      (assoc :negocios_cadencia_realizado "Use zero ou um valor positivo.")
+      (and ramp? (not com-sao?) (not (pos? (or emails-meta 0))))
+      (assoc :emails_meta "Informe uma meta maior que zero.")
+      (and ramp? (not com-sao?) (neg? (or emails-real 0)))
+      (assoc :emails_realizado "Use zero ou um valor positivo.")
+      (and ramp? com-sao? (not (pos? (or qualis-meta 0))))
+      (assoc :qualis_agendadas_meta "Informe uma meta maior que zero.")
+      (and ramp? com-sao? (neg? (or qualis-real 0)))
+      (assoc :qualis_agendadas_realizado "Use zero ou um valor positivo.")
+      (and ramp? (neg? (or sao-fora 0)))
+      (assoc :sao_fora_da_meta "Use zero ou um valor positivo.")
+      (and ramp? (not com-sao?) (neg? (or bonus-sao 0)))
+      (assoc :bonus_sao "Use zero ou um valor positivo."))))
 
 (defn- field [{:keys [label value placeholder help error on-change min step disabled]}]
   [:div.field
@@ -203,30 +255,48 @@
      :else "previa")])
 
 (defn- score-card [{:keys [preview confirmed simulating?]}]
-  (let [result (or confirmed preview)]
+  (let [result (or confirmed preview)
+        ramp? (contains? #{"RAMPAGEM_SEM_SAO" "RAMPAGEM_COM_SAO"} (:calc_mode result))]
     [:div.score-card
      [:div.score-card-head
       [:span "resultado mensal"]
       [status-badge {:simulating? simulating? :confirmed? (some? confirmed)}]]
-     [:div.score-row
-      [:span "% SAO"]
-      [:strong (fmt-pct (:pct_sao result))]]
-     [:div.score-row
-      [:span "% Vidas"]
-      [:strong (fmt-pct (:pct_vidas result))]]
-     [:div.score-row
-      [:span "Score final"]
-      [:strong (fmt-pct (:score_final result))]]
-     [:div.score-row
-      [:span "Multiplicador"]
-      [:strong.accent (fmt-mult (:multiplicador result))]]
+     (if ramp?
+       [:<>
+        [:div.score-row
+         [:span "Modo"]
+         [:strong (case (:calc_mode result)
+                    "RAMPAGEM_COM_SAO" "Rampagem com SAO"
+                    "Rampagem sem SAO")]]
+        [:div.score-row
+         [:span "Atingimento"]
+         [:strong (fmt-pct (:atingimento result))]]
+        [:div.score-row
+         [:span "Gatilho"]
+         [:strong.accent (fmt-mult (:gatilho result))]]
+        [:div.score-row
+         [:span "Bonus SAO"]
+         [:strong (brl (:bonus_sao_amount result))]]]
+       [:<>
+        [:div.score-row
+         [:span "% SAO"]
+         [:strong (fmt-pct (:pct_sao result))]]
+        [:div.score-row
+         [:span "% Vidas"]
+         [:strong (fmt-pct (:pct_vidas result))]]
+        [:div.score-row
+         [:span "Score final"]
+         [:strong (fmt-pct (:score_final result))]]
+        [:div.score-row
+         [:span "Multiplicador"]
+         [:strong.accent (fmt-mult (:multiplicador result))]]])
      [:div.score-final
       [:span "Comissao estimada"]
       [:strong [:span.currency "R$"] (fmt-int (:commission_amount result))]]
      [:div.score-base
       "Base mensal "
       [:strong (brl (:base preview))]
-      " x multiplicador"]]))
+      (if ramp? " x gatilho" " x multiplicador")]]))
 
 (defn- curve-tooltip-render [props]
   (let [p (js->clj props :keywordize-keys true)
@@ -245,12 +315,14 @@
 (defn- multiplier-curve [result]
   (let [score-pct (* 100 (:score_final result))
         chart-score (max 0 (min 160 score-pct))
-        mult (:multiplicador result)]
+        mult (:multiplicador result)
+        ramp? (contains? #{"RAMPAGEM_SEM_SAO" "RAMPAGEM_COM_SAO"} (:calc_mode result))
+        data (if ramp? rampagem-curve-data normal-curve-data)]
     [:div.cn-curve-frame
      {:role "img"
       :aria-label "Curva da regua mensal de comissao CN por score final"}
      [rc-responsive {:width "100%" :height "100%"}
-      [rc-line-chart {:data (clj->js curve-data)
+      [rc-line-chart {:data (clj->js data)
                       :margin #js {:top 26 :right 30 :bottom 8 :left 0}}
        [rc-cartesian-grid {:stroke "var(--border-subtle)"
                            :strokeDasharray "0"
@@ -306,18 +378,29 @@
 (defn page []
   (let [initial-form {:nivel "CN1"
                       :porte "M"
+                      :em_rampagem false
                       :sao_meta ""
                       :sao_realizado ""
-                      :vidas_realizado "2180"}
+                      :vidas_realizado "2180"
+                      :negocios_cadencia_meta ""
+                      :negocios_cadencia_realizado ""
+                      :emails_meta ""
+                      :emails_realizado ""
+                      :qualis_agendadas_meta ""
+                      :qualis_agendadas_realizado ""
+                      :sao_fora_da_meta ""
+                      :bonus_sao "300"}
         form (r/atom initial-form)]
     (fn []
       (let [user @(rf/subscribe [:auth/current-user])
             route @(rf/subscribe [:current-route-name])
             effective-form (enrich-form user @form)
             cn-user? (= (:role user) "CN")
+            ramp? (:em_rampagem effective-form)
+            ramp-com-sao? (and ramp? (pos? (or (calc/->num (:sao_meta effective-form)) 0)))
             vidas-meta (:vidas_meta effective-form)
             errors (validation-errors effective-form)
-            preview (calc/calculate effective-form)
+            preview (calc/calculate-auto effective-form)
             chart-result preview]
         [layout/page-shell
          {:current-route route
@@ -347,7 +430,10 @@
                 [:strong (or (:nivel effective-form) "sem cadastro")]]
                [:div
                 [:span "porte"]
-                [:strong (or (:porte effective-form) "sem cadastro")]]]
+                [:strong (or (:porte effective-form) "sem cadastro")]]
+               [:div
+                [:span "rampagem"]
+                [:strong (if ramp? "sim" "nao")]]]
               [:div.form-grid.-tight
                [select-field
                 {:label "Nivel do CN"
@@ -366,44 +452,109 @@
                  :options [{:value "M" :label "M, SAO x 375"}
                            {:value "G+" :label "G+, SAO x 2000"}]
                  :on-change #(swap! form assoc :porte %)}]])
+             (when-not cn-user?
+               [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                                :font-size "13px" :color "var(--fg-2)"}}
+                [:input {:type "checkbox"
+                         :checked (boolean (:em_rampagem @form))
+                         :on-change #(swap! form assoc :em_rampagem
+                                            (.. % -target -checked))}]
+                [:span "CN em rampagem"]])
             [:div.form-grid.-tight
              [field {:label "Meta SAO"
                      :value (:sao_meta @form)
-                     :help "numero alvo mensal"
+                     :help (if ramp? "0 usa cadencia; maior que 0 usa qualis"
+                               "numero alvo mensal")
                      :error (:sao_meta errors)
                      :on-change #(swap! form assoc :sao_meta %)}]
-             [field {:label "SAO realizado"
-                     :value (:sao_realizado @form)
-                     :help "numero realizado no mes"
-                     :error (:sao_realizado errors)
-                     :on-change #(swap! form assoc :sao_realizado %)}]]
-            [:div.form-grid.-tight
-             [computed-field {:label "Meta de vidas"
-                              :value (when (pos? (or vidas-meta 0))
-                                       (fmt-int vidas-meta))
-                              :help (case (:porte effective-form)
-                                      "M" "calculada como Meta SAO x 375"
-                                      "G+" "calculada como Meta SAO x 2000"
-                                      "cadastre o porte do CN")
-                              :error (:vidas_meta errors)}]
-             [field {:label "Vidas realizadas"
-                     :value (:vidas_realizado @form)
-                     :help "limitado a 150% na regra"
-                     :error (:vidas_realizado errors)
-                     :on-change #(swap! form assoc :vidas_realizado %)}]]
+             (if (and ramp? (not ramp-com-sao?))
+               [computed-field {:label "Modo" :value "Rampagem sem SAO"}]
+               [field {:label "SAO realizado"
+                       :value (:sao_realizado @form)
+                       :help "numero realizado no mes"
+                       :error (:sao_realizado errors)
+                       :on-change #(swap! form assoc :sao_realizado %)}])]
+            (if ramp?
+              (if ramp-com-sao?
+                [:div.form-grid.-tight
+                 [field {:label "Qualis meta"
+                         :value (:qualis_agendadas_meta @form)
+                         :error (:qualis_agendadas_meta errors)
+                         :on-change #(swap! form assoc :qualis_agendadas_meta %)}]
+                 [field {:label "Qualis realizadas"
+                         :value (:qualis_agendadas_realizado @form)
+                         :error (:qualis_agendadas_realizado errors)
+                         :on-change #(swap! form assoc :qualis_agendadas_realizado %)}]]
+                [:<>
+                 [:div.form-grid.-tight
+                  [field {:label "Negocios meta"
+                          :value (:negocios_cadencia_meta @form)
+                          :error (:negocios_cadencia_meta errors)
+                          :on-change #(swap! form assoc :negocios_cadencia_meta %)}]
+                  [field {:label "Negocios realizados"
+                          :value (:negocios_cadencia_realizado @form)
+                          :error (:negocios_cadencia_realizado errors)
+                          :on-change #(swap! form assoc :negocios_cadencia_realizado %)}]]
+                 [:div.form-grid.-tight
+                  [field {:label "Emails meta"
+                          :value (:emails_meta @form)
+                          :error (:emails_meta errors)
+                          :on-change #(swap! form assoc :emails_meta %)}]
+                  [field {:label "Emails realizados"
+                          :value (:emails_realizado @form)
+                          :error (:emails_realizado errors)
+                          :on-change #(swap! form assoc :emails_realizado %)}]]
+                 [:div.form-grid.-tight
+                  [field {:label "SAO fora da meta"
+                          :value (:sao_fora_da_meta @form)
+                          :step "1"
+                          :error (:sao_fora_da_meta errors)
+                          :on-change #(swap! form assoc :sao_fora_da_meta %)}]
+                  [field {:label "Bonus por SAO"
+                          :value (:bonus_sao @form)
+                          :error (:bonus_sao errors)
+                          :on-change #(swap! form assoc :bonus_sao %)}]]])
+              [:div.form-grid.-tight
+               [computed-field {:label "Meta de vidas"
+                                :value (when (pos? (or vidas-meta 0))
+                                         (fmt-int vidas-meta))
+                                :help (case (:porte effective-form)
+                                        "M" "calculada como Meta SAO x 375"
+                                        "G+" "calculada como Meta SAO x 2000"
+                                        "cadastre o porte do CN")
+                                :error (:vidas_meta errors)}]
+               [field {:label "Vidas realizadas"
+                       :value (:vidas_realizado @form)
+                       :help "limitado a 150% na regra"
+                       :error (:vidas_realizado errors)
+                       :on-change #(swap! form assoc :vidas_realizado %)}]])
             [:div.sim-rule
-             [:div.sim-rule-row
-              [:span "score"]
-              [:strong "70% SAO + 30% vidas"]]
-             [:div.sim-rule-row
-             [:span "vidas"]
-              [:strong (case (:porte effective-form)
-                         "M" "meta = SAO x 375"
-                         "G+" "meta = SAO x 2000"
-                         "teto de 150%")]]
-             [:div.sim-rule-row
-              [:span "pagamento"]
-              [:strong "base mensal x multiplicador"]]]
+             (if ramp?
+               [:<>
+                [:div.sim-rule-row
+                 [:span "modo"]
+                 [:strong (if ramp-com-sao? "SAO + qualis" "negocios + emails")]]
+                [:div.sim-rule-row
+                 [:span "gatilho"]
+                 [:strong "regua inclusiva"]]
+                [:div.sim-rule-row
+                 [:span "pagamento"]
+                 [:strong (if ramp-com-sao?
+                            "base mensal x gatilho"
+                            "base mensal x gatilho + bonus")]]]
+               [:<>
+                [:div.sim-rule-row
+                 [:span "score"]
+                 [:strong "70% SAO + 30% vidas"]]
+                [:div.sim-rule-row
+                 [:span "vidas"]
+                 [:strong (case (:porte effective-form)
+                            "M" "meta = SAO x 375"
+                            "G+" "meta = SAO x 2000"
+                            "teto de 150%")]]
+                [:div.sim-rule-row
+                 [:span "pagamento"]
+                 [:strong "base mensal x multiplicador"]]])]
             (when (seq errors)
               [:div.callout.sim-error
                [layout/icon "alert" {:width 18 :height 18}]

@@ -770,6 +770,16 @@ def _serialize_team(t):
     }
 
 
+def _bool_setting(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _apply_profile_fields(user, data):
     """Persist role-specific compensation profile fields from admin forms."""
     from decimal import Decimal, InvalidOperation
@@ -797,7 +807,7 @@ def _apply_profile_fields(user, data):
                 return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Invalid salario_base"}}), 400
 
     if "em_rampagem" in data:
-        user.em_rampagem = bool(data.get("em_rampagem"))
+        user.em_rampagem = _bool_setting(data.get("em_rampagem"))
 
     if "role" in data and user.role != UserRole.CN:
         user.nivel = None
