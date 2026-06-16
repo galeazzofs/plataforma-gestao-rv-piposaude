@@ -49,15 +49,20 @@ def refresh():
 
 
 def _dev_login_enabled():
-    """Dev-only endpoints (dev-login, dev-users) require BOTH DEBUG=True AND
-    an explicit DEV_LOGIN_ENABLED=true env var. DEBUG defaults to True in
-    DevConfig — relying on it alone means a misconfigured stag/prod with
-    FLASK_ENV=dev would expose unauthenticated user enumeration.
+    """Dev-only endpoints (dev-login, dev-users) require BOTH the dev-only
+    DEV_LOGIN_ALLOWED config flag (True only in DevConfig) AND an explicit
+    DEV_LOGIN_ENABLED=true env var.
+
+    We gate on DEV_LOGIN_ALLOWED rather than DEBUG: `flask run` sets
+    app.config["DEBUG"] from its own --debug/FLASK_DEBUG flag (default off),
+    overriding DevConfig — so a normal `flask run` in dev has DEBUG=False and
+    would wrongly 403 the dev-login picker. The two-signal model still protects
+    stag/prod, where DEV_LOGIN_ALLOWED is False and the env var is never set.
     """
     import os
     from flask import current_app
     return (
-        current_app.config.get("DEBUG")
+        current_app.config.get("DEV_LOGIN_ALLOWED")
         and os.environ.get("DEV_LOGIN_ENABLED", "").lower() in ("1", "true", "yes")
     )
 

@@ -2,10 +2,10 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            ["recharts" :refer [ResponsiveContainer AreaChart Area XAxis YAxis
-                                CartesianGrid Tooltip ReferenceLine ReferenceArea]]
+            ["recharts" :refer [ResponsiveContainer AreaChart Area BarChart Bar
+                                XAxis YAxis CartesianGrid Tooltip
+                                ReferenceLine ReferenceArea]]
             [app.ds.layout :as layout]
-            [app.ds.tokens :as t]
             [app.auth.subs]
             [app.utils.format :as fmt]))
 
@@ -13,6 +13,8 @@
 (def ^:private rc-responsive (r/adapt-react-class ResponsiveContainer))
 (def ^:private rc-area-chart (r/adapt-react-class AreaChart))
 (def ^:private rc-area (r/adapt-react-class Area))
+(def ^:private rc-bar-chart (r/adapt-react-class BarChart))
+(def ^:private rc-bar (r/adapt-react-class Bar))
 (def ^:private rc-x-axis (r/adapt-react-class XAxis))
 (def ^:private rc-y-axis (r/adapt-react-class YAxis))
 (def ^:private rc-cartesian-grid (r/adapt-react-class CartesianGrid))
@@ -176,6 +178,28 @@
                        (str (.toFixed k 1) "k")))
     :else (str (js/Math.round v))))
 
+(defn- nice-y-ceil
+  "Pick a tidy maximum for the y-axis based on the largest value in the set.
+   Steps grow on a 1·2·5·10 scale so the last gridline sits on a round figure."
+  [values]
+  (let [raw-max (if (seq values) (reduce max values) 1)
+        safe    (max 1 raw-max)
+        mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
+        norm    (/ safe mag)
+        step    (* mag (cond (<= norm 1.5) 0.5
+                             (<= norm 3)   1
+                             (<= norm 7)   2
+                             :else          5))]
+    (* step (js/Math.ceil (/ safe step)))))
+
+(defn- reduced-motion?
+  "True when the user asked for reduced motion. Recharts ignores the OS
+   preference on its own, so we gate chart animation on it explicitly."
+  []
+  (boolean
+   (and (exists? js/window)
+        (.-matches (js/matchMedia "(prefers-reduced-motion: reduce)")))))
+
 ;; ----- Row 2: Comissão x Agenciamento ---------------------------------
 
 (defn- proportion-strip [comissao agenciamento]
@@ -188,74 +212,152 @@
      [:div.seg.primary {:style {:width (str com-pct "%")}}]
      [:div.seg.beige   {:style {:width (str ag-pct "%")}}]]))
 
-(defn- chart-comissao-agenciamento [data]
-  (if (empty? data)
-    [:div.series-fallback
-     [:div.lab "histórico mensal"]
-     [:strong "sem série mensal para este filtro"]
-     [:span "os totais acima continuam válidos para o período selecionado"]]
-    (let [pts (vec data)
-          n   (count pts)
+(defn- comissao-chart-data
+  "Backend points → dense Recharts rows. Each row carries comissão, agenciamento
+   and their sum so a stacked bar can show both the monthly total (height) and
+   its split, and the tooltip can read everything off a single row."
+  [series]
+  (->> series
+       (map (fn [p]
+              (let [c (->num (:comissao p))
+                    a (->num (:agenciamento p))]
+                {:label (:label p)
+                 :comissao c
+                 :agenciamento a
+                 :total (+ (or c 0) (or a 0))})))
+       vec))
 
-          ;; Chart region inside viewBox 700×260
-          lft 76  rgt 660  tp 16  btm 210  lbl-y 232
-          cw  (- rgt lft)
-          ch  (- btm tp)
-          slot (/ cw (max 1 n))
+(defn- comissao-tooltip-render
+  "Dark editorial tooltip — month label on top, comissão + agenciamento rows
+   with their dots, then a ruled total and the split percentage."
+  [props]
+  (let [p (js->clj props :keywordize-keys true)
+        active? (:active p)
+        row (some-> (:payload p) first :payload)
+        row (cond-> row (and row (not (map? row)))
+                    (js->clj :keywordize-keys true))]
+    (when (and active? row)
+      (let [c (or (->num (:comissao row)) 0)
+            a (or (->num (:agenciamento row)) 0)
+            total (+ c a)
+            com-pct (when (pos? total) (* 100 (/ c total)))
+            ag-pct  (when (pos? total) (* 100 (/ a total)))]
+        (r/as-element
+         [:div.comissao-tooltip
+          [:span.lab (:label row)]
+          [:div.comissao-tooltip-row
+           [:span.k [:i.dot.-comissao] "comissão"]
+           [:span.v (or (fmt/fmt-brl-int c) "R$ 0")]]
+          [:div.comissao-tooltip-row
+           [:span.k [:i.dot.-agenciamento] "agenciamento"]
+           [:span.v (or (fmt/fmt-brl-int a) "R$ 0")]]
+          [:div.comissao-tooltip-total
+           [:span.k "total"]
+           [:span.v (or (fmt/fmt-brl-int total) "R$ 0")]]
+          (when (and com-pct ag-pct)
+            [:div.comissao-tooltip-split
+             (str (.toFixed com-pct 0) "% · " (.toFixed ag-pct 0) "%")])])))))
 
-          ;; Collect all non-nil numeric values for Y range
-          all-v (->> pts
-                     (mapcat (fn [p] [(:comissao p) (:agenciamento p)]))
-                     (keep ->num))
-          raw-max (if (seq all-v) (reduce max all-v) 1)
+(def ^:private comissao-tooltip-content
+  (r/reactify-component comissao-tooltip-render))
 
-          ;; Nice Y-axis ticks (~4 divisions)
-          safe    (max 1 raw-max)
-          mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
-          norm    (/ safe mag)
-          step    (* mag (cond (<= norm 1.5) 0.5
-                               (<= norm 3)   1
-                               (<= norm 7)   2
-                               :else          5))
-          y-ceil  (* step (js/Math.ceil (/ safe step)))
-          ticks   (loop [v 0 acc []]
-                    (if (> v (+ y-ceil 0.01)) acc (recur (+ v step) (conj acc v))))
-          yf      (fn [v] (- btm (* (/ (or v 0) y-ceil) ch)))]
+(defn- chart-comissao-agenciamento
+  "Comissão vs agenciamento paid per month — Recharts stacked bars (ink base,
+   beige cap). Bar height is the total paid that month; the split echoes the
+   card's proportion strip across time. Responsive, animated, hover surfaces a
+   dark editorial tooltip with both values, the total and the split."
+  [series]
+  (let [pts    (comissao-chart-data series)
+        n      (count pts)
+        totals (keep :total pts)]
+    (if (or (zero? n) (not (some pos? totals)))
+      [:div.series-fallback
+       [:div.lab "histórico mensal"]
+       [:strong "sem série mensal para este filtro"]
+       [:span "os totais acima continuam válidos para o período selecionado"]]
+      (let [y-ceil (nice-y-ceil totals)
+            interval (cond (> n 10) 2 (> n 6) 1 :else 0)
+            animate? (not (reduced-motion?))]
+        [:div.comissao-recharts-frame
+         {:role "img"
+          :aria-label "Comissão e agenciamento pagos por competência mensal"}
+         [rc-responsive {:width "100%" :height "100%"}
+          [rc-bar-chart {:data (clj->js pts)
+                         :margin #js {:top 16 :right 18 :bottom 8 :left 4}
+                         :barCategoryGap "30%"}
+           [rc-cartesian-grid {:stroke "var(--border-subtle)"
+                               :strokeDasharray "2 5"
+                               :vertical false}]
+           [rc-x-axis {:dataKey "label"
+                       :axisLine false
+                       :tickLine false
+                       :tickMargin 12
+                       :interval interval
+                       :tick #js {:fill "var(--fg-3)"
+                                  :fontSize 11
+                                  :fontFamily "Manrope, sans-serif"
+                                  :letterSpacing "0.02em"}}]
+           [rc-y-axis {:domain #js [0 y-ceil]
+                       :tickFormatter fmt-axis-val
+                       :axisLine false
+                       :tickLine false
+                       :width 52
+                       :tickMargin 8
+                       :tick #js {:fill "var(--fg-3)"
+                                  :fontSize 11
+                                  :fontFamily "Manrope, sans-serif"
+                                  :letterSpacing "0.02em"}}]
+           [rc-tooltip {:cursor #js {:fill "var(--fg-1)" :fillOpacity 0.05}
+                        :content comissao-tooltip-content
+                        :wrapperStyle #js {:outline "none"}}]
+           [rc-bar {:dataKey "comissao"
+                    :name "comissão"
+                    :stackId "ca"
+                    :fill "var(--black)"
+                    :maxBarSize 46
+                    :isAnimationActive animate?
+                    :animationDuration 650
+                    :animationEasing "ease-out"
+                    :radius #js [0 0 0 0]}]
+           [rc-bar {:dataKey "agenciamento"
+                    :name "agenciamento"
+                    :stackId "ca"
+                    :fill "var(--beige-light)"
+                    :maxBarSize 46
+                    :isAnimationActive animate?
+                    :animationDuration 650
+                    :animationEasing "ease-out"
+                    :radius #js [4 4 0 0]}]]]]))))
 
-      [:svg.chart.chart-comissao {:viewBox "0 0 700 260" :preserveAspectRatio "none"}
-       ;; Y-axis grid lines + labels
-       [:g
-        (for [tv ticks]
-          ^{:key (str "y" tv)}
-          [:g
-           [:line {:x1 lft :y1 (yf tv) :x2 rgt :y2 (yf tv)
-                   :stroke t/border-default :stroke-width 1}]
-           [:text {:x (- lft 8) :y (+ (yf tv) 3.5) :text-anchor "end"
-                   :font-family t/font-mono :font-size 10
-                   :fill t/text-disabled :letter-spacing "0.02em"}
-            (fmt-axis-val tv)]])]
-
-       ;; Bars
-       [:g
-        (for [[i p] (map-indexed vector pts)
-              :let [base (+ lft 12 (* i slot))]]
-          ^{:key (str "g" i)}
-          [:g
-           (when-let [cv (->num (:comissao p))]
-             [:rect {:x base :y (yf cv)
-                     :width 18 :height (max 1 (- btm (yf cv)))
-                     :fill t/color-primary :rx 2}])
-           (when-let [av (->num (:agenciamento p))]
-             [:rect {:x (+ base 22) :y (yf av)
-                     :width 18 :height (max 1 (- btm (yf av)))
-                     :fill t/beige-300 :rx 2}])])]
-
-       ;; X-axis labels
-       [:g {:font-family t/font-mono :font-size 10
-            :fill t/text-tertiary :text-anchor "middle" :letter-spacing "0.02em"}
-        (for [[i p] (map-indexed vector pts)]
-          ^{:key (str "x" i)}
-          [:text {:x (+ lft 32 (* i slot)) :y lbl-y} (:label p)])]])))
+(defn- comissao-data-table
+  "Tabular alternative to the comparison chart, disclosed on demand. Screen
+   readers get the same numbers the bars encode; sighted users can expand it."
+  [series]
+  (let [rows (filter (fn [p] (or (->num (:comissao p)) (->num (:agenciamento p))))
+                     series)]
+    (when (seq rows)
+      [:details.chart-data-table
+       [:summary "Ver dados em tabela"]
+       [:div.table-wrap
+        [:table.table
+         [:caption.sr-only
+          "Comissão e agenciamento pagos por competência mensal, em reais."]
+         [:thead
+          [:tr
+           [:th {:scope "col"} "Mês"]
+           [:th.right {:scope "col"} "Comissão"]
+           [:th.right {:scope "col"} "Agenciamento"]
+           [:th.right {:scope "col"} "Total"]]]
+         [:tbody
+          (for [p rows
+                :let [c (or (->num (:comissao p)) 0)
+                      a (or (->num (:agenciamento p)) 0)]]
+            ^{:key (:label p)}
+            [:tr
+             [:th {:scope "row"} (:label p)]
+             [:td.right.num (or (fmt/fmt-brl-int (:comissao p)) "·")]
+             [:td.right.num (or (fmt/fmt-brl-int (:agenciamento p)) "·")]
+             [:td.right.num (fmt/fmt-brl-int (+ c a))]])]]]])))
 
 (defn- comissao-agenciamento-card [{:keys [comissao agenciamento series period]}]
   (let [c (or (->num comissao) 0)
@@ -263,10 +365,13 @@
         total (+ c a)
         com-pct (when (pos? total) (* 100 (/ c total)))
         ag-pct  (when (pos? total) (* 100 (/ a total)))]
-    [:div.card
+    [:div.card.comissao-card
      [:div.card-head
       [:div [:h3 "Comissão x Agenciamento"]
-       [:div.card-sub (or period "Liberado · últimos 6 meses")]]]
+       [:div.card-sub (or period "Liberado · últimos 6 meses")]]
+      [:div.legend
+       [:span.legend-dot {:style {"--dot" "var(--black)"}} "comissão"]
+       [:span.legend-dot {:style {"--dot" "var(--beige-light)"}} "agenciamento"]]]
      [:div.split-numerics
       [:div.col
        [:div.lab "comissão"]
@@ -278,10 +383,9 @@
        [:div.num (brl-value agenciamento "·")]
        [:div.lab (if ag-pct (str (.toFixed ag-pct 1) "% do total") "—")]]]
      [proportion-strip comissao agenciamento]
-     [:div.legend
-      [:span.legend-dot {:style {:color "var(--black)"}} "comissão"]
-      [:span.legend-dot {:style {:color "var(--beige-light)"}} "agenciamento"]]
-     [chart-comissao-agenciamento series]]))
+     [:div.comissao-chart-frame
+      [chart-comissao-agenciamento series]
+      [comissao-data-table series]]]))
 
 ;; ----- Row 3: Fluxo de Caixa Projetado --------------------------------
 
@@ -322,20 +426,6 @@
     (or (when (and today-i (some #(= today-i (:index %)) projected))
           today-i)
         (:index (first projected)))))
-
-(defn- nice-y-ceil
-  "Pick a tidy maximum for the y-axis based on the largest projected value.
-   Steps grow on a 1·2·5·10 scale so the last gridline sits on a round figure."
-  [values]
-  (let [raw-max (if (seq values) (reduce max values) 1)
-        safe    (max 1 raw-max)
-        mag     (js/Math.pow 10 (js/Math.floor (js/Math.log10 safe)))
-        norm    (/ safe mag)
-        step    (* mag (cond (<= norm 1.5) 0.5
-                             (<= norm 3)   1
-                             (<= norm 7)   2
-                             :else          5))]
-    (* step (js/Math.ceil (/ safe step)))))
 
 (defn- fluxo-chart-data
   "Convert backend series to dense points keyed for Recharts. The numeric

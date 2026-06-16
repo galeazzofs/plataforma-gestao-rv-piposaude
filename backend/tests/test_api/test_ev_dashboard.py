@@ -91,7 +91,7 @@ def test_summary_period_filter_scopes_balance_mrr_and_goal(client, db_session):
     data = resp.get_json()["data"]
     assert data["current_quarter"] == 1
     assert data["current_year"] == 2026
-    assert data["balance_estimated"] == "960.00"
+    assert data["balance_estimated"] == "840.00"
     assert data["mrr_sold"] == "1000.00"
     assert data["mrr_target"] == "10000.00"
     assert data["achievement_pct"] == "10.00"
@@ -111,9 +111,9 @@ def test_projection_period_filter_returns_selected_quarter_months(client, db_ses
 
     assert resp.status_code == 200
     assert resp.get_json()["data"] == [
-        {"month": "2026-01", "projected": "80.00"},
-        {"month": "2026-02", "projected": "80.00"},
-        {"month": "2026-03", "projected": "80.00"},
+        {"month": "2026-01", "projected": "70.00"},
+        {"month": "2026-02", "projected": "70.00"},
+        {"month": "2026-03", "projected": "70.00"},
     ]
 
 

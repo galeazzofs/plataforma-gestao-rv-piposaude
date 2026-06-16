@@ -34,7 +34,10 @@ services:
       HUBSPOT_TOKEN: ${HUBSPOT_TOKEN:-}
       HUBSPOT_SYNC_INTERVAL_MINUTES: ${HUBSPOT_SYNC_INTERVAL_MINUTES:-30}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # No wildcard default: "*" + supports_credentials would let any site
+      # make credentialed calls. The app refuses to boot in stag/prod without
+      # an explicit value anyway.
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env (comma-separated frontend origins)}
       DEV_LOGIN_ENABLED: ${DEV_LOGIN_ENABLED:-}
     ports:
       - "8000:8000"

@@ -301,9 +301,17 @@ def ensure_dev_e2e_data():
     return {"created_imports": created_imports}
 
 
-def seed():
-    app = create_app()
+def seed(app=None):
+    if app is None:
+        app = create_app(start_schedulers=False)
     with app.app_context():
+        if not app.config.get("DEV_SEED_ALLOWED"):
+            # entrypoint.sh runs this on every container boot. Outside dev the
+            # E2E dataset (fake users/goals/achievements/NFs) must never touch
+            # the database — stag/prod boots are a hard no-op.
+            print("Seed skipped: DEV_SEED_ALLOWED is off in this environment.")
+            return
+
         db.create_all()
 
         already_seeded = bool(_get_user(USER_EMAILS["admin"]))
