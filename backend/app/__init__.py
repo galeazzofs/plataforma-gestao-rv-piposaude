@@ -8,10 +8,27 @@ from app.config import config_map  # noqa: E402
 from app.extensions import db, migrate, cors  # noqa: E402
 
 
-def create_app(config_name=None):
-    """Flask application factory."""
+def create_app(config_name=None, *, start_schedulers=True):
+    """Flask application factory.
+
+    config_name must be explicit (argument or FLASK_ENV). Defaulting to dev
+    here would be fail-open: DevConfig carries a repo-public SECRET_KEY
+    fallback, so a deploy that forgot FLASK_ENV would silently boot with
+    forgeable JWTs instead of refusing to start.
+    """
     if config_name is None:
-        config_name = os.environ.get("FLASK_ENV", "dev")
+        config_name = os.environ.get("FLASK_ENV")
+    if not config_name:
+        raise RuntimeError(
+            "FLASK_ENV must be set explicitly (one of: "
+            + ", ".join(sorted(config_map)) + "). Refusing to guess an "
+            "environment — a wrong default would boot with dev secrets."
+        )
+    if config_name not in config_map:
+        raise RuntimeError(
+            f"Unknown FLASK_ENV {config_name!r}. Must be one of: "
+            + ", ".join(sorted(config_map))
+        )
 
     app = Flask(__name__)
     app.config.from_object(config_map[config_name])
@@ -46,13 +63,14 @@ def create_app(config_name=None):
     from app.api import register_blueprints
     register_blueprints(app)
 
-    # Start HubSpot sync scheduler (skip in testing)
-    if not app.config.get("TESTING") and app.config.get("HUBSPOT_TOKEN"):
+    # Schedulers are skipped in testing and for short-lived processes
+    # (bootstrap/seed pass start_schedulers=False so a migration or seed run
+    # doesn't fire cron jobs mid-flight).
+    if start_schedulers and not app.config.get("TESTING") and app.config.get("HUBSPOT_TOKEN"):
         from app.modules.hubspot_sync.scheduler import init_scheduler
         init_scheduler(app)
 
-    # Start the daily reminder/escalation cron (skip in testing)
-    if not app.config.get("TESTING"):
+    if start_schedulers and not app.config.get("TESTING"):
         from app.modules.workflow.reminders_scheduler import init_reminders_scheduler
         init_reminders_scheduler(app)
 

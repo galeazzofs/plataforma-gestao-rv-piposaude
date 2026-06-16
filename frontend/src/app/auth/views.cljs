@@ -1,6 +1,7 @@
 (ns app.auth.views
   (:require [re-frame.core :as rf]
             [reagent.core :as r]
+            [app.config :as config]
             [app.ds.tokens :as t]
             [app.ds.buttons :as btn]))
 
@@ -19,7 +20,7 @@
     {:background t/bg-subtle :color t/text-secondary}))
 
 (defn- fetch-dev-users! [users-atom loading-atom]
-  (-> (js/fetch "/api/v1/auth/dev-users")
+  (-> (js/fetch (str config/api-base-url "/auth/dev-users"))
       (.then (fn [resp] (.json resp)))
       (.then (fn [json]
                (let [items (aget json "data")]

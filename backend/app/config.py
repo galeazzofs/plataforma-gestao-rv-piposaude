@@ -20,7 +20,12 @@ class Config:
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
-    ALLOWED_EMAIL_DOMAIN = "piposaude.com"
+    # Both registrations of the company domain are in active use (the
+    # Workspace serves piposaude.com and piposaude.com.br aliases).
+    ALLOWED_EMAIL_DOMAINS = _split_csv(os.environ.get("ALLOWED_EMAIL_DOMAINS")) or [
+        "piposaude.com",
+        "piposaude.com.br",
+    ]
     HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN", "")
     HUBSPOT_SYNC_INTERVAL_MINUTES = int(
         os.environ.get("HUBSPOT_SYNC_INTERVAL_MINUTES", "30")
@@ -35,10 +40,20 @@ class Config:
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024
     # CORS origins — must be explicit per env. No wildcard fallback.
     CORS_ORIGINS = _split_csv(os.environ.get("CORS_ORIGINS"))
+    # Whether the dev-login / dev-users endpoints may be served. Off everywhere
+    # except DevConfig — see _dev_login_enabled() in app/api/v1/auth.py. NOT
+    # tied to DEBUG, which `flask run` toggles independently of the config class.
+    DEV_LOGIN_ALLOWED = False
+    # Whether seed.py may write the dev E2E dataset (fake users/goals/NFs).
+    # Off everywhere except DevConfig — entrypoint.sh runs seed.py on every
+    # boot, and in stag/prod it must be a no-op.
+    DEV_SEED_ALLOWED = False
 
 
 class DevConfig(Config):
     DEBUG = True
+    DEV_LOGIN_ALLOWED = True
+    DEV_SEED_ALLOWED = True
     # Allow a fallback ONLY in dev so a fresh clone runs out of the box.
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
     CORS_ORIGINS = _split_csv(os.environ.get("CORS_ORIGINS")) or [

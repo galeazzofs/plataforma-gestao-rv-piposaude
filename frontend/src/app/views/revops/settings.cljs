@@ -134,6 +134,18 @@
               :value (:notify_revops_sync_error form)
               :on-change #(swap! local-settings assoc :notify_revops_sync_error %)}]]]
 
+          ;; Comissão CN — Rampagem
+          [:div.card
+           [:div.card-head
+            [:div [:h3 "Comissão CN · Rampagem"]
+             [:div.card-sub "Parâmetros do cálculo de rampagem"]]]
+           [:div.form-grid
+            [inputs/input
+             {:label "Bônus por SAO fora da meta (R$)" :type "number"
+              :placeholder "300"
+              :value (str (or (:cn_rampagem_bonus_sao form) ""))
+              :on-change #(swap! local-settings assoc :cn_rampagem_bonus_sao %)}]]]
+
           ;; HubSpot Owner Mapping
           [:div.card
            [:div.card-head

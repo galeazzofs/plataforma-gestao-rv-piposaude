@@ -85,8 +85,10 @@
                                                ;; Only SAO is sent — the backend derives the
                                                ;; lives target from the CN porte (SAO × factor).
                                                {:cn_id      cn-id
-                                                :sao_target (or (:sao_target vals)
-                                                                (:sao_target row) "0")}))
+                                                :sao_target (or (:sao_target vals) (:sao_target row) "0")
+                                                :negocios_cadencia_meta (or (:negocios_cadencia_meta vals) (:negocios_cadencia_meta row) "0")
+                                                :emails_meta (or (:emails_meta vals) (:emails_meta row) "0")
+                                                :qualis_agendadas_meta (or (:qualis_agendadas_meta vals) (:qualis_agendadas_meta row) "0")}))
                                            @edits)]
                            (rf/dispatch [:revops/save-cn-goals
                                          {:month (:month @filter-state)
@@ -120,15 +122,16 @@
             [:tr
              [:th "CN"]
              [:th.right "Meta SAO (R$)"]
-             [:th.right "Meta Vidas (auto)"]]]
+             [:th.right "Meta Vidas (auto)"]
+             [:th.right "Cadência (rampagem)"]]]
            [:tbody
             (cond
               (and loading? (empty? goals))
-              [:tr [:td {:col-span 3 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 4 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? goals)
-              [:tr [:td {:col-span 3 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 4 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhum CN ativo encontrado"]]
 
               :else
@@ -149,4 +152,28 @@
                     (cond
                       (nil? (:porte row))     [:span.muted "defina o porte"]
                       (and vidas (pos? vidas)) (fmt-int vidas)
-                      :else                    "·"))]]))]]]]))))
+                      :else                    "·"))]
+                 [:td.right
+                  (if (:em_rampagem row)
+                    (let [sao (calc/->num (field-val row :sao_target))]
+                      (if (and sao (pos? sao))
+                        [:input.field-input
+                         {:type "number" :inputMode "decimal"
+                          :placeholder "Qualis (meta)"
+                          :style {:width "130px" :text-align "right" :padding "6px 10px"}
+                          :value (field-val row :qualis_agendadas_meta)
+                          :on-change #(swap! edits assoc-in [(:cn_id row) :qualis_agendadas_meta] (.. % -target -value))}]
+                        [:div {:style {:display "flex" :gap "6px" :justify-content "flex-end"}}
+                         [:input.field-input
+                          {:type "number" :inputMode "decimal"
+                           :placeholder "Negócios (meta)"
+                           :style {:width "130px" :text-align "right" :padding "6px 10px"}
+                           :value (field-val row :negocios_cadencia_meta)
+                           :on-change #(swap! edits assoc-in [(:cn_id row) :negocios_cadencia_meta] (.. % -target -value))}]
+                         [:input.field-input
+                          {:type "number" :inputMode "decimal"
+                           :placeholder "Emails (meta)"
+                           :style {:width "130px" :text-align "right" :padding "6px 10px"}
+                           :value (field-val row :emails_meta)
+                           :on-change #(swap! edits assoc-in [(:cn_id row) :emails_meta] (.. % -target -value))}]]))
+                    [:span.muted "—"])]]))]]]]))))

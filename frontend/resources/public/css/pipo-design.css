@@ -643,9 +643,91 @@ main:focus{outline:none}
   font-size:12px;color:var(--fg-3);line-height:1.45;
 }
 @keyframes chart-load{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-.chart-comissao{height:auto;aspect-ratio:700/260;animation:chart-load 0.45s ease-out both}
+
+/* Comissão x Agenciamento — Recharts stacked bars (ink base + beige cap).
+   Legend rides in the card head; the chart sits in its own bordered frame so
+   it reads as the card's single visual, twinned with the cash-flow frame. */
+.comissao-card .card-head{align-items:center}
+.comissao-card .legend{margin-left:auto;gap:14px}
+.comissao-card .legend-dot{
+  font-family:var(--font-mono);font-size:11px;color:var(--fg-2);
+  letter-spacing:0.02em;text-transform:lowercase;font-weight:500;
+}
+.comissao-card .legend-dot::before{
+  width:9px;height:9px;border-radius:3px;background:var(--dot,currentColor);
+}
+.comissao-card .legend-dot:last-child::before{border:1px solid var(--beige-regular)}
+/* The aggregate split rail, echoed by the stacked bars below it. */
+.comissao-card .proportion-strip{height:8px;border-radius:var(--r-pill)}
+.comissao-card .proportion-strip .seg{transition:width 600ms cubic-bezier(.2,0,0,1)}
+.comissao-chart-frame{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.comissao-recharts-frame{
+  width:100%;min-width:0;
+  height:300px;
+  position:relative;
+  background:var(--bg-1);
+  border:1px solid var(--border-subtle);
+  border-radius:var(--r-sm);
+  padding:6px 4px 4px;
+  animation:chart-load 0.45s ease-out both;
+}
+.comissao-recharts-frame .recharts-surface{overflow:visible}
+.comissao-recharts-frame .recharts-cartesian-axis-tick text{
+  font-family:var(--font-mono);font-size:11px;fill:var(--fg-3);letter-spacing:0.02em;
+}
+.comissao-recharts-frame .recharts-cartesian-grid-horizontal line{
+  stroke:var(--border-subtle);stroke-dasharray:2 5;vector-effect:non-scaling-stroke;
+}
+.comissao-recharts-frame .recharts-tooltip-wrapper{
+  outline:none;z-index:5;transition:transform 120ms cubic-bezier(.2,0,0,1);
+}
+
+/* Dark editorial tooltip — black pill, ink/paper dots, ruled total + split. */
+.comissao-tooltip{
+  display:flex;flex-direction:column;gap:7px;min-width:184px;
+  padding:11px 14px;
+  background:var(--fg-1);color:var(--bg-1);
+  border-radius:var(--r-sm);
+  box-shadow:0 6px 18px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.04);
+  pointer-events:none;
+}
+.comissao-tooltip .lab{
+  font-family:var(--font-mono);font-size:10.5px;color:rgba(255,255,255,.7);
+  letter-spacing:.04em;text-transform:lowercase;font-weight:500;
+}
+.comissao-tooltip-row,
+.comissao-tooltip-total{
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+}
+.comissao-tooltip-row .k{
+  display:inline-flex;align-items:center;gap:8px;
+  font-family:var(--font-ui);font-size:12px;font-weight:500;color:rgba(255,255,255,.78);
+}
+.comissao-tooltip-row .k .dot{display:inline-block;width:9px;height:9px;border-radius:2px}
+.comissao-tooltip-row .k .dot.-comissao{background:#fff}
+.comissao-tooltip-row .k .dot.-agenciamento{background:var(--beige-light)}
+.comissao-tooltip-row .v{
+  font-family:var(--font-mono);font-size:12px;font-weight:600;color:#fff;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.comissao-tooltip-total{
+  padding-top:7px;border-top:1px solid rgba(255,255,255,.16);
+}
+.comissao-tooltip-total .k{
+  font-family:var(--font-mono);font-size:10.5px;color:rgba(255,255,255,.7);
+  letter-spacing:.04em;text-transform:lowercase;
+}
+.comissao-tooltip-total .v{
+  font-family:var(--font-display);font-size:17px;font-weight:600;color:#fff;
+  letter-spacing:-0.01em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.comissao-tooltip-split{
+  font-family:var(--font-mono);font-size:10.5px;color:rgba(255,255,255,.55);
+  letter-spacing:.06em;text-align:right;
+}
 @media (prefers-reduced-motion:reduce){
-  .chart-comissao{animation:none}
+  .comissao-recharts-frame{animation:none}
+  .comissao-card .proportion-strip .seg{transition:none}
 }
 
 /* Recharts cash-flow chart — responsive frame sized by parent. The inner
@@ -739,6 +821,9 @@ main:focus{outline:none}
   .cash-flow-inspector{display:flex}
   .inspector-month strong{font-size:23px}
   .inspector-total strong{font-size:26px}
+  .comissao-card .card-head{flex-wrap:wrap}
+  .comissao-card .legend{margin-left:0}
+  .comissao-recharts-frame{height:248px}
 }
 
 /* Filter row */

@@ -2,31 +2,11 @@
 set -e
 
 echo "Initializing database..."
-python -c "
-from app import create_app
-from app.extensions import db
-app = create_app()
-with app.app_context():
-    db.create_all()
-    print('Tables created/verified.')
+# create_all only on a never-stamped DB (then stamp head); otherwise pure
+# `alembic upgrade`. See app/bootstrap.py for why the order matters.
+python -m app.bootstrap
 
-    from alembic.runtime.migration import MigrationContext
-    conn = db.engine.connect()
-    context = MigrationContext.configure(conn)
-    current_rev = context.get_current_revision()
-    conn.close()
-    if current_rev is None:
-        from flask_migrate import stamp
-        stamp(revision='head')
-        print('Alembic stamped at head.')
-    else:
-        from flask_migrate import upgrade
-        upgrade()
-        print('Migrations applied.')
-print('Database ready.')
-"
-
-echo "Seeding database (if empty)..."
+echo "Seeding (no-op unless DEV_SEED_ALLOWED, i.e. FLASK_ENV=dev)..."
 python seed.py
 
 echo "Starting gunicorn..."

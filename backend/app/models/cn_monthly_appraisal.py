@@ -24,6 +24,12 @@ class CnMonthlyAppraisal(db.Model):
     score_final = db.Column(db.Numeric(8, 4), nullable=False)
     multiplicador = db.Column(db.Numeric(8, 4), nullable=False)
     commission_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    calc_mode = db.Column(db.String(32), nullable=False, default="NORMAL")
+    negocios_cadencia_realizado = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    emails_realizado = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    qualis_agendadas_realizado = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    sao_fora_da_meta = db.Column(db.Integer, nullable=False, default=0)
+    bonus_sao_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
     status = db.Column(
         db.Enum(AppraisalStatus, name="cn_monthly_appraisal_status"),
         default=AppraisalStatus.DRAFT,

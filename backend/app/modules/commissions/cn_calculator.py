@@ -1,15 +1,84 @@
 """CN monthly apuração runner.
 
-Calls simulate_cn() for each active CN with a CnMonthlyGoal for the
-given (month, year), persists results to CnMonthlyAppraisal.
+For each active CN with a CnMonthlyGoal for the given (month, year),
+dispatches via simulate_cn_auto across NORMAL / RAMPAGEM_SEM_SAO /
+RAMPAGEM_COM_SAO and persists results to CnMonthlyAppraisal.
 """
 from decimal import Decimal
 
 from app.extensions import db
 from app.models import (
     AppraisalStatus, User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
+    PlatformSetting,
 )
-from app.modules.commissions.simulator import simulate_cn, vidas_meta_from_sao
+from app.modules.commissions.simulator import simulate_cn_auto, vidas_meta_from_sao
+
+
+RAMPAGEM_BONUS_SAO_KEY = "cn_rampagem_bonus_sao"
+DEFAULT_RAMPAGEM_BONUS_SAO = Decimal("300")
+
+
+def get_rampagem_bonus_sao() -> Decimal:
+    """Configurable SAO-fora-da-meta bonus (R$ por SAO). Default 300."""
+    raw = PlatformSetting.get(RAMPAGEM_BONUS_SAO_KEY, None)
+    if raw in (None, ""):
+        return DEFAULT_RAMPAGEM_BONUS_SAO
+    try:
+        return Decimal(str(raw))
+    except (ValueError, ArithmeticError):
+        return DEFAULT_RAMPAGEM_BONUS_SAO
+
+
+def _build_appraisal(cn, goal, month, year, cn_input):
+    """Compute one CN appraisal row from goal + realized inputs, dispatching
+    NORMAL / RAMPAGEM_SEM_SAO / RAMPAGEM_COM_SAO by cn.em_rampagem + sao_target."""
+    nivel = cn.nivel if isinstance(cn.nivel, str) else (cn.nivel.value if cn.nivel else "CN1")
+    sao_meta = Decimal(str(goal.sao_target))
+
+    def num(key):
+        return Decimal(str(cn_input.get(key, 0) or 0))
+
+    sao_realizado = num("sao_realizado")
+    vidas_realizado = num("vidas_realizado")
+    neg_real = num("negocios_cadencia_realizado")
+    emails_real = num("emails_realizado")
+    qualis_real = num("qualis_agendadas_realizado")
+    sao_fora = int(cn_input.get("sao_fora_da_meta", 0) or 0)
+
+    result = simulate_cn_auto(
+        em_rampagem=bool(getattr(cn, "em_rampagem", False)),
+        nivel=nivel,
+        sao_meta=sao_meta,
+        sao_realizado=sao_realizado,
+        vidas_meta=_vidas_meta_for(cn, goal),
+        vidas_realizado=vidas_realizado,
+        neg_meta=Decimal(str(goal.negocios_cadencia_meta)),
+        neg_real=neg_real,
+        emails_meta=Decimal(str(goal.emails_meta)),
+        emails_real=emails_real,
+        qualis_meta=Decimal(str(goal.qualis_agendadas_meta)),
+        qualis_real=qualis_real,
+        sao_fora_da_meta=sao_fora,
+        bonus_sao=get_rampagem_bonus_sao(),
+    )
+
+    return CnMonthlyAppraisal(
+        cn_id=cn.id, month=month, year=year,
+        sao_realizado=sao_realizado,
+        vidas_realizado=vidas_realizado,
+        pct_sao=Decimal(result["pct_sao"]),
+        pct_vidas=Decimal(result["pct_vidas"]),
+        score_final=Decimal(result["score_final"]),
+        multiplicador=Decimal(result["multiplicador"]),
+        commission_amount=Decimal(result["commission_amount"]),
+        calc_mode=result["calc_mode"],
+        negocios_cadencia_realizado=neg_real,
+        emails_realizado=emails_real,
+        qualis_agendadas_realizado=qualis_real,
+        sao_fora_da_meta=sao_fora,
+        bonus_sao_amount=Decimal(result["bonus_sao_amount"]),
+        status=AppraisalStatus.CALCULATING,
+    )
 
 
 class MissingGoalsError(Exception):
@@ -83,28 +152,7 @@ def run_cn_monthly_appraisal(month: int, year: int) -> dict:
             cn_id=cn.id, month=month, year=year
         ).first()
 
-        nivel = cn.nivel if isinstance(cn.nivel, str) else (cn.nivel.value if cn.nivel else "CN1")
-        result = simulate_cn(
-            nivel=nivel,
-            sao_meta=Decimal(str(goal.sao_target)),
-            sao_realizado=Decimal("0"),
-            vidas_meta=_vidas_meta_for(cn, goal),
-            vidas_realizado=Decimal("0"),
-        )
-
-        appraisal = CnMonthlyAppraisal(
-            cn_id=cn.id,
-            month=month,
-            year=year,
-            sao_realizado=Decimal("0"),
-            vidas_realizado=Decimal("0"),
-            pct_sao=Decimal(result["pct_sao"]),
-            pct_vidas=Decimal(result["pct_vidas"]),
-            score_final=Decimal(result["score_final"]),
-            multiplicador=Decimal(result["multiplicador"]),
-            commission_amount=Decimal(result["commission_amount"]),
-            status=AppraisalStatus.CALCULATING,
-        )
+        appraisal = _build_appraisal(cn, goal, month, year, {})
         db.session.add(appraisal)
         created += 1
 
@@ -117,7 +165,12 @@ def run_cn_monthly_appraisal_with_inputs(
 ) -> dict:
     """Run apuração using provided realized values.
 
-    inputs: [{"cn_id": "<uuid>", "sao_realizado": N, "vidas_realizado": N}, ...]
+    inputs: [{"cn_id": "<uuid>", "sao_realizado": N, "vidas_realizado": N,
+              "negocios_cadencia_realizado": N, "emails_realizado": N,
+              "qualis_agendadas_realizado": N, "sao_fora_da_meta": N}, ...]
+    The rampagem keys (negocios_cadencia_realizado, emails_realizado,
+    qualis_agendadas_realizado, sao_fora_da_meta) are only used for CNs
+    em rampagem.
     Raises MissingGoalsError if any active CN lacks a goal.
     """
     missing = validate_cn_goals(month, year)
@@ -154,31 +207,7 @@ def run_cn_monthly_appraisal_with_inputs(
         ).first()
 
         cn_input = inputs_by_cn.get(str(cn.id), {})
-        sao_realizado = Decimal(str(cn_input.get("sao_realizado", 0)))
-        vidas_realizado = Decimal(str(cn_input.get("vidas_realizado", 0)))
-
-        nivel = cn.nivel if isinstance(cn.nivel, str) else (cn.nivel.value if cn.nivel else "CN1")
-        result = simulate_cn(
-            nivel=nivel,
-            sao_meta=Decimal(str(goal.sao_target)),
-            sao_realizado=sao_realizado,
-            vidas_meta=_vidas_meta_for(cn, goal),
-            vidas_realizado=vidas_realizado,
-        )
-
-        appraisal = CnMonthlyAppraisal(
-            cn_id=cn.id,
-            month=month,
-            year=year,
-            sao_realizado=sao_realizado,
-            vidas_realizado=vidas_realizado,
-            pct_sao=Decimal(result["pct_sao"]),
-            pct_vidas=Decimal(result["pct_vidas"]),
-            score_final=Decimal(result["score_final"]),
-            multiplicador=Decimal(result["multiplicador"]),
-            commission_amount=Decimal(result["commission_amount"]),
-            status=AppraisalStatus.CALCULATING,
-        )
+        appraisal = _build_appraisal(cn, goal, month, year, cn_input)
         db.session.add(appraisal)
         created += 1
 

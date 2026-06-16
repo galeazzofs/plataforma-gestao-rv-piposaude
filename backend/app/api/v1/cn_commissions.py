@@ -7,11 +7,14 @@ from app.models import (
     CnQuarterBonus, User,
 )
 from app.extensions import db
-from app.modules.commissions.simulator import simulate_cn, vidas_meta_from_sao
+from app.modules.commissions.simulator import (
+    simulate_cn, simulate_cn_auto, vidas_meta_from_sao,
+)
 from app.modules.commissions.cn_calculator import (
     run_cn_monthly_appraisal_with_inputs,
     validate_cn_goals,
     MissingGoalsError,
+    get_rampagem_bonus_sao,
 )
 from app.modules.commissions.cn_bonus_calculator import run_cn_quarterly_bonus
 from app.modules.workflow.state_machine import (
@@ -93,6 +96,9 @@ def upsert_cn_goals():
                 auto if (auto and auto > 0)
                 else _decimal_or_zero(item.get("vidas_target"))
             )
+            goal.negocios_cadencia_meta = _decimal_or_zero(item.get("negocios_cadencia_meta"))
+            goal.emails_meta = _decimal_or_zero(item.get("emails_meta"))
+            goal.qualis_agendadas_meta = _decimal_or_zero(item.get("qualis_agendadas_meta"))
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -458,19 +464,31 @@ def simulate_cn_endpoint():
         nivel = body.get("nivel", "CN1")
         porte = body.get("porte")
 
+    if user.role == UserRole.CN:
+        em_rampagem = bool(getattr(user, "em_rampagem", False))
+    else:
+        em_rampagem = _bool_setting(body.get("em_rampagem", False))
+
+    def _b(key):
+        return _decimal_or_zero(body.get(key))
+
     try:
-        sao_meta = Decimal(str(body["sao_meta"]))
+        sao_meta = _b("sao_meta")
         vidas_meta = (
             Decimal(str(body["vidas_meta"]))
             if body.get("vidas_meta") not in (None, "")
             else vidas_meta_from_sao(sao_meta, porte)
         )
-        result = simulate_cn(
-            nivel=nivel,
-            sao_meta=sao_meta,
-            sao_realizado=Decimal(str(body["sao_realizado"])),
+        result = simulate_cn_auto(
+            em_rampagem=em_rampagem, nivel=nivel, sao_meta=sao_meta,
+            sao_realizado=_b("sao_realizado"),
             vidas_meta=vidas_meta,
-            vidas_realizado=Decimal(str(body["vidas_realizado"])),
+            vidas_realizado=_b("vidas_realizado"),
+            neg_meta=_b("negocios_cadencia_meta"), neg_real=_b("negocios_cadencia_realizado"),
+            emails_meta=_b("emails_meta"), emails_real=_b("emails_realizado"),
+            qualis_meta=_b("qualis_agendadas_meta"), qualis_real=_b("qualis_agendadas_realizado"),
+            sao_fora_da_meta=int(body.get("sao_fora_da_meta", 0) or 0),
+            bonus_sao=get_rampagem_bonus_sao(),
         )
         result.update({
             "nivel": nivel,
@@ -488,6 +506,16 @@ def _decimal_or_zero(v):
     if v is None or v == "":
         return Decimal("0")
     return Decimal(str(v))
+
+
+def _bool_setting(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _serialize_cn_row(cn, goal, month, year):
@@ -516,6 +544,10 @@ def _serialize_cn_row(cn, goal, month, year):
         "year": year,
         "sao_target": str(sao_target) if sao_target is not None else None,
         "vidas_target": vidas_target,
+        "em_rampagem": bool(getattr(cn, "em_rampagem", False)),
+        "negocios_cadencia_meta": str(goal.negocios_cadencia_meta) if goal else "0",
+        "emails_meta": str(goal.emails_meta) if goal else "0",
+        "qualis_agendadas_meta": str(goal.qualis_agendadas_meta) if goal else "0",
     }
 
 
@@ -655,4 +687,12 @@ def _serialize_appraisal(a):
         "has_contestation": bool(a.has_contestation),
         "contestation_note": a.contestation_note,
         "resolution_note": a.resolution_note,
+        "calc_mode": a.calc_mode,
+        "negocios_cadencia_realizado": str(a.negocios_cadencia_realizado),
+        "emails_realizado": str(a.emails_realizado),
+        "qualis_agendadas_realizado": str(a.qualis_agendadas_realizado),
+        "sao_fora_da_meta": a.sao_fora_da_meta,
+        "bonus_sao_amount": str(a.bonus_sao_amount),
+        "atingimento": str(a.score_final),
+        "gatilho": str(a.multiplicador),
     }

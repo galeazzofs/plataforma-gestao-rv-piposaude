@@ -736,6 +736,7 @@ def _serialize_user(u):
         "nivel": u.nivel.value if hasattr(u.nivel, "value") else u.nivel,
         "porte": u.porte.value if hasattr(u.porte, "value") else u.porte,
         "salario_base": str(u.salario_base) if u.salario_base is not None else None,
+        "em_rampagem": bool(getattr(u, "em_rampagem", False)),
     }
 
 
@@ -762,10 +763,21 @@ def _serialize_team(t):
                 "nivel": m.nivel.value if hasattr(m.nivel, "value") else m.nivel,
                 "porte": m.porte.value if hasattr(m.porte, "value") else m.porte,
                 "salario_base": str(m.salario_base) if m.salario_base is not None else None,
+                "em_rampagem": bool(getattr(m, "em_rampagem", False)),
             }
             for m in members
         ],
     }
+
+
+def _bool_setting(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _apply_profile_fields(user, data):
@@ -794,9 +806,13 @@ def _apply_profile_fields(user, data):
             except (InvalidOperation, ValueError):
                 return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Invalid salario_base"}}), 400
 
+    if "em_rampagem" in data:
+        user.em_rampagem = _bool_setting(data.get("em_rampagem"))
+
     if "role" in data and user.role != UserRole.CN:
         user.nivel = None
         user.porte = None
+        user.em_rampagem = False
     if "role" in data and user.role != UserRole.EV:
         user.left_company = False
 
