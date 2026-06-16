@@ -120,10 +120,12 @@ def _uncapped(num: Decimal, den: Decimal) -> Decimal:
     return num / den
 
 
-def _rampagem_result(calc_mode, atingimento, base, bonus_total):
-    gatilho = _regua_rampagem(atingimento)
-    comissao = (base * gatilho + bonus_total).quantize(_SCALE2)
+def _rampagem_result(
+    calc_mode: str, atingimento: Decimal, base: Decimal, bonus_total: Decimal
+) -> dict:
     at4 = atingimento.quantize(_SCALE4)
+    gatilho = _regua_rampagem(at4)
+    comissao = (base * gatilho + bonus_total).quantize(_SCALE2)
     g2 = gatilho.quantize(_SCALE2)
     return {
         "calc_mode": calc_mode,
@@ -195,7 +197,7 @@ def simulate_cn_auto(
         )
         result["calc_mode"] = "NORMAL"
         result["atingimento"] = result["score_final"]
-        result["gatilho"] = result["multiplicador"]
+        result["gatilho"] = str(Decimal(result["multiplicador"]).quantize(_SCALE2))
         result["bonus_sao_amount"] = "0.00"
         return result
     if sao_meta > _ZERO:

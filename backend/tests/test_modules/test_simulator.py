@@ -201,6 +201,19 @@ class TestRampagemComSao:
         assert r["atingimento"] == "1.0000"
         assert r["commission_amount"] == "3000.00"
 
+    def test_raw_atingimento_rounds_before_regua(self):
+        # SAO 100008/100000 = 1.00008 (uncapped); Qualis 10/10 = 1.0
+        # raw atingimento = 0.5*1.00008 + 0.5*1 = 1.00004 → quantize 4dp = 1.0000
+        # régua deve usar 1.0000 (em linha) → gatilho 1.00, NÃO 1.20.
+        r = simulate_cn_rampagem_com_sao(
+            nivel="CN3",
+            sao_meta=Decimal("100000"), sao_real=Decimal("100008"),
+            qualis_meta=Decimal("10"), qualis_real=Decimal("10"),
+        )
+        assert r["atingimento"] == "1.0000"
+        assert r["gatilho"] == "1.00"
+        assert r["commission_amount"] == "3000.00"
+
 
 class TestSimulateCnAuto:
     def test_normal_when_not_rampagem(self):
