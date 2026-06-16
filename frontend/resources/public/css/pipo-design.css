@@ -466,6 +466,37 @@ main:focus{outline:none}
 .table .strong-num{font-family:var(--font-mono);font-weight:600;color:var(--fg-1);white-space:nowrap}
 .table tfoot td{padding:11px 16px;border-top:1px solid var(--border-subtle)}
 .table .appraisal-nf-total-row td{background:var(--bg-2)}
+.cn-apuracao-table{min-width:1120px}
+.cn-apuracao-table tbody td{vertical-align:top}
+.cn-mode-cell{
+  display:flex;flex-direction:column;align-items:flex-start;gap:5px;
+  min-width:132px;
+}
+.cn-mode-note{
+  font-family:var(--font-mono);font-size:10.5px;line-height:1.2;
+  color:var(--fg-3);
+}
+.cn-metric-stack{display:grid;gap:6px;min-width:156px}
+.cn-metric-row{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:18px;min-height:22px;
+}
+.cn-metric-row span,
+.cn-input-row span{
+  font-family:var(--font-mono);font-size:10.5px;line-height:1.2;
+  color:var(--fg-3);
+}
+.cn-metric-row strong{
+  font-family:var(--font-mono);font-size:12px;font-weight:600;
+  color:var(--fg-1);font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.cn-metric-row strong.muted{color:var(--fg-3);font-weight:500}
+.cn-input-stack{display:grid;gap:6px;min-width:212px}
+.cn-input-row{
+  display:grid;grid-template-columns:minmax(74px,1fr) 112px;
+  align-items:center;gap:10px;
+}
+.cn-apuracao-table .field-input{height:36px}
 .appraisal-nf-table{width:100%}
 .appraisal-empty-cell{
   padding:32px;text-align:center;color:var(--fg-3);

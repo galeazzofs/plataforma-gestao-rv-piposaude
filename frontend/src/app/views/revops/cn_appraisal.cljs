@@ -245,6 +245,54 @@
     :value value
     :on-change #(on-change (.. % -target -value))}])
 
+(defn- calc-mode [row]
+  (cond
+    (not (:em_rampagem row)) :normal
+    (nil? (:sao_target row)) :rampagem-pendente
+    :else
+    (let [s (calc/->num (:sao_target row))]
+      (if (and s (pos? s)) :rampagem-com-sao :rampagem-sem-sao))))
+
+(defn- mode-cell [mode]
+  (case mode
+    :rampagem-sem-sao
+    [:div.cn-mode-cell
+     [:span.badge.badge-pending "Rampagem"]
+     [:span.cn-mode-note "sem meta SAO"]]
+
+    :rampagem-com-sao
+    [:div.cn-mode-cell
+     [:span.badge.badge-validating "Rampagem"]
+     [:span.cn-mode-note "com meta SAO"]]
+
+    :rampagem-pendente
+    [:div.cn-mode-cell
+     [:span.badge.badge-pending "Rampagem"]
+     [:span.cn-mode-note "meta pendente"]]
+
+    [:div.cn-mode-cell
+     [:span.badge.badge-locked "Normal"]
+     [:span.cn-mode-note "SAO + vidas"]]))
+
+(defn- metric-stack [items]
+  [:div.cn-metric-stack
+   (for [{:keys [label value muted?]} items]
+     ^{:key label}
+     [:div.cn-metric-row
+      [:span label]
+      [:strong {:class (when muted? "muted")} value]])])
+
+(defn- input-stack [items]
+  [:div.cn-input-stack
+   (for [{:keys [label value disabled on-change]} items]
+     ^{:key label}
+     [:label.cn-input-row
+      [:span label]
+      [realizado-input {:value value
+                        :width "112px"
+                        :disabled disabled
+                        :on-change on-change}]])])
+
 (defn page []
   (let [filter-s    (r/atom {:month (or (url/query-param "month") "4")
                              :year  (or (url/query-param "year") "2026")})
@@ -425,34 +473,32 @@
          [:div.callout
           [layout/icon "info" {:width 20 :height 20}]
           [:div {:style {:flex 1}}
-           [:strong "Como funciona"]
+           [:strong "Regra do mês"]
            [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
-            "Digite o SAO e as vidas realizados de cada CN. A meta de vidas é "
-            "calculada sozinha pelo porte (SAO × fator) e a prévia de comissão "
-            "atualiza ao vivo, como no simulador. Clique em Rodar apuração para salvar."]]]
+            "Normal usa SAO e vidas. Rampagem sem SAO usa negócios, emails e SAO fora da meta. "
+            "Rampagem com SAO usa SAO e qualis."]]]
 
-         [:div.card {:style {:padding 0}}
-          [:table.table
+         [:div.table-wrap
+          [:table.table.cn-apuracao-table
            [:thead
             [:tr
              [:th "CN"]
-             [:th.right "Meta SAO"]
-             [:th.right "SAO realiz."]
-             [:th.right "Meta vidas"]
-             [:th.right "Vidas realiz."]
-             [:th.center "Score"]
-             [:th.right "Mult."]
+             [:th "Modo"]
+             [:th "Metas"]
+             [:th "Realizados"]
+             [:th.center "Ating."]
+             [:th.right "Gatilho"]
              [:th.right "Comissão"]
              [:th "Status"]
              [:th.right "Ação"]]]
            [:tbody
             (cond
               (and loading? (empty? rows))
-              [:tr [:td {:col-span 10 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 9 :style {:padding "32px" :text-align "center" :color "var(--fg-3)"}}
                     "Carregando…"]]
 
               (empty? rows)
-              [:tr [:td {:col-span 10 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
+              [:tr [:td {:col-span 9 :style {:padding "48px" :text-align "center" :color "var(--fg-3)"}}
                     "Nenhum CN ativo encontrado"]]
 
               :else
@@ -462,68 +508,87 @@
                       cn-id       (:cn_id row)
                       has-goal?   (some? (:sao_target row))
                       locked?     (boolean (and a (:is_final a)))
+                      disabled?   (or locked? (not has-goal?))
                       preview     (:preview row)
                       next-action (next-status-action (:status a))
                       validating? (= (:status a) "VALIDATING")
                       contested?  (:has_contestation a)
-                      ramp?       (:em_rampagem row)
-                      ramp-mode   (when ramp?
-                                    (let [s (calc/->num (:sao_target row))]
-                                      (if (and s (pos? s)) :com-sao :sem-sao)))]
+                      mode        (calc-mode row)
+                      meta-items  (cond
+                                    (not has-goal?)
+                                    [{:label "meta" :value "pendente" :muted? true}]
+
+                                    (= mode :rampagem-sem-sao)
+                                    [{:label "negócios" :value (or (fmt-int (:negocios_cadencia_meta row)) "·")}
+                                     {:label "emails" :value (or (fmt-int (:emails_meta row)) "·")}
+                                     {:label "bônus/SAO" :value (str "R$ " (or (fmt-int ramp-bonus) "300"))}]
+
+                                    (= mode :rampagem-com-sao)
+                                    [{:label "SAO" :value (or (fmt-int (:sao_target row)) "·")}
+                                     {:label "qualis" :value (or (fmt-int (:qualis_agendadas_meta row)) "·")}]
+
+                                    :else
+                                    [{:label "SAO" :value (or (fmt-int (:sao_target row)) "·")}
+                                     {:label "vidas" :value (or (fmt-int (:vidas_meta row)) "·")}])
+                      realizado-items
+                      (cond
+                        (not has-goal?) []
+
+                        (= mode :rampagem-sem-sao)
+                        [{:label "negócios"
+                          :value (:negocios_cadencia_realizado row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :negocios_cadencia_realizado] %)}
+                         {:label "emails"
+                          :value (:emails_realizado row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :emails_realizado] %)}
+                         {:label "SAO fora"
+                          :value (:sao_fora_da_meta row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :sao_fora_da_meta] %)}]
+
+                        (= mode :rampagem-com-sao)
+                        [{:label "SAO"
+                          :value (:sao_realizado row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}
+                         {:label "qualis"
+                          :value (:qualis_agendadas_realizado row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :qualis_agendadas_realizado] %)}]
+
+                        :else
+                        [{:label "SAO"
+                          :value (:sao_realizado row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}
+                         {:label "vidas"
+                          :value (:vidas_realizado row)
+                          :disabled disabled?
+                          :on-change #(swap! edits assoc-in [cn-id :vidas_realizado] %)}])]
                   [:tr
                    [:td.name
                     (:cn_name row)
                     (when-not has-goal?
                       [:div [:span.badge.badge-review
                              {:style {:font-size "10px" :margin-top "4px"}}
-                             "sem meta — defina em Metas CN"]])
+                             "sem meta, defina em Metas CN"]])
                     (when contested?
                       [:div [:span.badge.badge-review
                              {:style {:font-size "10px" :margin-top "4px"}}
                              "⚠ contestação aberta"]])]
-                   [:td.right.num (or (fmt-int (:sao_target row)) "·")]
-                   [:td.right
-                    (cond
-                      (= ramp-mode :sem-sao)
-                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
-                       [:span.muted {:style {:font-size "10px"}} "negócios / emails"]
-                       [realizado-input {:value (:negocios_cadencia_realizado row)
-                                         :disabled (or locked? (not has-goal?))
-                                         :on-change #(swap! edits assoc-in [cn-id :negocios_cadencia_realizado] %)}]
-                       [realizado-input {:value (:emails_realizado row)
-                                         :disabled (or locked? (not has-goal?))
-                                         :on-change #(swap! edits assoc-in [cn-id :emails_realizado] %)}]]
-                      (= ramp-mode :com-sao)
-                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
-                       [:span.muted {:style {:font-size "10px"}} "SAO"]
-                       [realizado-input {:value (:sao_realizado row)
-                                         :disabled (or locked? (not has-goal?))
-                                         :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}]]
-                      :else
-                      [realizado-input {:value (:sao_realizado row)
-                                        :disabled (or locked? (not has-goal?))
-                                        :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}])]
-                   [:td.right.num (or (fmt-int (:vidas_meta row)) "·")]
-                   [:td.right
-                    (cond
-                      (= ramp-mode :sem-sao)
-                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
-                       [:span.muted {:style {:font-size "10px"}} "SAO fora da meta"]
-                       [realizado-input {:value (:sao_fora_da_meta row)
-                                         :disabled (or locked? (not has-goal?))
-                                         :on-change #(swap! edits assoc-in [cn-id :sao_fora_da_meta] %)}]]
-                      (= ramp-mode :com-sao)
-                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
-                       [:span.muted {:style {:font-size "10px"}} "qualis"]
-                       [realizado-input {:value (:qualis_agendadas_realizado row)
-                                         :disabled (or locked? (not has-goal?))
-                                         :on-change #(swap! edits assoc-in [cn-id :qualis_agendadas_realizado] %)}]]
-                      :else
-                      [realizado-input {:value (:vidas_realizado row)
-                                        :disabled (or locked? (not has-goal?))
-                                        :on-change #(swap! edits assoc-in [cn-id :vidas_realizado] %)}])]
-                   [:td.center.num (str (or (pct (:score_final preview)) "·") "%")]
-                   [:td.right.num (str (or (mult (:multiplicador preview)) "·") "x")]
+                   [:td [mode-cell mode]]
+                   [:td [metric-stack meta-items]]
+                   [:td (if (seq realizado-items)
+                          [input-stack realizado-items]
+                          [:span.muted "defina a meta"])]
+                   [:td.center.num (if-let [score (pct (:score_final preview))]
+                                     (str score "%")
+                                     "·")]
+                   [:td.right.num (if-let [trigger (mult (:multiplicador preview))]
+                                    (str trigger "x")
+                                    "·")]
                    [:td.right.strong-num
                     (str "R$ " (or (fmt-int (:commission_amount preview)) "·"))]
                    [:td (if a (status->badge (:status a))
