@@ -61,3 +61,38 @@ def test_simulate_rampagem_sem_sao(client, db_session):
     data = resp.get_json()["data"]
     assert data["calc_mode"] == "RAMPAGEM_SEM_SAO"
     assert data["commission_amount"] == "3300.00"
+
+
+def test_appraisal_listing_serializes_rampagem_fields(client, db_session):
+    from decimal import Decimal
+    from app.models import CnMonthlyAppraisal
+    from app.models.appraisal import AppraisalStatus
+    admin = _make_admin(db_session)
+    cn = _make_cn(db_session, nivel="CN3")
+    a = CnMonthlyAppraisal(
+        cn_id=cn.id, month=8, year=2026,
+        sao_realizado=Decimal("0"), vidas_realizado=Decimal("0"),
+        pct_sao=Decimal("0"), pct_vidas=Decimal("0"),
+        score_final=Decimal("1"), multiplicador=Decimal("1"),
+        commission_amount=Decimal("3300"),
+        status=AppraisalStatus.CALCULATING,
+        calc_mode="RAMPAGEM_SEM_SAO",
+        negocios_cadencia_realizado=Decimal("103"),
+        emails_realizado=Decimal("1133"),
+        sao_fora_da_meta=1, bonus_sao_amount=Decimal("300"))
+    db_session.add(a); db_session.flush()
+
+    resp = client.get("/api/v1/commissions/cn/appraisal?month=8&year=2026",
+                      headers=_auth(admin))
+    assert resp.status_code == 200
+    row = next(r for r in resp.get_json()["data"] if r["cn_id"] == str(cn.id))
+    assert row["calc_mode"] == "RAMPAGEM_SEM_SAO"
+    assert row["sao_fora_da_meta"] == 1
+    # Numeric values serialize via str() of the Decimal as assigned (the row is
+    # only flushed, not reloaded with column-scale coercion), so they round-trip
+    # without trailing zeros.
+    assert row["bonus_sao_amount"] == "300"
+    assert row["atingimento"] == "1"
+    assert row["gatilho"] == "1"
+    assert row["negocios_cadencia_realizado"] == "103"
+    assert row["emails_realizado"] == "1133"

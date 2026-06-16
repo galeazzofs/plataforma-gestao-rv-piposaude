@@ -88,11 +88,7 @@ def upsert_cn_goals():
             goal.sao_target = sao_target
             # Derive the lives target from the CN porte (SAO × factor) — the
             # same rule the simulator uses — so it is never hand-typed.
-            # no_autoflush: the goal row is half-built here (vidas_target not
-            # yet assigned), so a query-triggered autoflush would INSERT it with
-            # a NULL vidas_target and trip the NOT NULL constraint.
-            with db.session.no_autoflush:
-                cn = db.session.get(User, item["cn_id"])
+            cn = db.session.get(User, item["cn_id"])
             porte = (cn.porte.value if (cn and hasattr(cn.porte, "value"))
                      else (cn.porte if cn else None))
             auto = vidas_meta_from_sao(sao_target, porte) if porte else None
@@ -462,8 +458,7 @@ def simulate_cn_endpoint():
         em_rampagem = bool(body.get("em_rampagem", False))
 
     def _b(key):
-        v = body.get(key)
-        return Decimal(str(v)) if v not in (None, "") else Decimal("0")
+        return _decimal_or_zero(body.get(key))
 
     try:
         sao_meta = _b("sao_meta")
