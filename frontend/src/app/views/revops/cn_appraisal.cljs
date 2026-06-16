@@ -276,17 +276,41 @@
                                                    (when a (:sao_realizado a)))
                                vidas-real (field-val (:cn_id g) :vidas_realizado
                                                      (when a (:vidas_realizado a)))
-                               preview (calc/calculate
+                               neg-real (field-val (:cn_id g) :negocios_cadencia_realizado
+                                                   (when a (:negocios_cadencia_realizado a)))
+                               emails-real (field-val (:cn_id g) :emails_realizado
+                                                      (when a (:emails_realizado a)))
+                               qualis-real (field-val (:cn_id g) :qualis_agendadas_realizado
+                                                      (when a (:qualis_agendadas_realizado a)))
+                               sao-fora (field-val (:cn_id g) :sao_fora_da_meta
+                                                   (when a (:sao_fora_da_meta a)))
+                               ;; Preview ao vivo: sem-sao usa o bônus default (300) do calc,
+                               ;; pois a página não busca cn_rampagem_bonus_sao configurado;
+                               ;; a apuração SALVA usa o valor configurado no backend.
+                               preview (calc/calculate-auto
                                         {:nivel (:nivel g)
+                                         :em_rampagem (:em_rampagem g)
                                          :sao_meta (:sao_target g)
                                          :sao_realizado sao-real
+                                         :sao_real sao-real
                                          :vidas_meta vidas-meta
-                                         :vidas_realizado vidas-real})]
+                                         :vidas_realizado vidas-real
+                                         :neg_meta (:negocios_cadencia_meta g)
+                                         :neg_real neg-real
+                                         :emails_meta (:emails_meta g)
+                                         :emails_real emails-real
+                                         :qualis_meta (:qualis_agendadas_meta g)
+                                         :qualis_real qualis-real
+                                         :sao_fora_da_meta sao-fora})]
                            (assoc g
                                   :appraisal a
                                   :vidas_meta vidas-meta
                                   :sao_realizado sao-real
                                   :vidas_realizado vidas-real
+                                  :negocios_cadencia_realizado neg-real
+                                  :emails_realizado emails-real
+                                  :qualis_agendadas_realizado qualis-real
+                                  :sao_fora_da_meta sao-fora
                                   :preview preview)))
                        (or goals []))
             total-rows (count rows)
@@ -301,12 +325,15 @@
                          (when (seq statuses)
                            (->> statuses frequencies (sort-by val >) first first)))
             run!       (fn []
-                         (let [inputs (mapv (fn [row]
-                                              (let [s (str (:sao_realizado row))
-                                                    v (str (:vidas_realizado row))]
-                                                {:cn_id (:cn_id row)
-                                                 :sao_realizado (if (str/blank? s) "0" s)
-                                                 :vidas_realizado (if (str/blank? v) "0" v)}))
+                         (let [s0 (fn [x] (let [s (str (or x ""))] (if (str/blank? s) "0" s)))
+                               inputs (mapv (fn [row]
+                                              {:cn_id (:cn_id row)
+                                               :sao_realizado (s0 (:sao_realizado row))
+                                               :vidas_realizado (s0 (:vidas_realizado row))
+                                               :negocios_cadencia_realizado (s0 (:negocios_cadencia_realizado row))
+                                               :emails_realizado (s0 (:emails_realizado row))
+                                               :qualis_agendadas_realizado (s0 (:qualis_agendadas_realizado row))
+                                               :sao_fora_da_meta (s0 (:sao_fora_da_meta row))})
                                             rows)]
                            (rf/dispatch [:revops/run-cn-appraisal
                                          {:month m :year y :inputs inputs}])
@@ -437,7 +464,11 @@
                       preview     (:preview row)
                       next-action (next-status-action (:status a))
                       validating? (= (:status a) "VALIDATING")
-                      contested?  (:has_contestation a)]
+                      contested?  (:has_contestation a)
+                      ramp?       (:em_rampagem row)
+                      ramp-mode   (when ramp?
+                                    (let [s (calc/->num (:sao_target row))]
+                                      (if (and s (pos? s)) :com-sao :sem-sao)))]
                   [:tr
                    [:td.name
                     (:cn_name row)
@@ -451,16 +482,45 @@
                              "⚠ contestação aberta"]])]
                    [:td.right.num (or (fmt-int (:sao_target row)) "·")]
                    [:td.right
-                    [realizado-input
-                     {:value (:sao_realizado row)
-                      :disabled (or locked? (not has-goal?))
-                      :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}]]
+                    (cond
+                      (= ramp-mode :sem-sao)
+                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
+                       [:span.muted {:style {:font-size "10px"}} "negócios / emails"]
+                       [realizado-input {:value (:negocios_cadencia_realizado row)
+                                         :disabled (or locked? (not has-goal?))
+                                         :on-change #(swap! edits assoc-in [cn-id :negocios_cadencia_realizado] %)}]
+                       [realizado-input {:value (:emails_realizado row)
+                                         :disabled (or locked? (not has-goal?))
+                                         :on-change #(swap! edits assoc-in [cn-id :emails_realizado] %)}]]
+                      (= ramp-mode :com-sao)
+                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
+                       [:span.muted {:style {:font-size "10px"}} "SAO"]
+                       [realizado-input {:value (:sao_realizado row)
+                                         :disabled (or locked? (not has-goal?))
+                                         :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}]]
+                      :else
+                      [realizado-input {:value (:sao_realizado row)
+                                        :disabled (or locked? (not has-goal?))
+                                        :on-change #(swap! edits assoc-in [cn-id :sao_realizado] %)}])]
                    [:td.right.num (or (fmt-int (:vidas_meta row)) "·")]
                    [:td.right
-                    [realizado-input
-                     {:value (:vidas_realizado row)
-                      :disabled (or locked? (not has-goal?))
-                      :on-change #(swap! edits assoc-in [cn-id :vidas_realizado] %)}]]
+                    (cond
+                      (= ramp-mode :sem-sao)
+                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
+                       [:span.muted {:style {:font-size "10px"}} "SAO fora da meta"]
+                       [realizado-input {:value (:sao_fora_da_meta row)
+                                         :disabled (or locked? (not has-goal?))
+                                         :on-change #(swap! edits assoc-in [cn-id :sao_fora_da_meta] %)}]]
+                      (= ramp-mode :com-sao)
+                      [:div {:style {:display "flex" :flex-direction "column" :gap "4px" :align-items "flex-end"}}
+                       [:span.muted {:style {:font-size "10px"}} "qualis"]
+                       [realizado-input {:value (:qualis_agendadas_realizado row)
+                                         :disabled (or locked? (not has-goal?))
+                                         :on-change #(swap! edits assoc-in [cn-id :qualis_agendadas_realizado] %)}]]
+                      :else
+                      [realizado-input {:value (:vidas_realizado row)
+                                        :disabled (or locked? (not has-goal?))
+                                        :on-change #(swap! edits assoc-in [cn-id :vidas_realizado] %)}])]
                    [:td.center.num (str (or (pct (:score_final preview)) "·") "%")]
                    [:td.right.num (str (or (mult (:multiplicador preview)) "·") "x")]
                    [:td.right.strong-num
