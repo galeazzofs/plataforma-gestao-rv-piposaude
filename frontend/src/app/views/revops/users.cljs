@@ -28,12 +28,12 @@
 
 (defn- empty-form []
   {:name "" :email "" :role "" :team_id "" :nivel "" :porte ""
-   :left_company false})
+   :left_company false :em_rampagem false})
 
 (defn- form-from-user [user-data]
   (merge (empty-form)
          (select-keys (or user-data {})
-                      [:name :email :role :team_id :nivel :porte :left_company])
+                      [:name :email :role :team_id :nivel :porte :left_company :em_rampagem])
          (when (:team_id user-data) {:team_id (str (:team_id user-data))})))
 
 (defn- initials [name]
@@ -82,17 +82,25 @@
                                             (.. % -target -checked))}]
                 [:span "EV saiu da empresa"]])
              (when (= (:role @form) "CN")
-               [:div.form-grid.-tight
-                [inputs/select {:label "Nivel do CN"
-                                :value (or (:nivel @form) "")
-                                :options cn-nivel-options
-                                :required true
-                                :on-change #(swap! form assoc :nivel %)}]
-                [inputs/select {:label "Porte"
-                                :value (or (:porte @form) "")
-                                :options cn-porte-options
-                                :required true
-                                :on-change #(swap! form assoc :porte %)}]])
+               [:<>
+                [:div.form-grid.-tight
+                 [inputs/select {:label "Nivel do CN"
+                                 :value (or (:nivel @form) "")
+                                 :options cn-nivel-options
+                                 :required true
+                                 :on-change #(swap! form assoc :nivel %)}]
+                 [inputs/select {:label "Porte"
+                                 :value (or (:porte @form) "")
+                                 :options cn-porte-options
+                                 :required true
+                                 :on-change #(swap! form assoc :porte %)}]]
+                [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                                 :font-size "13px" :color "var(--fg-2)"}}
+                 [:input {:type "checkbox"
+                          :checked (boolean (:em_rampagem @form))
+                          :on-change #(swap! form assoc :em_rampagem
+                                             (.. % -target -checked))}]
+                 [:span "CN em rampagem"]]])
              [:div {:style {:display "flex" :gap "10px" :justify-content "flex-end"}}
               [btn/button {:variant :secondary :on-click on-close} "Cancelar"]
               [btn/button
@@ -110,7 +118,7 @@
                                               (update :porte #(when-not (str/blank? %) %)))
                                   payload (if (= (:role payload) "CN")
                                             payload
-                                            (assoc payload :nivel nil :porte nil))
+                                            (assoc payload :nivel nil :porte nil :em_rampagem false))
                                   payload (if (= (:role payload) "EV")
                                             payload
                                             (assoc payload :left_company false))]
