@@ -40,6 +40,7 @@ class User(db.Model):
     # CN-specific profile fields
     nivel = db.Column(db.Enum("CN1", "CN2", "CN3", name="cn_nivel"), nullable=True)
     porte = db.Column(db.Enum("M", "G+", name="cn_porte"), nullable=True)
+    em_rampagem = db.Column(db.Boolean, default=False, nullable=False)
     salario_base = db.Column(db.Numeric(12, 2), nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

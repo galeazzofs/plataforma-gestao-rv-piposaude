@@ -16,6 +16,9 @@ class CnMonthlyGoal(db.Model):
     year = db.Column(db.Integer, nullable=False)
     sao_target = db.Column(db.Numeric(12, 2), nullable=False)
     vidas_target = db.Column(db.Numeric(12, 2), nullable=False)
+    negocios_cadencia_meta = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    emails_meta = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    qualis_agendadas_meta = db.Column(db.Numeric(12, 2), nullable=False, default=0)
     created_at = db.Column(
         db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
