@@ -40,6 +40,25 @@ def _regua(score: Decimal) -> Decimal:
     return Decimal("2.10")
 
 
+def _regua_rampagem(score: Decimal) -> Decimal:
+    """Régua da rampagem — limites superiores INCLUSIVOS (tabela do print).
+
+    Diverge de _regua (cálculo normal): aqui 100% → em linha (o próprio
+    score) e 110% → 120%. Ver docs/superpowers/specs/2026-06-16-cn-rampagem-design.md.
+    """
+    if score <= Decimal("0.20"):
+        return _ZERO
+    if score <= Decimal("0.40"):
+        return Decimal("0.20")
+    if score <= Decimal("1.00"):
+        return score
+    if score <= Decimal("1.10"):
+        return Decimal("1.20")
+    if score < Decimal("1.40"):
+        return Decimal("1.80")
+    return Decimal("2.10")
+
+
 def vidas_meta_from_sao(sao_meta: Decimal, porte: str | None) -> Decimal:
     """Monthly lives target derived from SAO target and CN company-size profile."""
     factor = VIDAS_META_FACTORS.get(porte or "")

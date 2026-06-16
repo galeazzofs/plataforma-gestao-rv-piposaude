@@ -96,3 +96,34 @@ class TestSimulateCn:
             vidas_realizado=Decimal("50"),
         )
         assert result["commission_amount"] == "0.00"
+
+
+from app.modules.commissions.simulator import _regua_rampagem
+
+
+class TestReguaRampagem:
+    """Régua de rampagem — limites SUPERIORES inclusivos (diverge de _regua)."""
+
+    def test_at_or_below_20pct_returns_zero(self):
+        assert _regua_rampagem(Decimal("0.20")) == Decimal("0")
+        assert _regua_rampagem(Decimal("0.10")) == Decimal("0")
+
+    def test_21_to_40_returns_0_20(self):
+        assert _regua_rampagem(Decimal("0.21")) == Decimal("0.20")
+        assert _regua_rampagem(Decimal("0.40")) == Decimal("0.20")
+
+    def test_em_linha_zone_returns_score_inclusive_of_100(self):
+        assert _regua_rampagem(Decimal("0.65")) == Decimal("0.65")
+        assert _regua_rampagem(Decimal("1.00")) == Decimal("1.00")  # 100% → em linha
+
+    def test_101_to_110_returns_1_20(self):
+        assert _regua_rampagem(Decimal("1.01")) == Decimal("1.20")
+        assert _regua_rampagem(Decimal("1.10")) == Decimal("1.20")  # 110% → 120%
+
+    def test_111_to_139_returns_1_80(self):
+        assert _regua_rampagem(Decimal("1.11")) == Decimal("1.80")
+        assert _regua_rampagem(Decimal("1.39")) == Decimal("1.80")
+
+    def test_140_and_above_returns_2_10(self):
+        assert _regua_rampagem(Decimal("1.40")) == Decimal("2.10")
+        assert _regua_rampagem(Decimal("2.00")) == Decimal("2.10")
