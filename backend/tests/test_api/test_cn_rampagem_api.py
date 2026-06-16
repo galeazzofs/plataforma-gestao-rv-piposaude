@@ -96,3 +96,32 @@ def test_appraisal_listing_serializes_rampagem_fields(client, db_session):
     assert row["gatilho"] == "1"
     assert row["negocios_cadencia_realizado"] == "103"
     assert row["emails_realizado"] == "1133"
+
+
+def test_rampagem_bonus_setting_roundtrips_and_affects_simulate(client, db_session):
+    from app.modules.commissions.cn_calculator import get_rampagem_bonus_sao
+    admin = _make_admin(db_session)
+
+    # default before any setting
+    assert get_rampagem_bonus_sao() == __import__("decimal").Decimal("300")
+
+    # admin sets the bonus via the generic settings endpoint
+    put = client.put("/api/v1/admin/settings/cn_rampagem_bonus_sao",
+                     headers=_auth(admin), json={"value": "450"})
+    assert put.status_code == 200
+
+    # helper now reads the new value
+    from decimal import Decimal
+    assert get_rampagem_bonus_sao() == Decimal("450")
+
+    # and a SEM-SAO simulate uses it: atingimento 100% (em linha) → 3000*1.0 + 450*1 = 3450
+    resp = client.post("/api/v1/commissions/cn/simulate", headers=_auth(admin), json={
+        "nivel": "CN3", "em_rampagem": True, "sao_meta": "0",
+        "negocios_cadencia_meta": "60", "negocios_cadencia_realizado": "103",
+        "emails_meta": "400", "emails_realizado": "1133",
+        "sao_fora_da_meta": "1",
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    assert data["calc_mode"] == "RAMPAGEM_SEM_SAO"
+    assert data["commission_amount"] == "3450.00"
