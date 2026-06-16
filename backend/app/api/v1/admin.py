@@ -9,19 +9,6 @@ from app.extensions import db
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/v1/admin")
 
-# Allowlist of platform_settings keys writable via the admin API.
-# Anything not in this set is rejected with 400. Adding a new key here is
-# an explicit decision because settings can change runtime behavior
-# (HubSpot owner mapping, sync intervals, default targets, etc.).
-WRITABLE_SETTINGS = {
-    "hubspot_owner_map",
-    "hubspot_sync_interval_minutes",
-    "default_quarterly_target",
-    "default_commission_table_version",
-    "financial_client_aliases",
-    "perk_match_strict",
-}
-
 CN_NIVEIS = {"CN1", "CN2", "CN3"}
 CN_PORTES = {"M", "G+"}
 
