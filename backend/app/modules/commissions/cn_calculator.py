@@ -8,8 +8,24 @@ from decimal import Decimal
 from app.extensions import db
 from app.models import (
     AppraisalStatus, User, UserRole, CnMonthlyGoal, CnMonthlyAppraisal,
+    PlatformSetting,
 )
 from app.modules.commissions.simulator import simulate_cn, vidas_meta_from_sao
+
+
+RAMPAGEM_BONUS_SAO_KEY = "cn_rampagem_bonus_sao"
+DEFAULT_RAMPAGEM_BONUS_SAO = Decimal("300")
+
+
+def get_rampagem_bonus_sao() -> Decimal:
+    """Configurable SAO-fora-da-meta bonus (R$ por SAO). Default 300."""
+    raw = PlatformSetting.get(RAMPAGEM_BONUS_SAO_KEY, None)
+    if raw in (None, ""):
+        return DEFAULT_RAMPAGEM_BONUS_SAO
+    try:
+        return Decimal(str(raw))
+    except (ValueError, ArithmeticError):
+        return DEFAULT_RAMPAGEM_BONUS_SAO
 
 
 class MissingGoalsError(Exception):
