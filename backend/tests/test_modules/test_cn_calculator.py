@@ -127,9 +127,6 @@ class TestRunWithInputs:
         assert a.commission_amount == Decimal("2400.00")
 
 
-from app.models.appraisal import AppraisalStatus
-
-
 class TestRampagemAppraisal:
     def _ramp_cn(self, session, name, nivel="CN3"):
         u = _make_cn(session, name=name, nivel=nivel)
@@ -175,6 +172,26 @@ class TestRampagemAppraisal:
         a = CnMonthlyAppraisal.query.filter_by(cn_id=cn.id, month=5, year=2026).one()
         assert a.calc_mode == "RAMPAGEM_COM_SAO"
         assert str(a.commission_amount) == "5400.00"
+        assert str(a.bonus_sao_amount) == "0.00"
+
+    def test_empty_string_inputs_coerced_to_zero(self, db_session):
+        cn = self._ramp_cn(db_session, "Vazio")
+        g = CnMonthlyGoal(cn_id=cn.id, month=7, year=2026,
+                          sao_target=Decimal("0"), vidas_target=Decimal("0"),
+                          negocios_cadencia_meta=Decimal("60"),
+                          emails_meta=Decimal("400"),
+                          qualis_agendadas_meta=Decimal("0"))
+        db_session.add(g); db_session.flush()
+        run_cn_monthly_appraisal_with_inputs(7, 2026, [{
+            "cn_id": str(cn.id),
+            "negocios_cadencia_realizado": "",
+            "emails_realizado": "",
+            "sao_fora_da_meta": "",
+        }])
+        a = CnMonthlyAppraisal.query.filter_by(cn_id=cn.id, month=7, year=2026).one()
+        assert a.calc_mode == "RAMPAGEM_SEM_SAO"
+        assert str(a.commission_amount) == "0.00"
+        assert a.sao_fora_da_meta == 0
 
     def test_non_rampagem_cn_uses_normal(self, db_session):
         cn = _make_cn(db_session, name="Normal", nivel="CN1")
