@@ -15,7 +15,7 @@ CN está marcado como "em rampagem".
 
 ## Regras de negócio
 
-### Régua / Gatilho (idêntica à atual `_regua`)
+### Régua / Gatilho (régua PRÓPRIA da rampagem, limites inclusivos)
 
 O **gatilho** é a régua aplicada ao atingimento — é o multiplicador final:
 
@@ -28,9 +28,25 @@ O **gatilho** é a régua aplicada ao atingimento — é o multiplicador final:
 | 111–139%| 180% |
 | ≥140%   | 210% |
 
-Isto é exatamente `_regua()` em `backend/app/modules/commissions/simulator.py`
-e `calc/regua` em `frontend/src/app/views/cn/calc.cljs`. Reutilizar sem
-duplicar a tabela.
+**Decisão (2026-06-16):** a rampagem usa **limites superiores inclusivos**, que
+divergem do `_regua()` atual do cálculo normal. O `_regua` de hoje faz
+`score < 1.00 → score` (logo 100% → 120%) e `score < 1.10 → 1.20` (110% → 180%);
+a tabela do print quer 100% → em linha (100%) e 110% → 120%. O próprio exemplo
+prova isso: `3000×1,0 + 300 = 3300`. Portanto a rampagem ganha a **própria**
+função de régua, sem reusar `_regua`:
+
+```python
+def _regua_rampagem(score):
+    if score <= Decimal("0.20"): return Decimal("0")
+    if score <= Decimal("0.40"): return Decimal("0.20")
+    if score <= Decimal("1.00"): return score      # em linha
+    if score <= Decimal("1.10"): return Decimal("1.20")
+    if score <  Decimal("1.40"): return Decimal("1.80")
+    return Decimal("2.10")
+```
+
+O cálculo **normal** (`_regua`) fica **inalterado** nesta entrega. Abrir uma
+issue separada para avaliar alinhar o normal à mesma tabela (decisão do usuário).
 
 **Target CN** = base do nível (CN1 2000 / CN2 2500 / CN3 3000), inalterado.
 
@@ -107,7 +123,7 @@ Migration Alembic nova adicionando todas as colunas acima
 - dispatcher `simulate_cn_auto(em_rampagem, nivel, sao_meta, ...)` que escolhe entre
   as 3 (NORMAL via `simulate_cn` existente).
 
-Todas reutilizam `_regua`. Retornam o mesmo shape do `simulate_cn` (chaves como
+Todas usam `_regua_rampagem` (régua inclusiva, não `_regua`). Retornam o mesmo shape do `simulate_cn` (chaves como
 str) + chaves extras: `calc_mode`, `atingimento`, `gatilho`, `bonus_sao_amount`.
 Para compatibilidade, `score_final`=atingimento e `multiplicador`=gatilho no
 retorno.
@@ -130,8 +146,9 @@ retorno.
 
 ## Frontend (ClojureScript)
 
-- **calc.cljs**: `regua` já existe; adicionar `rampagem-sem-sao` e
-  `rampagem-com-sao` espelhando o backend, + um `calculate-auto`.
+- **calc.cljs**: `regua` (normal) já existe; adicionar `regua-rampagem`
+  (limites inclusivos), `rampagem-sem-sao`, `rampagem-com-sao` e `calculate-auto`
+  espelhando o backend.
 - **users.cljs**: checkbox "Em rampagem" no modal do CN (ao lado de nivel/porte).
 - **cn_goals.cljs**: para CN `em_rampagem`, exibir os campos de meta certos
   (negócios + emails quando SAO=0; qualis quando SAO>0). Persistir via PUT.
@@ -154,3 +171,5 @@ retorno.
 - Bônus trimestral de SAO do CN (continua lendo `sao_realizado`/`sao_target`).
 - Detecção automática de quando a rampagem termina (admin liga/desliga manual).
 - Puxar cadência/emails do HubSpot (realizados são digitados na apuração).
+- **Alinhar a régua do cálculo NORMAL (`_regua`) à tabela de limites inclusivos**
+  — registrado como issue separada; não tocado aqui.
