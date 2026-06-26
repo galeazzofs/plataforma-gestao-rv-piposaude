@@ -44,17 +44,34 @@ def _active_policies(ev_id, closed_start=None, closed_end=None):
     return query.all()
 
 
-def compute_ev_balance(ev_id, closed_start=None, closed_end=None):
-    """Total estimated saldo a receber for an EV (spec S3.7 saldo_devedor_estimado).
+def _policy_saldo(policy):
+    """Per-policy Saldo a receber (CONTEXT.md 'Saldo a receber do EV').
 
-    balance = SUM( monthly_est x remaining_months ) across active policies.
+        0                                                  if the clock is 12/12
+        (monthly * 12) - min(comissao_paga, monthly * meses)   otherwise
+
+    where monthly = comissao potencial / 12 and meses = months on the clock.
+    Underpayment (pago below contract-to-date) raises the saldo; overpayment is
+    capped, so a hot-running policy still projects its remaining months instead
+    of zeroing. Only Comissao counts -- Agenciamento never does.
+    """
+    meses = max(0, min(policy.installments_paid or 0, 12))
+    if meses >= 12:
+        return Decimal("0")
+    monthly = _projected_monthly(policy)
+    if monthly <= 0:
+        return Decimal("0")
+    credited = min(policy.comissao_paga, monthly * meses)
+    return monthly * 12 - credited
+
+
+def compute_ev_balance(ev_id, closed_start=None, closed_end=None):
+    """Saldo a receber do EV: sum of each active policy's saldo a receber
+    (see _policy_saldo). Whole-book -- the dashboard quarter only scopes MRR /
+    goal / achievement, never the saldo.
     """
     policies = _active_policies(ev_id, closed_start, closed_end)
-    balance = Decimal("0")
-    for p in policies:
-        monthly = _projected_monthly(p)
-        remaining = max(0, 12 - (p.installments_paid or 0))
-        balance += monthly * remaining
+    balance = sum((_policy_saldo(p) for p in policies), Decimal("0"))
     return balance.quantize(Decimal("0.01"))
 
 
@@ -77,24 +94,34 @@ def compute_ev_projection(ev_id, ref_date=None, period_start=None, period_months
         buckets.append({"month": f"{y}-{m:02d}", "projected": Decimal("0")})
 
     for p in policies:
-        monthly = _projected_monthly(p)
-        if monthly <= 0:
+        meses = max(0, min(p.installments_paid or 0, 12))
+        remaining = 12 - meses
+        if remaining <= 0:
             continue
-
-        remaining = max(0, 12 - (p.installments_paid or 0))
-        if remaining == 0:
+        saldo = _policy_saldo(p)
+        if saldo <= 0:
             continue
 
         start = _projection_start(p, ref_date)
-
-        distributed = 0
+        targets = []
         for bucket in buckets:
-            if distributed >= remaining:
-                break
-            bucket_y, bucket_m = map(int, bucket["month"].split("-"))
-            if (bucket_y, bucket_m) >= (start.year, start.month):
-                bucket["projected"] += monthly
-                distributed += 1
+            by, bm = map(int, bucket["month"].split("-"))
+            if (by, bm) >= (start.year, start.month):
+                targets.append(bucket)
+                if len(targets) >= remaining:
+                    break
+        if not targets:
+            continue
+
+        # Spread the policy's saldo evenly over its remaining clock months; the
+        # last visible bucket absorbs the rounding remainder when the whole
+        # remaining clock fits the window, so the chart total equals the saldo.
+        per_month = (saldo / remaining).quantize(Decimal("0.01"))
+        for i, bucket in enumerate(targets):
+            if i == len(targets) - 1 and len(targets) == remaining:
+                bucket["projected"] += saldo - per_month * (remaining - 1)
+            else:
+                bucket["projected"] += per_month
 
     # Quantize all values
     for b in buckets:
