@@ -70,16 +70,20 @@
   (let [year-options (->> (conj (vec (or years [])) year)
                           (filter some?)
                           distinct
-                          sort)]
+                          sort)
+        parse-val (fn [v] (when (seq v) (js/parseInt v 10)))]
     [:div.period-filter {:aria-label "Filtrar período"}
      [:select.period-select
       {:value (str year)
-       :on-change #(rf/dispatch [:ev/set-period :year (js/parseInt (.. % -target -value) 10)])}
+       :on-change #(rf/dispatch [:ev/set-period :year (parse-val (.. % -target -value))])}
+      [:option {:value ""} "Sem filtro"]
       (for [y year-options]
         ^{:key y} [:option {:value y} y])]
      [:select.period-select
       {:value (str quarter)
-       :on-change #(rf/dispatch [:ev/set-period :quarter (js/parseInt (.. % -target -value) 10)])}
+       :disabled (nil? year)
+       :on-change #(rf/dispatch [:ev/set-period :quarter (parse-val (.. % -target -value))])}
+      [:option {:value ""} "Ano inteiro"]
       (for [q [1 2 3 4]]
         ^{:key q} [:option {:value q} (str "Q" q)])]]))
 
@@ -481,14 +485,20 @@
           mrr-sold   (->num (:mrr_sold summary))
           quarter    (or (:current_quarter summary) (:quarter selected-period))
           year       (or (:current_year summary) (:year selected-period))
-          period     (when (and quarter year) (str "Q" quarter "/" year))
+          period     (cond
+                       (and quarter year) (str "Q" quarter "/" year)
+                       year               (str year)
+                       :else              "total")
           available-years (:available_years summary)
           proj-s     (projection-summary projection)]
       [layout/page-shell
        {:current-route route :user user
         :crumbs ["plataforma rv" "ev" "dashboard"]
         :title (str "Bem-vindo, " (or (some-> (:name user) (str/split #" ") first) "EV"))
-        :subtitle (when period (str period " em validação"))
+        :subtitle (cond
+                    (and quarter year) (str "Q" quarter "/" year " em validação")
+                    year               (str "ano " year)
+                    :else              "carteira total")
         :header-actions [[period-select {:year year
                                           :quarter quarter
                                           :years available-years}]]}

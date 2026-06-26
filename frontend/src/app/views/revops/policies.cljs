@@ -570,9 +570,9 @@
                  [:div.policy-detail-grid
                   [money-detail "MRR" (:mrr_for_commission detail-policy)]
                   [money-detail "Comissão potencial" (:commission_potential detail-policy)]
-                  [money-detail "Total pago" (:commission_paid_total detail-policy)]
-                  [money-detail "Pago comissão" (:total_paid_comissao detail-policy)]
-                  [money-detail "Pago agenciamento" (:total_paid_agenciamento detail-policy)]
+                  [money-detail "Total pago" (:total_pago detail-policy)]
+                  [money-detail "Pago comissão" (:comissao_paga detail-policy)]
+                  [money-detail "Pago agenciamento" (:agenciamento_pago detail-policy)]
                   [detail-field "Meses" (str (or (:installments_paid detail-policy) 0) "/12")]]]
 
                 [:div.policy-detail-section
