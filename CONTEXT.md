@@ -76,9 +76,25 @@ _Avoid_: other revenue, miscellaneous revenue
 The full-life expected EV commission for a policy, calculated as commissionable policy MRR times 12 times the EV commission percentage.
 _Avoid_: paid commission, projected cash flow, finance forecast
 
+**Comissao paga da apolice**:
+All EV-payable Comissao actually paid for a policy: the manually curated pre-platform baseline plus the Comissao cut of every finalized apuracao. Always on the **Escala pagavel ao EV**.
+_Avoid_: NF gross commission sum, total pago, agenciamento-inclusive paid
+
+**Agenciamento pago da apolice**:
+All EV-payable Agenciamento actually paid for a policy: the manual pre-platform baseline plus the Agenciamento cut of every finalized apuracao.
+_Avoid_: NF gross agenciamento sum, comissao-inclusive paid
+
+**Total pago da apolice**:
+The sum of **Comissao paga da apolice** and **Agenciamento pago da apolice** for one policy.
+_Avoid_: comissao-only paid, NF gross paid total, legacy-only paid
+
 **Potencial a pagar**:
 The future payable commission obligation for Finance, excluding amounts already paid.
 _Avoid_: comissao potencial, full-life potential, paid total, inflated projection
+
+**Saldo a receber do EV**:
+The EV's remaining payable Comissao across all their policies — per policy, the contractual Comissao still projected over the remaining months of the **Relogio de 12 meses da apolice**, raised by any underpayment so far and never lowered by overpayment. Zero for an **Apolice totalmente paga**; Agenciamento never counts.
+_Avoid_: quarterly slice, agenciamento included, negative balance, zeroed by overpayment, gongo-filtered balance
 
 **Apolice totalmente paga**:
 A policy whose 12-month Comissao clock is complete and no longer generates payable commission or finance projection.
@@ -107,6 +123,10 @@ _Avoid_: ciclo trimestral, quarterly cycle, per-team cycle progress
 - EV commission and Finance projected cash flow must use the same **Receita comissionavel** boundary.
 - **Comissao potencial da apolice** belongs to the policy lifecycle and appears on the Policies page.
 - **Potencial a pagar** belongs to Finance and represents only future cash obligation, not amounts already paid.
+- **Comissao paga da apolice** is the manual pre-platform baseline plus the Comissao cut of every finalized apuracao; the **Escala NF bruta** only weights the Comissao/Agenciamento split, never the paid value. Pre-platform baselines are manually curated and must not be recalculated or overwritten.
+- **Total pago da apolice** is exactly **Comissao paga da apolice** plus **Agenciamento pago da apolice**.
+- **Saldo a receber do EV** sums every one of the EV's policies, not a quarterly slice; the dashboard quarter selector scopes only **MRR vendido**, goals, and achievement (gongo-quarter metrics), never the saldo.
+- **Saldo a receber do EV** counts only Comissao, never **Agenciamento pago da apolice**. A policy paid below contract raises its saldo by the shortfall; a policy paid above contract still projects its remaining clock months normally — the overpayment is left alone, never zeroing the policy nor recalibrating its **Comissao potencial da apolice**. The contractual MRR stays fixed (ADR-0001 unchanged).
 - **Comissao** increments the **Relogio de 12 meses da apolice** by one **Mes de comissao pago** per distinct month.
 - A **Mes de comissao pago** exists only when the **Liquido mensal de Comissao** is positive.
 - **Primeiro mes de Comissao** starts the **Relogio de 12 meses da apolice**.

@@ -270,6 +270,9 @@ def update_policy(policy_id):
 def _serialize_policy(policy, detail=False):
     potential = policy.commission_potential
     paid_total = policy.commission_paid_total
+    comissao_paga = policy.comissao_paga
+    agenciamento_pago = policy.agenciamento_pago
+    total_pago = comissao_paga + agenciamento_pago
     data = {
         "id": str(policy.id),
         "hubspot_ticket_id": policy.hubspot_ticket_id,
@@ -297,6 +300,11 @@ def _serialize_policy(policy, detail=False):
         "commission_status": policy.commission_status.value,
         "total_paid_comissao": str(policy.total_paid_comissao) if policy.total_paid_comissao is not None else None,
         "total_paid_agenciamento": str(policy.total_paid_agenciamento) if policy.total_paid_agenciamento is not None else None,
+        # EV-payable paid (manual baseline + finalized apuracoes): drives the
+        # Total pago / Pago comissão / Pago agenciamento tiles (CONTEXT.md).
+        "comissao_paga": str(comissao_paga),
+        "agenciamento_pago": str(agenciamento_pago),
+        "total_pago": str(total_pago),
     }
     if detail:
         data.update({

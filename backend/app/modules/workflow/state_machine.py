@@ -136,15 +136,11 @@ def transition_appraisal(appraisal, new_status, **kwargs):
             year=appraisal.year,
             is_final=False,
         ).update({"is_final": True}, synchronize_session=False)
-        # Roll the Σ NF amounts (split by tipo_receita) into Policy.total_paid_*.
-        # Recomputes from scratch across all locked apurações, so re-locking
-        # or rerunning this step is idempotent.
-        from app.modules.financial.policy_paid_totals import (
-            recompute_policy_paid_totals_for_apuracao,
-        )
-        recompute_policy_paid_totals_for_apuracao(
-            appraisal.month, appraisal.year
-        )
+        # Finalizing the commissions is what rolls this apuração into each
+        # policy's Comissao paga / Agenciamento pago: Policy.comissao_paga sums
+        # finalized total_actual split by NF weight. The manual pre-platform
+        # baseline in total_paid_* is frozen and never recomputed (CONTEXT.md,
+        # ADR-0001) -- no NF-gross overwrite on lock.
 
     # Reset reminder state on every transition: a fresh action zeroes
     # the timer and clears any "reminder sent today" flag so the next

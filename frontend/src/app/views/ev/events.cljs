@@ -34,7 +34,11 @@
 (rf/reg-event-fx
  :ev/set-period
  (fn [{:keys [db]} [_ kind value]]
-   (let [period (assoc (dashboard-period db) kind value)]
+   (let [;; Clearing the year (sem filtro) also clears the quarter -- a quarter
+         ;; without a year is meaningless.
+         period (if (and (= kind :year) (nil? value))
+                  {:year nil :quarter nil}
+                  (assoc (dashboard-period db) kind value))]
      {:db         (assoc-in db [:ev :period] period)
       :dispatch-n [[:ev/fetch-dashboard]
                    [:ev/fetch-policies period]
