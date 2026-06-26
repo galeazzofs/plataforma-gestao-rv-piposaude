@@ -9,7 +9,7 @@ from app.modules.workflow.state_machine import (
 from app.models import (
     Appraisal, AppraisalStatus, User, UserRole,
     Policy, Client, Segment, BenefitType, Commission, EvValidation,
-    ValidationStatus,
+    ValidationStatus, CommissionStatus, ImportBatch, FinancialImport,
 )
 from app.extensions import db
 
@@ -124,6 +124,46 @@ def test_full_chain_to_locked(db_session):
     transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=admin.id)
 
     assert appraisal.status == AppraisalStatus.LOCKED
+
+
+def test_lock_preserves_manual_paid_baseline(db_session):
+    """Locking an apuracao must NOT overwrite the frozen manual pre-platform
+    paid baseline with NF gross sums -- the NF recompute is retired. The matched
+    NF below would have clobbered total_paid_comissao to 5000 under the old code.
+    """
+    admin = User(email="admin-lockpaid@piposaude.com", name="Admin", role=UserRole.ADMIN)
+    ev = User(email="ev-lockpaid@piposaude.com", name="EV", role=UserRole.EV, active=True)
+    db_session.add_all([admin, ev])
+    db_session.flush()
+    client = Client(name="LockCo", name_normalized="lockco", ev_id=ev.id)
+    db_session.add(client)
+    db_session.flush()
+    policy = Policy(
+        hubspot_apolice_id="LK-1", hubspot_ticket_id="LK-1",
+        ev_id=ev.id, client_id=client.id,
+        segment=Segment.P, benefit_type=BenefitType.SAUDE,
+        mrr_projected=Decimal("10000"), closed_date=date(2026, 3, 15),
+        commission_status=CommissionStatus.IN_PAYMENT, installments_paid=1,
+        total_paid_comissao=Decimal("10000.00"),  # frozen manual baseline
+    )
+    db_session.add(policy)
+    db_session.flush()
+    batch = ImportBatch(filename="f.xlsx", uploaded_by=admin.id)
+    db_session.add(batch)
+    db_session.flush()
+    db_session.add(FinancialImport(
+        policy_id=policy.id, import_batch_id=batch.id,
+        nf_valor_liquido=Decimal("5000"), nf_mes_recebimento="2026-03",
+        month=3, year=2026, tipo_receita="Comissão", match_status="MATCHED",
+    ))
+    db_session.flush()
+
+    appraisal = start_appraisal(month=3, year=2026, created_by=admin.id)
+    appraisal.status = AppraisalStatus.REVOPS_REVIEW
+    db_session.flush()
+    transition_appraisal(appraisal, AppraisalStatus.LOCKED, approved_by=admin.id)
+
+    assert policy.total_paid_comissao == Decimal("10000.00")
 
 
 def test_lider_review_can_send_back_to_calculating(db_session):
