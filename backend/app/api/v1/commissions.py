@@ -126,36 +126,54 @@ def commission_summary():
     if not ev_id:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "ev_id required"}}), 400
 
-    # Live estimated balance from Policy data (spec S9 projection layer)
-    today = date.today()
-    selected_quarter = quarter or (today.month - 1) // 3 + 1
-    selected_year = year or today.year
-    start_date, end_date = _period_bounds(selected_year, selected_quarter)
-    balance = compute_ev_balance(ev_id, start_date, end_date)
-
-    goal = Goal.query.filter_by(
-        ev_id=ev_id, quarter=selected_quarter, year=selected_year
-    ).first()
-
-    quarter_mrr = db.session.query(
+    # Saldo a receber covers the EV's whole book regardless of filter
+    # (CONTEXT.md). The year/quarter filter only scopes MRR vendido / meta /
+    # atingimento and the projection window:
+    #   year + quarter -> that quarter      year, no quarter -> the whole year
+    #   no year        -> all-time totals (atingimento hidden, no all-time goal)
+    balance = compute_ev_balance(ev_id)
+    mrr_q = db.session.query(
         func.coalesce(func.sum(Policy.mrr_projected), 0)
-    ).filter(
-        Policy.ev_id == ev_id,
-        Policy.closed_date >= start_date,
-        Policy.closed_date < end_date,
-    ).scalar()
+    ).filter(Policy.ev_id == ev_id)
 
-    target = goal.mrr_target if goal else Decimal("0")
-    achievement = (Decimal(str(quarter_mrr)) / target * 100) if target > 0 else Decimal("0")
+    if year is None:
+        selected_year = None
+        selected_quarter = None
+        mrr_sold = mrr_q.filter(Policy.closed_date.isnot(None)).scalar()
+        target = Decimal("0")
+        achievement = None
+    else:
+        selected_year = year
+        selected_quarter = quarter  # None => whole year
+        start_date, end_date = _period_bounds(selected_year, selected_quarter)
+        mrr_sold = mrr_q.filter(
+            Policy.closed_date >= start_date,
+            Policy.closed_date < end_date,
+        ).scalar()
+        if selected_quarter:
+            goal = Goal.query.filter_by(
+                ev_id=ev_id, quarter=selected_quarter, year=selected_year
+            ).first()
+            target = goal.mrr_target if goal else Decimal("0")
+        else:
+            target = Decimal(str(db.session.query(
+                func.coalesce(func.sum(Goal.mrr_target), 0)
+            ).filter(Goal.ev_id == ev_id, Goal.year == selected_year).scalar()))
+        achievement = (
+            Decimal(str(mrr_sold)) / target * 100 if target > 0 else Decimal("0")
+        )
 
     return jsonify({
         "data": {
             "balance_estimated": str(balance),
             "current_quarter": selected_quarter,
             "current_year": selected_year,
-            "mrr_sold": str(quarter_mrr),
+            "mrr_sold": str(mrr_sold),
             "mrr_target": str(target),
-            "achievement_pct": str(achievement.quantize(Decimal("0.01"))),
+            "achievement_pct": (
+                str(achievement.quantize(Decimal("0.01")))
+                if achievement is not None else None
+            ),
             "available_years": _available_years(ev_id),
         }
     })
