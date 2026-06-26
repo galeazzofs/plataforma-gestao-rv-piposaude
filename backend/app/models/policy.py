@@ -111,6 +111,34 @@ class Policy(db.Model):
         return total
 
     @property
+    def comissao_paga(self):
+        """EV-payable Comissao paid for this policy (Escala pagavel ao EV).
+
+        The frozen manual pre-platform baseline plus the Comissao cut of every
+        finalized apuracao (see CONTEXT.md 'Comissao paga da apolice')."""
+        from decimal import Decimal
+        from app.modules.financial.paid_split import policy_apuracao_paid
+        comissao, _agenciamento = policy_apuracao_paid(self)
+        return Decimal(str(self.total_paid_comissao or "0")) + comissao
+
+    @property
+    def agenciamento_pago(self):
+        """EV-payable Agenciamento paid for this policy (Escala pagavel ao EV).
+
+        Frozen manual pre-platform baseline plus the Agenciamento cut of every
+        finalized apuracao (see CONTEXT.md 'Agenciamento pago da apolice')."""
+        from decimal import Decimal
+        from app.modules.financial.paid_split import policy_apuracao_paid
+        _comissao, agenciamento = policy_apuracao_paid(self)
+        return Decimal(str(self.total_paid_agenciamento or "0")) + agenciamento
+
+    @property
+    def total_pago(self):
+        """Total paid to the EV: Comissao paga + Agenciamento pago
+        (see CONTEXT.md 'Total pago da apolice')."""
+        return self.comissao_paga + self.agenciamento_pago
+
+    @property
     def commission_potential(self):
         """MRR × 12 × commission_pct.
 
