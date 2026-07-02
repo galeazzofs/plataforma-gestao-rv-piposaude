@@ -1,4 +1,4 @@
-"""Perk/subsidy XLSX parser.
+"""Perk/subsidy parser (XLSX or CSV).
 
 Parses spreadsheets with columns like:
   - Cliente Pipo / Cliente
@@ -6,8 +6,10 @@ Parses spreadsheets with columns like:
   - Mês (Competência)
   - Ano
 
-Returns rows ready to be persisted as Perk records.
+Returns rows ready to be persisted as Perk records. Handles both US
+("3,934.02", the Omie export) and BR ("3.500,00") number formats.
 """
+import csv as _csv
 import unicodedata
 from decimal import Decimal, InvalidOperation
 
@@ -16,6 +18,63 @@ from openpyxl import load_workbook
 
 class PerkParseError(Exception):
     pass
+
+
+def parse_money(raw):
+    """Parse a money value in either US (``3,934.02``) or BR (``3.500,00``)
+    format into a signed Decimal.
+
+    Returns ``None`` when the value is blank/None or has no digits. Parentheses
+    mean negative. Numeric inputs (int/float — e.g. an xlsx numeric cell) pass
+    straight through without separator guessing.
+
+    Format detection: when both ``,`` and ``.`` are present, the RIGHTMOST is
+    the decimal mark and the other is thousands grouping. With a single
+    separator, exactly two trailing digits is treated as a decimal mark;
+    anything else (multiple occurrences, or not two trailing digits) is
+    thousands grouping and stripped.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return Decimal(str(raw))
+
+    s = str(raw).strip()
+    if not s:
+        return None
+
+    negative = False
+    if s.startswith('(') and s.endswith(')'):
+        s = s[1:-1].strip()
+        negative = True
+    if s.startswith('-'):
+        negative = True
+        s = s[1:].strip()
+
+    if not any(ch.isdigit() for ch in s):
+        return None
+
+    has_comma = ',' in s
+    has_dot = '.' in s
+    if has_comma and has_dot:
+        if s.rfind(',') > s.rfind('.'):
+            decimal_sep, grouping_sep = ',', '.'
+        else:
+            decimal_sep, grouping_sep = '.', ','
+        s = s.replace(grouping_sep, '').replace(decimal_sep, '.')
+    elif has_comma or has_dot:
+        sep = ',' if has_comma else '.'
+        trailing = len(s) - s.rfind(sep) - 1
+        if s.count(sep) == 1 and trailing == 2:
+            s = s.replace(sep, '.')
+        else:
+            s = s.replace(sep, '')
+
+    try:
+        value = Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+    return -value if negative else value
 
 
 COLUMN_KEYWORDS = {
@@ -33,24 +92,21 @@ def _normalize_header(s):
     return ''.join(c for c in decomp if unicodedata.category(c) != 'Mn')
 
 
-def _detect_header_row(ws, scan_limit=20):
-    """Return the row index of the header. A real header row has BOTH a
-    'cliente' cell and a 'valor' cell — title rows that only mention
-    'Cliente' shouldn't be picked up.
-    """
-    max_cols = min(ws.max_column or 40, 40)
-    for r in range(1, scan_limit + 1):
-        row_norms = []
-        for c in range(1, max_cols + 1):
-            v = ws.cell(row=r, column=c).value
-            if v is not None:
-                row_norms.append(_normalize_header(v))
-        has_cliente = any('cliente' in n for n in row_norms)
-        has_valor = any(
-            n == 'valor' or ('valor' in n and 'liquido' not in n)
-            for n in row_norms
-        )
-        if has_cliente and has_valor:
+def _row_is_header(cells):
+    """A real header row has BOTH a 'cliente' and a 'valor' cell — title rows
+    that only mention 'Cliente' shouldn't be picked up."""
+    norms = [_normalize_header(v) for v in cells if v is not None]
+    has_cliente = any('cliente' in n for n in norms)
+    has_valor = any(
+        n == 'valor' or ('valor' in n and 'liquido' not in n) for n in norms
+    )
+    return has_cliente and has_valor
+
+
+def _detect_header_row(grid, scan_limit=20):
+    """Return the 0-based index of the header row within the grid."""
+    for r in range(min(scan_limit, len(grid))):
+        if _row_is_header(grid[r]):
             return r
     raise PerkParseError(
         "Header row not found — expected a row with both 'Cliente' and "
@@ -59,8 +115,9 @@ def _detect_header_row(ws, scan_limit=20):
 
 
 def _build_column_map(headers):
+    """Map each field to its 0-based column index from a header row."""
     cmap = {}
-    for col_idx, raw in enumerate(headers, start=1):
+    for col_idx, raw in enumerate(headers):
         norm = _normalize_header(raw)
         if not norm:
             continue
@@ -88,9 +145,31 @@ def _parse_month(raw):
         return None
 
 
-def parse_perk_xlsx(filepath, target_year):
-    """Parse perk XLSX and return rows for the target year (each row keeps its
-    own competência month from the 'Mês' column).
+def _is_blank(v):
+    return v is None or str(v).strip() == ''
+
+
+def _load_xlsx_grid(filepath):
+    """Read an XLSX into a list-of-rows grid (read_only streams cells)."""
+    wb = load_workbook(filepath, read_only=True, data_only=True)
+    ws = wb.active
+    max_cols = min(ws.max_column or 40, 40)
+    grid = [
+        list(row)
+        for row in ws.iter_rows(min_col=1, max_col=max_cols, values_only=True)
+    ]
+    wb.close()
+    return grid
+
+
+def _load_csv_grid(filepath):
+    """Read a CSV into a list-of-rows grid. utf-8-sig tolerates a BOM."""
+    with open(filepath, newline='', encoding='utf-8-sig') as fh:
+        return [list(row) for row in _csv.reader(fh)]
+
+
+def _parse_perk_grid(grid, target_year):
+    """Core parser shared by the XLSX and CSV front-ends.
 
     Returns:
         {
@@ -98,15 +177,8 @@ def parse_perk_xlsx(filepath, target_year):
           'stats': {total_lidas, descartadas_periodo, descartadas_vazias, persistidas}
         }
     """
-    # read_only=True streams cells (lower memory + safer XML parser surface).
-    wb = load_workbook(filepath, read_only=True, data_only=True)
-    ws = wb.active
-
-    header_row = _detect_header_row(ws)
-    max_cols = min(ws.max_column or 40, 40)
-    headers = [ws.cell(row=header_row, column=c).value
-               for c in range(1, max_cols + 1)]
-    cmap = _build_column_map(headers)
+    header_idx = _detect_header_row(grid)
+    cmap = _build_column_map(grid[header_idx])
 
     rows = []
     stats = {
@@ -116,50 +188,42 @@ def parse_perk_xlsx(filepath, target_year):
         'persistidas': 0,
     }
 
-    def cell(r, field):
+    def cell(row, field):
         idx = cmap.get(field)
-        return ws.cell(row=r, column=idx).value if idx else None
+        if idx is None or idx >= len(row):
+            return None
+        return row[idx]
 
-    for r in range(header_row + 1, (ws.max_row or 0) + 1):
-        cliente = cell(r, 'cliente')
-        valor_raw = cell(r, 'valor')
+    for r in range(header_idx + 1, len(grid)):
+        row = grid[r]
+        cliente = cell(row, 'cliente')
+        valor_raw = cell(row, 'valor')
 
-        if cliente is None and valor_raw is None:
+        if _is_blank(cliente) and _is_blank(valor_raw):
             continue
         stats['total_lidas'] += 1
 
-        if not cliente or valor_raw is None:
+        if _is_blank(cliente) or _is_blank(valor_raw):
             stats['descartadas_vazias'] += 1
             continue
 
-        # Parse valor — handle negative values in parentheses like (3.500,00)
-        try:
-            valor_str = str(valor_raw).strip()
-            # Remove parentheses and make negative
-            negate = False
-            if valor_str.startswith('(') and valor_str.endswith(')'):
-                valor_str = valor_str[1:-1]
-                negate = True
-            # Normalize BR number format: 1.234,56 → 1234.56
-            if ',' in valor_str:
-                valor_str = valor_str.replace('.', '').replace(',', '.')
-            amount = abs(Decimal(valor_str))
-            if negate or amount == 0:
-                pass  # keep positive absolute value for perks
-        except (InvalidOperation, ValueError):
+        # Perks are stored as positive magnitudes; the sheet carries them as
+        # parenthesized costs ("(3,934.02)"). parse_money reads US or BR format.
+        amount = parse_money(valor_raw)
+        if amount is None:
             stats['descartadas_vazias'] += 1
             continue
-
+        amount = abs(amount)
         if amount <= 0:
             stats['descartadas_vazias'] += 1
             continue
 
         # Parse period
-        ano_raw = cell(r, 'ano')
-        mes_raw = cell(r, 'mes')
+        ano_raw = cell(row, 'ano')
+        mes_raw = cell(row, 'mes')
 
         try:
-            year = int(ano_raw) if ano_raw else target_year
+            year = int(ano_raw) if not _is_blank(ano_raw) else target_year
         except (ValueError, TypeError):
             year = target_year
 
@@ -177,9 +241,33 @@ def parse_perk_xlsx(filepath, target_year):
             'amount': amount,
             'month': month,
             'year': year,
-            '_row': r,
+            '_row': r + 1,
         })
         stats['persistidas'] += 1
 
-    wb.close()
     return {'rows': rows, 'stats': stats}
+
+
+def parse_perk_xlsx(filepath, target_year):
+    """Parse a perk XLSX for `target_year` (each row keeps its own competência
+    month from the 'Mês' column)."""
+    return _parse_perk_grid(_load_xlsx_grid(filepath), target_year)
+
+
+def parse_perk_csv(filepath, target_year):
+    """Parse a perk CSV (UTF-8) for `target_year`, keeping each row's own
+    competência month."""
+    return _parse_perk_grid(_load_csv_grid(filepath), target_year)
+
+
+def parse_perk_file(filepath, target_year, original_filename=None):
+    """Parse a perk sheet, dispatching to CSV or XLSX by extension.
+
+    `original_filename` (the uploaded name) takes precedence over `filepath`
+    because the upload route saves to a temp file whose suffix may not reflect
+    the real format.
+    """
+    name = (original_filename or filepath or '').lower()
+    if name.endswith('.csv'):
+        return parse_perk_csv(filepath, target_year)
+    return parse_perk_xlsx(filepath, target_year)

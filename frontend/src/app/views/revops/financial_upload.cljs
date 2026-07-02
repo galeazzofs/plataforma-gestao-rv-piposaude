@@ -51,7 +51,7 @@
         [:strong "Solte os arquivos aqui ou clique para selecionar"]
         [:p {:style {:font-size "12px" :max-width "340px"}}
          (case kind
-           :perks "Aceitamos XLSX com Cliente Pipo, Valor, Mês (Competência) e Ano. Cada linha entra no seu próprio mês; re-upload atualiza os meses abertos do ano."
+           :perks "Aceitamos CSV ou XLSX com Cliente Pipo, Valor, Mês (Competência) e Ano (formato BR ou US). Cada linha entra no seu próprio mês; re-upload atualiza os meses abertos do ano."
            "Aceitamos CSV, XLSX, PDF (NFs). Cada NF entra no seu próprio mês de recebimento. Máx. 50MB por arquivo.")]
         [:button.btn.btn-primary.btn-sm {:style {:margin-top "8px"}}
          "Selecionar arquivos"]]])))
