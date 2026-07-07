@@ -9,9 +9,11 @@ from app.modules.workflow.state_machine import (
 from app.models import (
     Appraisal, AppraisalStatus, User, UserRole,
     Policy, Client, Segment, BenefitType, Commission, EvValidation,
-    ValidationStatus, CommissionStatus, ImportBatch, FinancialImport,
+    EvSignoff, SignoffStatus, ValidationStatus, CommissionStatus,
+    ImportBatch, FinancialImport,
 )
 from app.extensions import db
+from app.modules.workflow.signoffs import compute_ev_fingerprint, ensure_signoffs
 
 
 def test_start_appraisal_creates_draft(db_session):
@@ -84,6 +86,16 @@ def test_transition_to_validating_creates_ev_validations_from_commissions(db_ses
     )
     db_session.add_all([appraisal, commission])
     db_session.flush()
+
+    # Gate de conferência (2026-07-07): a liberação para VALIDATING exige
+    # sign-off DONE de todo EV do escopo.
+    ensure_signoffs(appraisal)
+    for _sig in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all():
+        _sig.status = SignoffStatus.DONE
+        _sig.fingerprint = compute_ev_fingerprint(
+            _sig.ev_id, appraisal.month, appraisal.year,
+        )
+    db.session.flush()
 
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
 

@@ -260,3 +260,53 @@ def test_totals_frozen_from_rows_when_not_calculating(db_session):
     assert signoff_totals(appraisal) == {
         "total": 1, "done": 1, "all_done": True,
     }
+
+
+# ── Gate no state machine ─────────────────────────────────────────────
+
+
+def test_release_blocked_until_all_signed_off(db_session):
+    import pytest as _pytest
+    from app.models import EvValidation
+    from app.modules.workflow.state_machine import (
+        InvalidTransitionError, transition_appraisal,
+    )
+
+    suffix = uuid.uuid4().hex[:8]
+    admin, ev, _ = _mk_users(suffix)
+    _mk_commission(ev, suffix)
+    appraisal = _mk_appraisal(admin)
+    ensure_signoffs(appraisal)
+
+    with _pytest.raises(InvalidTransitionError) as exc:
+        transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+    assert "sem conferência" in str(exc.value)
+    assert appraisal.status == AppraisalStatus.CALCULATING
+
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev.id,
+    ).first()
+    row.status = SignoffStatus.DONE
+    row.fingerprint = compute_ev_fingerprint(ev.id, 9, 2026)
+    db.session.flush()
+
+    transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
+    assert appraisal.status == AppraisalStatus.VALIDATING
+    # comportamento existente preservado: a liberação cria as EvValidations
+    assert EvValidation.query.filter_by(appraisal_id=appraisal.id).count() == 1
+
+
+def test_calculating_transition_creates_signoff_rows(db_session):
+    """DRAFT → CALCULATING roda o calculator e em seguida garante as linhas
+    de sign-off do escopo (hook refresh_signoffs_after_recalc)."""
+    from app.modules.workflow.state_machine import transition_appraisal
+
+    suffix = uuid.uuid4().hex[:8]
+    admin, ev, _ = _mk_users(suffix)
+    appraisal = _mk_appraisal(admin, month=10, status=AppraisalStatus.DRAFT)
+
+    transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+
+    rows = EvSignoff.query.filter_by(appraisal_id=appraisal.id).all()
+    assert {r.ev_id for r in rows} == {ev.id}
+    assert rows[0].status == SignoffStatus.PENDING

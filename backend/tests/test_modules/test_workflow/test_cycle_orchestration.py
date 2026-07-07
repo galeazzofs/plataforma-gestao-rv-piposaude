@@ -12,14 +12,15 @@ import pytest
 from app.extensions import db
 from app.models import (
     Appraisal, AppraisalStatus, CnMonthlyAppraisal, CnQuarterBonus,
-    EvQuarterAchievement, LiderVendasQuarterAppraisal,
-    MonthlyCycle, MonthlyCycleStatus,
+    EvQuarterAchievement, EvSignoff, LiderVendasQuarterAppraisal,
+    MonthlyCycle, MonthlyCycleStatus, SignoffStatus,
     Team, User, UserRole,
 )
 from app.modules.workflow.cycle_aggregator import (
     build_cycle_payload, all_components_locked, maybe_lock_cycle,
 )
 from app.modules.workflow.state_machine import transition_appraisal
+from app.modules.workflow.signoffs import compute_ev_fingerprint, ensure_signoffs
 
 
 def _make_user(role, name, team_id=None, salario=Decimal("8000")):
@@ -128,6 +129,15 @@ def _walk_appraisal_to_locked(appraisal, admin):
     from unittest.mock import patch
     with patch("app.modules.commissions.calculator.run_monthly_appraisal"):
         transition_appraisal(appraisal, AppraisalStatus.CALCULATING)
+    # Gate de conferência (Task 3, 2026-07-07): a liberação para VALIDATING
+    # exige sign-off DONE de todo EV do escopo.
+    ensure_signoffs(appraisal)
+    for sig in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all():
+        sig.status = SignoffStatus.DONE
+        sig.fingerprint = compute_ev_fingerprint(
+            sig.ev_id, appraisal.month, appraisal.year,
+        )
+    db.session.flush()
     transition_appraisal(appraisal, AppraisalStatus.VALIDATING)
     transition_appraisal(appraisal, AppraisalStatus.LIDER_REVIEW)
     transition_appraisal(appraisal, AppraisalStatus.REVOPS_REVIEW)

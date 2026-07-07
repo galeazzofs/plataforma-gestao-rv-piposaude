@@ -28,6 +28,26 @@ def _assert_no_open_contestation(appraisal, new_status):
         )
 
 
+def _assert_signoffs_complete(appraisal, new_status):
+    """A liberação CALCULATING → VALIDATING exige a conferência de todos os
+    EVs do escopo (spec 2026-07-07). Outros caminhos que escrevem VALIDATING
+    direto (resolução de contestação) pulam o gate de propósito — a
+    conferência daquele ciclo já aconteceu."""
+    if new_status != AppraisalStatus.VALIDATING:
+        return
+    if appraisal.status != AppraisalStatus.CALCULATING:
+        return
+    from app.modules.workflow.signoffs import pending_signoff_evs
+    pending = pending_signoff_evs(appraisal)
+    if pending:
+        names = ", ".join(name for _, name in pending[:5])
+        more = f" (+{len(pending) - 5})" if len(pending) > 5 else ""
+        raise InvalidTransitionError(
+            f"{len(pending)} EV(s) sem conferência: {names}{more}. "
+            "Confira todos os EVs antes de liberar para validação."
+        )
+
+
 # Statuses that count as "the Líder validated own Comissão Liderança" —
 # anything past VALIDATING means the Líder moved their own row forward.
 _LIDER_VALIDATED_OWN = {
@@ -81,6 +101,7 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         )
 
     _assert_no_open_contestation(appraisal, new_status)
+    _assert_signoffs_complete(appraisal, new_status)
 
     # Issue #36: VALIDATING → LIDER_REVIEW is blocked while a contestation
     # is open. Use the contest endpoint to route to REVOPS_REVIEW instead.
@@ -118,6 +139,11 @@ def transition_appraisal(appraisal, new_status, **kwargs):
         run_monthly_appraisal(
             appraisal.month, appraisal.year, validate_achievements=False
         )
+        # Conferência por EV: garante as linhas do escopo e re-valida os
+        # fingerprints — voltas LIDER_REVIEW/REVOPS_REVIEW → CALCULATING
+        # re-armam o gate preservando as conferências de quem não mudou.
+        from app.modules.workflow.signoffs import refresh_signoffs_after_recalc
+        refresh_signoffs_after_recalc(appraisal)
 
     if new_status == AppraisalStatus.VALIDATING:
         deadline = kwargs.get("validation_deadline")

@@ -11,9 +11,9 @@ import pytest
 
 from app.extensions import db
 from app.models import (
-    Appraisal, AppraisalStatus, EvValidation, LiderVendasQuarterAppraisal,
-    Policy, Client, Segment, BenefitType,
-    Team, User, UserRole, ValidationStatus,
+    Appraisal, AppraisalStatus, EvSignoff, EvValidation,
+    LiderVendasQuarterAppraisal, Policy, Client, Segment, BenefitType,
+    SignoffStatus, Team, User, UserRole, ValidationStatus,
 )
 from app.modules.workflow.state_machine import (
     transition_appraisal, transition_cn_monthly_appraisal,
@@ -21,6 +21,7 @@ from app.modules.workflow.state_machine import (
     maybe_auto_advance_appraisal_after_validation,
     InvalidTransitionError,
 )
+from app.modules.workflow.signoffs import compute_ev_fingerprint, ensure_signoffs
 
 
 @pytest.fixture(autouse=True)
@@ -110,6 +111,16 @@ def test_calc_to_validating_dms_each_ev(db_session):
     ev = _user(UserRole.EV, "EvS")
     appraisal = _appraisal(1, 2040, AppraisalStatus.CALCULATING, admin)
     _ev_validation(appraisal, ev)
+
+    # Gate de conferência (2026-07-07): a liberação para VALIDATING exige
+    # sign-off DONE de todo EV do escopo.
+    ensure_signoffs(appraisal)
+    for _sig in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all():
+        _sig.status = SignoffStatus.DONE
+        _sig.fingerprint = compute_ev_fingerprint(
+            _sig.ev_id, appraisal.month, appraisal.year,
+        )
+    db.session.flush()
 
     mock = MagicMock(return_value={"ok": True})
     with patch("slack_sdk.WebClient.chat_postMessage", mock):

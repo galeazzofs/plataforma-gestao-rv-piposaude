@@ -9,7 +9,7 @@ from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, Segment, BenefitType,
     FinancialImport, ImportBatch, Commission, EvQuarterAchievement,
-    Appraisal, AppraisalStatus, CommissionPctTable, Perk,
+    Appraisal, AppraisalStatus, CommissionPctTable, EvSignoff, Perk,
 )
 from app.auth.jwt_manager import create_access_token
 
@@ -193,6 +193,10 @@ def test_calculating_transition_without_achievements_does_not_block(client, db_s
         AuditLog.query.filter(
             AuditLog.user_id.in_([admin.id, ev.id])
         ).delete(synchronize_session=False)
+        # The CALCULATING transition now also seeds EvSignoff rows for the
+        # scope (Task 3, 2026-07-07); clear them before deleting the
+        # appraisal to avoid an FK violation.
+        EvSignoff.query.filter_by(appraisal_id=appraisal.id).delete()
         db.session.delete(appraisal)
         db.session.delete(batch)
         Policy.query.filter_by(id=policy.id).delete()
