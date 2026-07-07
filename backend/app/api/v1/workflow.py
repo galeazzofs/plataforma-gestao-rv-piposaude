@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from flask import Blueprint, jsonify, request, g
+from sqlalchemy.exc import IntegrityError
 
 from app.auth.decorators import require_auth, require_role
 from app.models import (
@@ -408,10 +409,23 @@ def signoff_ev(appraisal_id, ev_id):
     from app.modules.workflow.signoffs import (
         compute_ev_fingerprint, ensure_signoffs, signoff_totals,
     )
-    ensure_signoffs(appraisal)
+    try:
+        ensure_signoffs(appraisal)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": "Conferência concorrente — tente novamente",
+        }}), 409
     row = EvSignoff.query.filter_by(
         appraisal_id=appraisal.id, ev_id=ev_uuid,
     ).first()
+    if row is None:
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": ("EV saiu do escopo da conferência durante a "
+                        "requisição — tente novamente"),
+        }}), 409
 
     if row.status != SignoffStatus.DONE:
         row.status = SignoffStatus.DONE
@@ -427,7 +441,10 @@ def signoff_ev(appraisal_id, ev_id):
             new_values={"status": SignoffStatus.DONE.value,
                         "ev_id": str(ev_uuid)},
         )
-        db.session.commit()
+    # Commit sempre: ensure_signoffs pode ter criado linhas PENDING de
+    # OUTROS EVs que precisam persistir mesmo quando esta chamada é no-op
+    # (sem o commit, o teardown da request faz rollback delas).
+    db.session.commit()
 
     return jsonify({"data": {
         "ev_id": str(ev_uuid),
@@ -445,10 +462,23 @@ def reopen_signoff(appraisal_id, ev_id):
         return error
 
     from app.modules.workflow.signoffs import ensure_signoffs, signoff_totals
-    ensure_signoffs(appraisal)
+    try:
+        ensure_signoffs(appraisal)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": "Conferência concorrente — tente novamente",
+        }}), 409
     row = EvSignoff.query.filter_by(
         appraisal_id=appraisal.id, ev_id=ev_uuid,
     ).first()
+    if row is None:
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": ("EV saiu do escopo da conferência durante a "
+                        "requisição — tente novamente"),
+        }}), 409
 
     if row.status == SignoffStatus.DONE:
         row.status = SignoffStatus.PENDING
@@ -462,7 +492,10 @@ def reopen_signoff(appraisal_id, ev_id):
             new_values={"status": SignoffStatus.PENDING.value,
                         "ev_id": str(ev_uuid)},
         )
-        db.session.commit()
+    # Commit sempre: ensure_signoffs pode ter criado linhas PENDING de
+    # OUTROS EVs que precisam persistir mesmo quando esta chamada é no-op
+    # (sem o commit, o teardown da request faz rollback delas).
+    db.session.commit()
 
     return jsonify({"data": {
         "ev_id": str(ev_uuid),

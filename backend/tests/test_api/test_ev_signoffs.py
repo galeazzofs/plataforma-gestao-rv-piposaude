@@ -88,6 +88,8 @@ def test_signoff_and_reopen_roundtrip(client, signoff_setup):
     )
     assert resp.status_code == 200
     assert resp.get_json()["data"]["signoff_totals"]["done"] == 1
+    # no-op não gera nova auditoria
+    assert AuditLog.query.filter_by(table_name="ev_signoffs").count() == 1
 
     # reabrir
     resp = client.delete(
@@ -98,6 +100,36 @@ def test_signoff_and_reopen_roundtrip(client, signoff_setup):
     data = resp.get_json()["data"]
     assert data["signoff"]["status"] == "PENDING"
     assert data["signoff_totals"]["done"] == 0
+    assert AuditLog.query.filter_by(table_name="ev_signoffs").count() == 2
+
+    # reabrir de novo (já PENDING) é no-op: 200, sem nova auditoria
+    resp = client.delete(
+        f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev1.id}",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["data"]["signoff"]["status"] == "PENDING"
+    assert AuditLog.query.filter_by(table_name="ev_signoffs").count() == 2
+
+
+def test_idempotent_noop_still_commits(client, signoff_setup, monkeypatch):
+    """O caminho no-op TEM que commitar: ensure_signoffs pode ter criado
+    linhas de outros EVs que precisam sobreviver ao teardown da request."""
+    admin, ev1, _, _, appraisal, _ = signoff_setup
+    url = f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev1.id}"
+    assert client.post(url, headers=_auth_header(admin)).status_code == 200
+
+    calls = {"n": 0}
+    real_commit = db.session.commit
+
+    def counting_commit(*a, **kw):
+        calls["n"] += 1
+        return real_commit(*a, **kw)
+
+    monkeypatch.setattr(db.session, "commit", counting_commit)
+    resp = client.post(url, headers=_auth_header(admin))  # no-op
+    assert resp.status_code == 200
+    assert calls["n"] >= 1
 
 
 def test_signoff_requires_admin(client, signoff_setup):
