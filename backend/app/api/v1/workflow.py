@@ -185,6 +185,7 @@ def delete_appraisal(appraisal_id):
     # Drop the EV validations first — they FK appraisal_id with no cascade, so
     # the appraisal can't be deleted while any exist (i.e. once released).
     EvValidation.query.filter_by(appraisal_id=appraisal.id).delete()
+    EvSignoff.query.filter_by(appraisal_id=appraisal.id).delete()
 
     # Delete ALL commissions for this month (including is_final when LOCKED)
     Commission.query.filter_by(month=month, year=year).delete()
@@ -529,12 +530,14 @@ def recalculate(appraisal_id):
     from app.modules.commissions.calculator import (
         run_monthly_appraisal, MissingAchievementsError,
     )
+    from app.modules.workflow.signoffs import refresh_signoffs_after_recalc
     try:
         # Missing achievements don't block — they fall back to 0% and surface
         # as a warning in the detail payload (same as the preview).
         run_monthly_appraisal(
             appraisal.month, appraisal.year, validate_achievements=False
         )
+        signoffs_result = refresh_signoffs_after_recalc(appraisal)
         db.session.commit()
     except MissingAchievementsError as e:
         db.session.rollback()
@@ -546,7 +549,10 @@ def recalculate(appraisal_id):
             },
         }), 422
 
-    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+    return jsonify({
+        "data": _serialize_appraisal(appraisal, detail=True),
+        "signoffs": signoffs_result,
+    })
 
 
 @workflow_bp.route("/preview", methods=["POST"])

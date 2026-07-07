@@ -311,3 +311,147 @@ def test_zero_movement_block_shape_matches_real_blocks(client, signoff_setup):
     real, zero = by_id[str(ev1.id)], by_id[str(ev2.id)]
     assert set(real.keys()) - set(zero.keys()) == set()
     assert set(zero.keys()) - set(real.keys()) == {"no_movement"}
+
+
+def test_recalculate_invalidates_changed_signoffs(client, signoff_setup):
+    admin, ev1, ev2, _, appraisal, _ = signoff_setup
+
+    for ev in (ev1, ev2):
+        client.post(
+            f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev.id}",
+            headers=_auth_header(admin),
+        )
+
+    # O recálculo real apaga a Commission da EV1 (não há NF que a recrie),
+    # então o fingerprint dela muda; a EV2 segue vazia (mantida).
+    resp = client.post(
+        f"/api/v1/appraisals/{appraisal.id}/recalculate",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["signoffs"]["invalidated"] == [ev1.name]
+    assert body["signoffs"]["kept"] == 1
+
+    by_id = {s["ev_id"]: s for s in body["data"]["ev_summary"]}
+    assert by_id[str(ev1.id)]["signoff"]["status"] == "PENDING"
+    assert by_id[str(ev1.id)]["signoff"]["values_changed"] is True
+    assert by_id[str(ev2.id)]["signoff"]["status"] == "DONE"
+
+    # Re-conferir limpa o aviso de "valores mudaram" (spec, teste 3d).
+    resp = client.post(
+        f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev1.id}",
+        headers=_auth_header(admin),
+    )
+    signoff = resp.get_json()["data"]["signoff"]
+    assert signoff["status"] == "DONE"
+    assert signoff["values_changed"] is False
+
+
+def test_shared_client_recalc_invalidates_both_evs(client, db_session):
+    """Duas EVs, duas apólices do MESMO cliente. Um Perk novo no cliente
+    muda a base das duas no recálculo → as duas conferências caem. É o
+    cenário que justifica o recálculo global (spec: 'Por que recálculo
+    global e não escopado por EV')."""
+    from app.models import (
+        CommissionPctTable, EvQuarterAchievement, FinancialImport,
+        ImportBatch, Perk,
+    )
+
+    suffix = uuid.uuid4().hex[:8]
+    for seg, mn, mx, pct in [
+        ("P", "0.0000", "0.4999", "0.07"),
+        ("P", "0.5000", "0.9999", "0.08"),
+        ("P", "1.0000", "99.9999", "0.10"),
+    ]:
+        db.session.add(CommissionPctTable(
+            version=1, segment=seg,
+            achievement_min=Decimal(mn), achievement_max=Decimal(mx),
+            commission_pct=Decimal(pct), valid_from=date.today(),
+        ))
+    admin = User(email=f"shc-admin-{suffix}@x", name="Admin",
+                 role=UserRole.ADMIN, active=True)
+    eva = User(email=f"shc-eva-{suffix}@x", name=f"Ana {suffix}",
+               role=UserRole.EV, active=True)
+    evb = User(email=f"shc-evb-{suffix}@x", name=f"Bia {suffix}",
+               role=UserRole.EV, active=True)
+    db.session.add_all([admin, eva, evb])
+    db.session.flush()
+
+    shared_client = Client.find_or_create(f"SharedCo-{suffix}")
+    db.session.flush()
+    for ev, tag, produto in ((eva, "A", BenefitType.SAUDE),
+                             (evb, "B", BenefitType.ODONTO)):
+        db.session.add(Policy(
+            hubspot_ticket_id=f"SHC-{tag}-{suffix}",
+            numero_apolice=f"AP-SHC-{tag}-{suffix}",
+            ev_id=ev.id, client_id=shared_client.id,
+            segment=Segment.P, benefit_type=produto,
+            partner_operator="Amil", closed_date=date(2026, 7, 1),
+        ))
+        db.session.add(EvQuarterAchievement(
+            ev_id=ev.id, quarter=3, year=2026,
+            achievement_pct=Decimal("0.75"),
+        ))
+    db.session.flush()
+
+    batch = ImportBatch(filename="shc.xlsx", uploaded_by=admin.id,
+                        status="CONFIRMED")
+    db.session.add(batch)
+    db.session.flush()
+    for tag, produto in (("A", "Saúde"), ("B", "Odonto")):
+        db.session.add(FinancialImport(
+            import_batch_id=batch.id, month=9, year=2026,
+            nf_valor_liquido=Decimal("1000.00"),
+            nf_mes_recebimento="2026-09",
+            cliente_mae=shared_client.name,
+            operadora="Amil", produto=produto,
+            numero_apolice=f"AP-SHC-{tag}-{suffix}",
+            tipo_receita="Comissão", status_recebimento="RECEBIDO",
+            data_recebimento=date(2026, 9, 10),
+            match_status="UNMATCHED",
+        ))
+    db.session.commit()
+
+    # DRAFT → CALCULATING roda o calculator de verdade e cria os signoffs
+    resp = client.post("/api/v1/appraisals", json={"month": 9, "year": 2026},
+                       headers=_auth_header(admin))
+    assert resp.status_code == 201
+    appraisal_id = resp.get_json()["data"]["id"]
+    resp = client.post(f"/api/v1/appraisals/{appraisal_id}/transition",
+                       json={"to": "CALCULATING"},
+                       headers=_auth_header(admin))
+    assert resp.status_code == 200
+
+    for ev in (eva, evb):
+        resp = client.post(
+            f"/api/v1/appraisals/{appraisal_id}/signoffs/{ev.id}",
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+
+    # Perk novo no cliente compartilhado → recálculo muda a base das DUAS
+    db.session.add(Perk(client_id=shared_client.id, month=9, year=2026,
+                        amount=Decimal("500.00"),
+                        import_batch_id=batch.id))
+    db.session.commit()
+
+    resp = client.post(f"/api/v1/appraisals/{appraisal_id}/recalculate",
+                       headers=_auth_header(admin))
+    assert resp.status_code == 200
+    invalidated = resp.get_json()["signoffs"]["invalidated"]
+    assert sorted(invalidated) == sorted([eva.name, evb.name])
+
+
+def test_delete_appraisal_removes_signoffs(client, signoff_setup):
+    admin, ev1, _, _, appraisal, _ = signoff_setup
+    client.post(
+        f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev1.id}",
+        headers=_auth_header(admin),
+    )
+    assert EvSignoff.query.filter_by(appraisal_id=appraisal.id).count() > 0
+
+    resp = client.delete(f"/api/v1/appraisals/{appraisal.id}",
+                         headers=_auth_header(admin))
+    assert resp.status_code == 200
+    assert EvSignoff.query.filter_by(appraisal_id=appraisal.id).count() == 0
