@@ -789,9 +789,11 @@ def _attach_validation_status(appraisal, detail):
 
 
 def _attach_signoffs(appraisal, detail):
-    """Anota cada bloco de EV com sua conferência e injeta os EVs ativos sem
-    movimento (escopo − quem tem comissão) como blocos zerados, para a lista
-    da conferência cobrir o escopo inteiro. Só o detail da apuração — o
+    """Anota cada bloco de EV com sua conferência e injeta os EVs do escopo
+    sem movimento (membros − quem tem comissão) como blocos zerados, para a
+    lista da conferência cobrir o escopo inteiro. Em CALCULATING os membros
+    vêm do escopo recomputado (roster vivo); fora, a lista congela nas linhas
+    gravadas — mesmo racional do signoff_totals. Só o detail da apuração — o
     preview (que chama _build_period_detail direto) não tem conferência."""
     from app.modules.workflow.signoffs import (
         signoff_scope_ev_ids, signoff_totals,
@@ -801,18 +803,32 @@ def _attach_signoffs(appraisal, detail):
         for s in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all()
     }
     present = {s["ev_id"] for s in detail["ev_summary"]}
-    scope = {
-        str(x) for x in signoff_scope_ev_ids(appraisal.month, appraisal.year)
-    }
+    if appraisal.status == AppraisalStatus.CALCULATING:
+        member_ids = {
+            str(x)
+            for x in signoff_scope_ev_ids(appraisal.month, appraisal.year)
+        }
+    else:
+        # História congelada (mesmo racional do signoff_totals): fora de
+        # CALCULATING a lista vem das linhas gravadas — EV contratado depois
+        # não vira linha fantasma; EV desligado com conferência gravada
+        # continua aparecendo.
+        member_ids = set(rows.keys())
 
-    missing_ids = scope - present
+    missing_ids = member_ids - present
     if missing_ids:
         quarter = (appraisal.month - 1) // 3 + 1
         users = User.query.filter(User.id.in_(list(missing_ids))).all()
+        ach_by_ev = {
+            a.ev_id: a
+            for a in EvQuarterAchievement.query.filter(
+                EvQuarterAchievement.ev_id.in_([u.id for u in users]),
+                EvQuarterAchievement.quarter == quarter,
+                EvQuarterAchievement.year == appraisal.year,
+            ).all()
+        }
         for u in users:
-            ach = EvQuarterAchievement.query.filter_by(
-                ev_id=u.id, quarter=quarter, year=appraisal.year,
-            ).first()
+            ach = ach_by_ev.get(u.id)
             detail["ev_summary"].append({
                 "ev_id": str(u.id),
                 "ev_name": u.name,

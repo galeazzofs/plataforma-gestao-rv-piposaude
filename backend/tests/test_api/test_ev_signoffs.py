@@ -268,3 +268,46 @@ def test_preview_has_no_signoff_fields(client, signoff_setup):
     data = resp.get_json()["data"]
     assert "signoff_totals" not in data
     assert all("signoff" not in s for s in data["ev_summary"])
+
+
+def test_locked_detail_freezes_conference_list(client, signoff_setup):
+    """Fora de CALCULATING a lista da conferência é história congelada:
+    EV nova contratada depois não entra; EV desligada com conferência
+    gravada continua aparecendo — lista e totais no mesmo racional."""
+    admin, ev1, ev2, _, appraisal, _ = signoff_setup
+    for ev in (ev1, ev2):
+        resp = client.post(
+            f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev.id}",
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+
+    appraisal.status = AppraisalStatus.LOCKED
+    ev2.active = False
+    ev2.left_company = True
+    new_ev = User(email=f"soa-ev3-{uuid.uuid4().hex[:8]}@x", name="Nova EV",
+                  role=UserRole.EV, active=True)
+    db.session.add(new_ev)
+    db.session.commit()
+
+    resp = client.get(f"/api/v1/appraisals/{appraisal.id}",
+                      headers=_auth_header(admin))
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    ids = [s["ev_id"] for s in data["ev_summary"]]
+    assert str(new_ev.id) not in ids      # contratada depois do lock: fora
+    assert str(ev2.id) in ids             # desligada com conferência: dentro
+    assert data["signoff_totals"] == {"total": 2, "done": 2,
+                                      "all_done": True}
+
+
+def test_zero_movement_block_shape_matches_real_blocks(client, signoff_setup):
+    """Trava de paridade: o bloco sintético (sem movimento) tem que cobrir
+    todas as chaves do bloco real, para a UI não quebrar em campo faltante."""
+    admin, ev1, ev2, _, appraisal, _ = signoff_setup
+    resp = client.get(f"/api/v1/appraisals/{appraisal.id}",
+                      headers=_auth_header(admin))
+    by_id = {s["ev_id"]: s for s in resp.get_json()["data"]["ev_summary"]}
+    real, zero = by_id[str(ev1.id)], by_id[str(ev2.id)]
+    assert set(real.keys()) - set(zero.keys()) == set()
+    assert set(zero.keys()) - set(real.keys()) == {"no_movement"}
