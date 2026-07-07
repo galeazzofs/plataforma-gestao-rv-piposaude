@@ -669,6 +669,18 @@ def _scope_detail_payload(data, visible_ev_ids):
         counts["all_done"] = counts["total"] > 0 and done == counts["total"]
         data["validation_totals"] = counts
 
+    if "signoff_totals" in data:
+        done = sum(
+            1 for s in ev_summary
+            if (s.get("signoff") or {}).get("status") == "DONE"
+        )
+        total = len(ev_summary)
+        data["signoff_totals"] = {
+            "total": total,
+            "done": done,
+            "all_done": done == total,
+        }
+
     return data
 
 
@@ -713,6 +725,7 @@ def _build_appraisal_detail(appraisal):
     _build_period_detail directly, has no validations."""
     detail = _build_period_detail(appraisal.month, appraisal.year)
     _attach_validation_status(appraisal, detail)
+    _attach_signoffs(appraisal, detail)
     _attach_lider_gate(appraisal, detail)
     return detail
 
@@ -773,6 +786,58 @@ def _attach_validation_status(appraisal, detail):
             p["validation_status"] = by_policy.get((ev["ev_id"], p["policy_id"]))
 
     detail["validation_totals"] = _validation_counts(validations)
+
+
+def _attach_signoffs(appraisal, detail):
+    """Anota cada bloco de EV com sua conferência e injeta os EVs ativos sem
+    movimento (escopo − quem tem comissão) como blocos zerados, para a lista
+    da conferência cobrir o escopo inteiro. Só o detail da apuração — o
+    preview (que chama _build_period_detail direto) não tem conferência."""
+    from app.modules.workflow.signoffs import (
+        signoff_scope_ev_ids, signoff_totals,
+    )
+    rows = {
+        str(s.ev_id): s
+        for s in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all()
+    }
+    present = {s["ev_id"] for s in detail["ev_summary"]}
+    scope = {
+        str(x) for x in signoff_scope_ev_ids(appraisal.month, appraisal.year)
+    }
+
+    missing_ids = scope - present
+    if missing_ids:
+        quarter = (appraisal.month - 1) // 3 + 1
+        users = User.query.filter(User.id.in_(list(missing_ids))).all()
+        for u in users:
+            ach = EvQuarterAchievement.query.filter_by(
+                ev_id=u.id, quarter=quarter, year=appraisal.year,
+            ).first()
+            detail["ev_summary"].append({
+                "ev_id": str(u.id),
+                "ev_name": u.name,
+                "ev_left_company": bool(u.left_company),
+                "no_movement": True,
+                "achievement_pct": (
+                    float(ach.achievement_pct * 100)
+                    if ach and ach.achievement_pct is not None else None
+                ),
+                "policies_count": 0,
+                "nao_apuradas_count": 0,
+                "nf_count": 0,
+                "nf_liquido_total": 0.0,
+                "subsidio_aplicado_total": 0.0,
+                "base_comissionavel_total": 0.0,
+                "total_commission": 0.0,
+                "policies": [],
+                "validation_status": _validation_counts([]),
+            })
+        detail["ev_summary"].sort(key=lambda s: s["ev_name"] or "")
+
+    for ev in detail["ev_summary"]:
+        ev["signoff"] = _serialize_signoff(rows.get(ev["ev_id"]))
+
+    detail["signoff_totals"] = signoff_totals(appraisal)
 
 
 def _build_period_detail(month, year):

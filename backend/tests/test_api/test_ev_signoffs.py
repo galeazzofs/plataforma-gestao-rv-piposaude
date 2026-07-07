@@ -197,3 +197,74 @@ def test_release_gate_via_api(client, signoff_setup):
                        headers=_auth_header(admin))
     assert resp.status_code == 200
     assert resp.get_json()["data"]["status"] == "VALIDATING"
+
+
+def test_detail_payload_includes_signoffs_and_zero_movement(
+    client, signoff_setup,
+):
+    admin, ev1, ev2, _, appraisal, _ = signoff_setup
+
+    client.post(
+        f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev1.id}",
+        headers=_auth_header(admin),
+    )
+
+    resp = client.get(f"/api/v1/appraisals/{appraisal.id}",
+                      headers=_auth_header(admin))
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+
+    assert data["signoff_totals"] == {"total": 2, "done": 1,
+                                      "all_done": False}
+
+    by_id = {s["ev_id"]: s for s in data["ev_summary"]}
+    # EV1 (com comissão): conferida
+    assert by_id[str(ev1.id)]["signoff"]["status"] == "DONE"
+    assert by_id[str(ev1.id)].get("no_movement") is None
+    # EV2 (sem movimento): entra zerada na lista, pendente
+    zero = by_id[str(ev2.id)]
+    assert zero["no_movement"] is True
+    assert zero["total_commission"] == 0.0
+    assert zero["policies"] == []
+    assert zero["signoff"]["status"] == "PENDING"
+    # lista continua ordenada por nome
+    names = [s["ev_name"] for s in data["ev_summary"]]
+    assert names == sorted(names)
+
+
+def test_lider_scoped_view_recomputes_signoff_totals(client, signoff_setup):
+    from app.models import Team
+
+    admin, ev1, ev2, _, appraisal, _ = signoff_setup
+    suffix = uuid.uuid4().hex[:8]
+    lider = User(email=f"soa-lider-{suffix}@x", name="Líder",
+                 role=UserRole.LIDER_VENDAS, active=True)
+    db.session.add(lider)
+    db.session.flush()
+    team = Team(name=f"Time-{suffix}", leader_id=lider.id)
+    db.session.add(team)
+    db.session.flush()
+    lider.team_id = team.id
+    ev1.team_id = team.id           # só a EV1 é do time do líder
+    db.session.commit()
+
+    resp = client.get(f"/api/v1/appraisals/{appraisal.id}",
+                      headers=_auth_header(lider))
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+
+    assert [s["ev_id"] for s in data["ev_summary"]] == [str(ev1.id)]
+    assert data["signoff_totals"] == {"total": 1, "done": 0,
+                                      "all_done": False}
+
+
+def test_preview_has_no_signoff_fields(client, signoff_setup):
+    """O preview roda _build_period_detail direto — sem conferência (spec)."""
+    admin, *_ = signoff_setup
+    resp = client.post("/api/v1/appraisals/preview",
+                       json={"month": 9, "year": 2026},
+                       headers=_auth_header(admin))
+    assert resp.status_code == 200
+    data = resp.get_json()["data"]
+    assert "signoff_totals" not in data
+    assert all("signoff" not in s for s in data["ev_summary"])
