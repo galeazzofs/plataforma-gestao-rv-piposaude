@@ -9,6 +9,7 @@ from app.models.perk import Perk
 from app.models.appraisal import Appraisal, AppraisalStatus
 from app.models.commission_pct_table import CommissionPctTable
 from app.models.ev_validation import EvValidation, ValidationStatus
+from app.models.ev_signoff import EvSignoff, SignoffStatus
 from app.models.notification import Notification
 from app.models.platform_setting import PlatformSetting
 from app.models.audit_log import AuditLog
@@ -31,6 +32,7 @@ __all__ = [
     "Appraisal", "AppraisalStatus",
     "CommissionPctTable",
     "EvValidation", "ValidationStatus",
+    "EvSignoff", "SignoffStatus",
     "Notification",
     "PlatformSetting",
     "AuditLog",
