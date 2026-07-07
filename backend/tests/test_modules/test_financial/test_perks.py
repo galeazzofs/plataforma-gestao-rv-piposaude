@@ -1,5 +1,6 @@
 """Tests for perk_parser + persist_perk_rows (per-year / per-competência)."""
 import uuid
+import zipfile
 from decimal import Decimal
 
 import pytest
@@ -54,6 +55,32 @@ def _make_xlsx(rows, headers=None):
     return path
 
 
+def _make_xlsx_without_dimension(rows, headers=None):
+    """Build an XLSX like Omie exports whose sheet XML omits <dimension/>.
+
+    openpyxl read_only mode then reports ws.max_row/ws.max_column as None, so
+    parsers must stream rows instead of relying on dimensions.
+    """
+    import os
+    import re
+    import tempfile
+
+    src = _make_xlsx(rows, headers=headers)
+    fd, dst = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+
+    with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dst, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                text = data.decode("utf-8")
+                text = re.sub(r"<dimension[^>]*/>", "", text, count=1)
+                data = text.encode("utf-8")
+            zout.writestr(item, data)
+
+    return dst
+
+
 # ── parse_perk_xlsx ──────────────────────────────────────────────────────────
 
 
@@ -67,6 +94,17 @@ class TestParsePerkXlsx:
         assert len(out['rows']) == 2
         assert out['stats']['persistidas'] == 2
         assert out['rows'][0]['amount'] == Decimal('1500')
+
+    def test_parses_streamed_rows_when_sheet_dimension_is_missing(self, admin_user):
+        path = _make_xlsx_without_dimension([
+            ["Acme", -1500.00, "01 - Janeiro", 2026],
+            ["Zup", -2500.00, "02 - Fevereiro", 2026],
+        ], headers=["Cliente Pipo", "Valor", "Mês (Competência)", "Ano"])
+        out = parse_perk_xlsx(path, 2026)
+        assert len(out['rows']) == 2
+        assert out['stats']['persistidas'] == 2
+        assert out['rows'][0]['amount'] == Decimal('1500')
+        assert out['rows'][1]['month'] == 2
 
     def test_keeps_all_months_drops_other_years(self, admin_user):
         path = _make_xlsx([
@@ -128,6 +166,7 @@ class TestPersistPerkRows:
         db.session.commit()
 
         assert out['matched'] == 2
+        assert out['matched_clients'] == 1
         assert out['missed'] == 0
         assert Perk.query.filter_by(month=1, year=2026).count() == 1
         assert Perk.query.filter_by(month=5, year=2026).count() == 1

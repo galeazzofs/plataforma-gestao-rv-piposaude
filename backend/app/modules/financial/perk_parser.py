@@ -116,13 +116,20 @@ def parse_perk_xlsx(filepath, target_year):
         'persistidas': 0,
     }
 
-    def cell(r, field):
+    def cell_from_row(values, field):
         idx = cmap.get(field)
-        return ws.cell(row=r, column=idx).value if idx else None
+        if not idx or idx > len(values):
+            return None
+        return values[idx - 1]
 
-    for r in range(header_row + 1, (ws.max_row or 0) + 1):
-        cliente = cell(r, 'cliente')
-        valor_raw = cell(r, 'valor')
+    data_rows = ws.iter_rows(
+        min_row=header_row + 1,
+        max_col=max_cols,
+        values_only=True,
+    )
+    for r, row_values in enumerate(data_rows, start=header_row + 1):
+        cliente = cell_from_row(row_values, 'cliente')
+        valor_raw = cell_from_row(row_values, 'valor')
 
         if cliente is None and valor_raw is None:
             continue
@@ -155,8 +162,8 @@ def parse_perk_xlsx(filepath, target_year):
             continue
 
         # Parse period
-        ano_raw = cell(r, 'ano')
-        mes_raw = cell(r, 'mes')
+        ano_raw = cell_from_row(row_values, 'ano')
+        mes_raw = cell_from_row(row_values, 'mes')
 
         try:
             year = int(ano_raw) if ano_raw else target_year

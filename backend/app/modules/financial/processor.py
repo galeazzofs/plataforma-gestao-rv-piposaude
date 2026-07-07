@@ -155,6 +155,7 @@ def persist_perk_rows(rows, year, filename, uploaded_by):
     matched = 0
     missed = 0
     skipped_locked = 0
+    matched_client_ids = set()
     missed_clients = set()
     partial_matches = []
 
@@ -195,6 +196,7 @@ def persist_perk_rows(rows, year, filename, uploaded_by):
         )
         db.session.add(perk)
         matched += 1
+        matched_client_ids.add(client.id)
 
     # Audit any partial matches so finance can review later
     if partial_matches:
@@ -214,6 +216,7 @@ def persist_perk_rows(rows, year, filename, uploaded_by):
     return {
         'batch_id': batch.id,
         'matched': matched,
+        'matched_clients': len(matched_client_ids),
         'missed': missed,
         'skipped_locked': skipped_locked,
         'missed_clients': sorted(missed_clients),

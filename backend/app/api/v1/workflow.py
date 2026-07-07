@@ -7,7 +7,7 @@ from app.auth.decorators import require_auth, require_role
 from app.models import (
     Appraisal, AppraisalStatus, UserRole, CommissionStatus,
     Commission, EvQuarterAchievement, FinancialImport, Policy, User,
-    EvValidation, ValidationStatus,
+    EvValidation, ValidationStatus, Perk,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
@@ -657,6 +657,39 @@ def _build_period_detail(month, year):
     for c in commissions:
         by_ev[c.ev_id].append(c)
 
+    policy_nf_totals = {
+        policy_id: sum(
+            (Decimal(str(nf.nf_valor_liquido or 0)) for nf in nfs),
+            Decimal("0"),
+        )
+        for policy_id, nfs in nfs_by_policy.items()
+    }
+    client_nf_totals = defaultdict(Decimal)
+    for policy_id, nf_total in policy_nf_totals.items():
+        policy = policies.get(policy_id)
+        if policy and policy.client_id:
+            client_nf_totals[policy.client_id] += nf_total
+
+    perks_by_client = defaultdict(Decimal)
+    for perk in Perk.query.filter_by(month=month, year=year).all():
+        perks_by_client[perk.client_id] += Decimal(str(perk.amount or 0))
+
+    def _commission_base_breakdown(policy, nf_subtotal):
+        """Mirror calculator.py's client-level perk deduction for review UI."""
+        if policy is None or not policy.client_id:
+            return Decimal("0"), Decimal("0")
+
+        client_total = client_nf_totals.get(policy.client_id, Decimal("0"))
+        client_perks = perks_by_client.get(policy.client_id, Decimal("0"))
+        if client_total <= 0:
+            return Decimal("0"), Decimal("0")
+
+        share = nf_subtotal / client_total
+        net_client = max(Decimal("0"), client_total - client_perks)
+        base = (net_client * share).quantize(Decimal("0.01"))
+        subsidy = (nf_subtotal - base).quantize(Decimal("0.01"))
+        return subsidy, base
+
     # The Por EV view also lets the user filter to the EV's policies that did
     # NOT generate commission this month ("não apuradas"). To explain *why*
     # each one fell out we need, per policy, which match statuses landed in
@@ -731,6 +764,10 @@ def _build_period_detail(month, year):
             if p is None:
                 continue
             nfs = nfs_by_policy.get(p.id, [])
+            nf_subtotal = policy_nf_totals.get(p.id, Decimal("0"))
+            subsidy_applied, commission_base = _commission_base_breakdown(
+                p, nf_subtotal,
+            )
             block = _policy_base(p)
             block.update({
                 "apurada": True,
@@ -742,9 +779,9 @@ def _build_period_detail(month, year):
                     float(c.commission_pct) if c.commission_pct else 0.0
                 ),
                 "subtotal": float(c.total_actual or 0),
-                "nf_liquido_total": float(
-                    sum(nf.nf_valor_liquido for nf in nfs)
-                ) if nfs else 0.0,
+                "nf_liquido_total": float(nf_subtotal) if nfs else 0.0,
+                "subsidio_aplicado": float(subsidy_applied),
+                "base_comissionavel": float(commission_base),
                 "nfs": [
                     {
                         "data_recebimento": (
@@ -771,6 +808,8 @@ def _build_period_detail(month, year):
                 "commission_pct": None,
                 "subtotal": 0.0,
                 "nf_liquido_total": 0.0,
+                "subsidio_aplicado": 0.0,
+                "base_comissionavel": 0.0,
                 "nfs": [],
             })
             nao_apurada_blocks.append(block)
@@ -788,6 +827,12 @@ def _build_period_detail(month, year):
             "nf_count": sum(len(b["nfs"]) for b in policy_blocks),
             "nf_liquido_total": float(
                 sum(b["nf_liquido_total"] for b in policy_blocks)
+            ),
+            "subsidio_aplicado_total": float(
+                sum(b["subsidio_aplicado"] for b in policy_blocks)
+            ),
+            "base_comissionavel_total": float(
+                sum(b["base_comissionavel"] for b in policy_blocks)
             ),
             "total_commission": float(
                 sum(c.total_actual or Decimal("0") for c in ev_commissions)
@@ -840,6 +885,12 @@ def _build_period_detail(month, year):
     totals = {
         "total_commission": sum(s["total_commission"] for s in ev_summary),
         "nf_liquido_total": float(sum(s["nf_liquido_total"] for s in ev_summary)),
+        "subsidio_aplicado_total": float(
+            sum(s["subsidio_aplicado_total"] for s in ev_summary)
+        ),
+        "base_comissionavel_total": float(
+            sum(s["base_comissionavel_total"] for s in ev_summary)
+        ),
         "ev_count": len(ev_summary),
         "left_company_ev_count": sum(
             1 for s in ev_summary if s.get("ev_left_company")

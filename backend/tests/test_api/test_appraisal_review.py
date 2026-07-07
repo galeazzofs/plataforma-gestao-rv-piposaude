@@ -9,7 +9,7 @@ from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, Segment, BenefitType,
     FinancialImport, ImportBatch, Commission, EvQuarterAchievement,
-    Appraisal, AppraisalStatus, CommissionPctTable,
+    Appraisal, AppraisalStatus, CommissionPctTable, Perk,
 )
 from app.auth.jwt_manager import create_access_token
 
@@ -226,6 +226,45 @@ def test_recalculate_runs_calculator_and_returns_detail(client, review_setup):
     assert ev_block["total_commission"] == 60.0  # 1000 * 0.06
     assert len(ev_block["policies"]) == 1
     assert ev_block["policies"][0]["nfs"][0]["nf_liquido"] == 1000.0
+
+
+def test_ev_summary_exposes_subsidy_before_commission_base(client, review_setup):
+    admin, ev, client_obj, policy, appraisal, nf = review_setup
+    batch = ImportBatch(filename="perks.xlsx", uploaded_by=admin.id, status="CONFIRMED")
+    db.session.add(batch)
+    db.session.flush()
+    db.session.add(Perk(
+        client_id=client_obj.id,
+        month=8,
+        year=2026,
+        amount=Decimal("200.00"),
+        import_batch_id=batch.id,
+    ))
+    db.session.commit()
+
+    try:
+        resp = client.post(
+            f"/api/v1/appraisals/{appraisal.id}/recalculate",
+            headers=_auth_header(admin),
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()["data"]
+
+        ev_block = body["ev_summary"][0]
+        policy_block = ev_block["policies"][0]
+        assert ev_block["nf_liquido_total"] == 1000.0
+        assert ev_block["subsidio_aplicado_total"] == 200.0
+        assert ev_block["base_comissionavel_total"] == 800.0
+        assert ev_block["total_commission"] == 48.0
+        assert policy_block["subsidio_aplicado"] == 200.0
+        assert policy_block["base_comissionavel"] == 800.0
+        assert body["totals"]["subsidio_aplicado_total"] == 200.0
+        assert body["totals"]["base_comissionavel_total"] == 800.0
+    finally:
+        Commission.query.filter_by(month=8, year=2026).delete()
+        Perk.query.filter_by(import_batch_id=batch.id).delete()
+        db.session.delete(batch)
+        db.session.commit()
 
 
 def test_ev_summary_exposes_nao_apuradas_and_nf_liquido_total(client, review_setup):

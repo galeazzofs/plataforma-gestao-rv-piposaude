@@ -219,13 +219,32 @@
         (.revokeObjectURL js/URL url)))}
    [layout/icon "download" {:width 12 :height 12}] " Exportar CSV"])
 
-(defn- money-ledger [{:keys [amount nf-total size]}]
+(defn- money-ledger [{:keys [amount nf-total subsidy-total base-total size]}]
   [:div {:class (str "appraisal-money-ledger -" (name (or size :compact)))}
    [:strong.appraisal-money-amount
     (str "R$ " (or (fmt-money amount) "·"))]
-   [:div.appraisal-money-nf
+   [:div.appraisal-money-breakdown
     [:span "NF líquido"]
-    [:b (str "R$ " (or (fmt-money nf-total) "0,00"))]]])
+    [:b (str "R$ " (or (fmt-money nf-total) "0,00"))]
+    (when (pos? (or subsidy-total 0))
+      [:<>
+       [:span "Subsídio"]
+       [:b.appraisal-money-deduction
+        (str "-R$ " (or (fmt-money subsidy-total) "0,00"))]])
+    (when (some? base-total)
+      [:<>
+       [:span "Base"]
+       [:b (str "R$ " (or (fmt-money base-total) "0,00"))]])]])
+
+(defn- commission-base-line [policy]
+  (when (:apurada policy)
+    [:div.appraisal-commission-base-line
+     [:span "Base antes da comissão"]
+     [:b (str "NF R$ " (or (fmt-money (:nf_liquido_total policy)) "0,00"))]
+     [:span "-"]
+     [:b (str "Subsídio R$ " (or (fmt-money (:subsidio_aplicado policy)) "0,00"))]
+     [:span "="]
+     [:b (str "R$ " (or (fmt-money (:base_comissionavel policy)) "0,00"))]]))
 
 ;; ── Policy block (one per Policy under an EV) ─────────────
 
@@ -253,6 +272,8 @@
           (if apurada?
             [money-ledger {:amount (:subtotal policy)
                            :nf-total (:nf_liquido_total policy)
+                           :subsidy-total (:subsidio_aplicado policy)
+                           :base-total (:base_comissionavel policy)
                            :size :policy}]
             [:div.appraisal-policy-reason
              (or (:reason policy) "Não apurada")])]
@@ -267,6 +288,7 @@
                [:div "Atingimento: " (str (or (fmt-pct (:achievement_used_pct policy)) "·") "%")])
              (when apurada?
                [:div "% Comissão: " (str (or (fmt-pct (* 100 (or (:commission_pct policy) 0))) "·") "%")])]
+            [commission-base-line policy]
             (if apurada?
               [:table.table.appraisal-policy-table
                [:thead [:tr [:th "Data"] [:th "Tipo"] [:th.right "NF Líquido"]]]
@@ -332,6 +354,8 @@
                  (or (fmt-pct (:achievement_pct ev)) "·") "%")]]
           [money-ledger {:amount (:total_commission ev)
                          :nf-total (:nf_liquido_total ev)
+                         :subsidy-total (:subsidio_aplicado_total ev)
+                         :base-total (:base_comissionavel_total ev)
                          :size :ev}]]
          (when @open?
            [:div.appraisal-ev-detail
