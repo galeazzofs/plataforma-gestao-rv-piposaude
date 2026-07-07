@@ -104,6 +104,9 @@ def review_setup():
     FinancialImport.query.filter_by(month=8, year=2026).delete()
     EvQuarterAchievement.query.filter_by(ev_id=ev.id).delete()
     db.session.delete(batch)
+    # O recalculate agora cria signoffs (Task 6, 2026-07-07); limpar antes
+    # do delete da apuração para não violar a FK ev_signoffs_appraisal_id.
+    EvSignoff.query.filter_by(appraisal_id=appraisal.id).delete()
     db.session.delete(appraisal)
     Policy.query.filter_by(id=policy.id).delete()
     db.session.delete(client)
