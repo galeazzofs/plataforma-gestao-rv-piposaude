@@ -1,4 +1,6 @@
+import uuid as uuid_lib
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from flask import Blueprint, jsonify, request, g
@@ -7,7 +9,7 @@ from app.auth.decorators import require_auth, require_role
 from app.models import (
     Appraisal, AppraisalStatus, UserRole, CommissionStatus,
     Commission, EvQuarterAchievement, FinancialImport, Policy, User,
-    EvValidation, ValidationStatus, Perk,
+    EvValidation, ValidationStatus, Perk, EvSignoff, SignoffStatus,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
@@ -344,6 +346,129 @@ def resolve_contestation(appraisal_id):
         )
 
     return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+
+
+# ── Conferência por EV (sign-off) — spec 2026-07-07 ──────────────────
+
+
+def _serialize_signoff(row):
+    if row is None:
+        return None
+    return {
+        "status": row.status.value,
+        "values_changed": bool(row.values_changed),
+        "signed_off_by_name": row.signer.name if row.signer else None,
+        "signed_off_at": (
+            row.signed_off_at.isoformat() if row.signed_off_at else None
+        ),
+    }
+
+
+def _signoff_request_guard(appraisal_id, ev_id):
+    """Shared validation for the sign-off routes. Returns
+    (appraisal, ev_uuid, error_response); error_response is None when ok."""
+    appraisal = db.session.get(Appraisal, appraisal_id)
+    if appraisal is None:
+        return None, None, (jsonify({"error": {
+            "code": "NOT_FOUND", "message": "Appraisal not found",
+        }}), 404)
+    if appraisal.status != AppraisalStatus.CALCULATING:
+        return None, None, (jsonify({"error": {
+            "code": "INVALID_STATE",
+            "message": (
+                "Conferência só é permitida em CALCULATING "
+                f"(atual: {appraisal.status.value})"
+            ),
+        }}), 409)
+    try:
+        ev_uuid = uuid_lib.UUID(str(ev_id))
+    except ValueError:
+        return None, None, (jsonify({"error": {
+            "code": "VALIDATION_ERROR", "message": "ev_id inválido",
+        }}), 400)
+
+    from app.modules.workflow.signoffs import signoff_scope_ev_ids
+    scope = signoff_scope_ev_ids(appraisal.month, appraisal.year)
+    if ev_uuid not in scope:
+        return None, None, (jsonify({"error": {
+            "code": "VALIDATION_ERROR",
+            "message": "EV fora do escopo da conferência deste mês",
+        }}), 400)
+    return appraisal, ev_uuid, None
+
+
+@workflow_bp.route("/<appraisal_id>/signoffs/<ev_id>", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def signoff_ev(appraisal_id, ev_id):
+    """RevOps marca a conferência de um EV como DONE. Idempotente."""
+    appraisal, ev_uuid, error = _signoff_request_guard(appraisal_id, ev_id)
+    if error:
+        return error
+
+    from app.modules.workflow.signoffs import (
+        compute_ev_fingerprint, ensure_signoffs, signoff_totals,
+    )
+    ensure_signoffs(appraisal)
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev_uuid,
+    ).first()
+
+    if row.status != SignoffStatus.DONE:
+        row.status = SignoffStatus.DONE
+        row.fingerprint = compute_ev_fingerprint(
+            ev_uuid, appraisal.month, appraisal.year,
+        )
+        row.values_changed = False
+        row.signed_off_by = g.current_user.id
+        row.signed_off_at = datetime.now(timezone.utc)
+        log_audit(
+            "ev_signoffs", row.id, "UPDATE",
+            old_values={"status": SignoffStatus.PENDING.value},
+            new_values={"status": SignoffStatus.DONE.value,
+                        "ev_id": str(ev_uuid)},
+        )
+        db.session.commit()
+
+    return jsonify({"data": {
+        "ev_id": str(ev_uuid),
+        "signoff": _serialize_signoff(row),
+        "signoff_totals": signoff_totals(appraisal),
+    }})
+
+
+@workflow_bp.route("/<appraisal_id>/signoffs/<ev_id>", methods=["DELETE"])
+@require_role(UserRole.ADMIN)
+def reopen_signoff(appraisal_id, ev_id):
+    """RevOps reabre a conferência de um EV (DONE → PENDING). Idempotente."""
+    appraisal, ev_uuid, error = _signoff_request_guard(appraisal_id, ev_id)
+    if error:
+        return error
+
+    from app.modules.workflow.signoffs import ensure_signoffs, signoff_totals
+    ensure_signoffs(appraisal)
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev_uuid,
+    ).first()
+
+    if row.status == SignoffStatus.DONE:
+        row.status = SignoffStatus.PENDING
+        row.fingerprint = None
+        row.values_changed = False
+        row.signed_off_by = None
+        row.signed_off_at = None
+        log_audit(
+            "ev_signoffs", row.id, "UPDATE",
+            old_values={"status": SignoffStatus.DONE.value},
+            new_values={"status": SignoffStatus.PENDING.value,
+                        "ev_id": str(ev_uuid)},
+        )
+        db.session.commit()
+
+    return jsonify({"data": {
+        "ev_id": str(ev_uuid),
+        "signoff": _serialize_signoff(row),
+        "signoff_totals": signoff_totals(appraisal),
+    }})
 
 
 @workflow_bp.route("/<appraisal_id>/recalculate", methods=["POST"])
