@@ -90,7 +90,43 @@ def test_fingerprint_stable_and_sensitive(db_session):
 
     comm.total_actual = Decimal("81.00")
     db.session.flush()
-    assert compute_ev_fingerprint(ev.id, 9, 2026) != with_comm
+    after_total = compute_ev_fingerprint(ev.id, 9, 2026)
+    assert after_total != with_comm
+
+    comm.commission_pct = Decimal("0.10")
+    db.session.flush()
+    after_pct = compute_ev_fingerprint(ev.id, 9, 2026)
+    assert after_pct != after_total
+
+    comm.achievement_pct = Decimal("1.00")
+    db.session.flush()
+    assert compute_ev_fingerprint(ev.id, 9, 2026) != after_pct
+
+
+def test_fingerprint_survives_db_roundtrip(db_session):
+    """O fingerprint da conferência (calculado sobre objetos in-memory ou
+    lidos do banco) tem que bater: NUMERIC devolve Decimal em escala de
+    coluna (0.0800), o calculator atribui em escala própria (0.08)."""
+    suffix = uuid.uuid4().hex[:8]
+    admin, ev, _ = _mk_users(suffix)
+    # Referência forte obrigatória: o identity map guarda weak refs, e sem
+    # ela o objeto in-memory (0.08) é coletado e o fingerprint do sign-off
+    # releria do banco (0.0800) — o teste deixaria de exercer o mismatch.
+    _, comm = _mk_commission(ev, suffix)
+    appraisal = _mk_appraisal(admin)
+    ensure_signoffs(appraisal)
+
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev.id,
+    ).first()
+    row.status = SignoffStatus.DONE
+    row.fingerprint = compute_ev_fingerprint(ev.id, 9, 2026)
+    db.session.commit()
+    db.session.expire_all()
+
+    appraisal = Appraisal.query.filter_by(month=9, year=2026).first()
+    result = refresh_signoffs_after_recalc(appraisal)
+    assert result == {"invalidated": [], "kept": 1}
 
 
 def test_ensure_signoffs_idempotent(db_session):
@@ -137,6 +173,32 @@ def test_refresh_keeps_unchanged_and_invalidates_changed(db_session):
     assert row.fingerprint is None
     assert row.signed_off_by is None
     assert row.signed_off_at is None
+
+
+def test_refresh_ignores_orphan_done_rows(db_session):
+    """Linha DONE de EV que saiu do escopo é história congelada: o refresh
+    não re-hasheia, não invalida e não lista no toast."""
+    suffix = uuid.uuid4().hex[:8]
+    admin, ev, _ = _mk_users(suffix)
+    _, comm = _mk_commission(ev, suffix)
+    appraisal = _mk_appraisal(admin)
+    ensure_signoffs(appraisal)
+
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev.id,
+    ).first()
+    row.status = SignoffStatus.DONE
+    row.fingerprint = compute_ev_fingerprint(ev.id, 9, 2026)
+    db.session.flush()
+
+    # EV sai do escopo (inativa) e o valor dela muda — mesmo assim, intocada.
+    ev.active = False
+    db.session.delete(comm)
+    db.session.flush()
+
+    result = refresh_signoffs_after_recalc(appraisal)
+    assert result == {"invalidated": [], "kept": 0}
+    assert row.status == SignoffStatus.DONE
 
 
 def test_pending_and_totals(db_session):

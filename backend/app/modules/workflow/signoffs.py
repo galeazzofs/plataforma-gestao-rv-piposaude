@@ -11,6 +11,7 @@ obsoleto (spec 2026-07-07).
 """
 import hashlib
 import json
+from decimal import Decimal
 
 from app.extensions import db
 from app.models import (
@@ -40,18 +41,32 @@ def signoff_scope_ev_ids(month, year):
     return active | with_commission
 
 
+# Quanta das colunas NUMERIC (total_actual 12,2; pcts 8,4). O hash tem que
+# sair idêntico quer as linhas venham do banco (Decimal na escala da coluna,
+# ex. 0.0800) quer tenham acabado de ser atribuídas em memória pelo
+# calculator (0.08) — str(Decimal) distingue as duas escalas, então
+# normalizamos com quantize antes de serializar.
+_Q_MONEY = Decimal("0.01")
+_Q_PCT = Decimal("0.0001")
+
+
+def _canon(value, quantum):
+    return str((value if value is not None else Decimal(0)).quantize(quantum))
+
+
 def compute_ev_fingerprint(ev_id, month, year):
-    """sha256 dos valores de comissão do EV no mês. Decimals serializados
-    como str — float tornaria o hash instável entre runs idênticos."""
+    """sha256 dos valores de comissão do EV no mês. Decimals normalizados
+    para a escala da coluna e serializados como str — float tornaria o
+    hash instável entre runs idênticos."""
     rows = Commission.query.filter_by(
         ev_id=ev_id, month=month, year=year,
     ).all()
     payload = sorted(
         [
             str(c.policy_id),
-            str(c.total_actual or 0),
-            str(c.commission_pct or 0),
-            str(c.achievement_pct or 0),
+            _canon(c.total_actual, _Q_MONEY),
+            _canon(c.commission_pct, _Q_PCT),
+            _canon(c.achievement_pct, _Q_PCT),
         ]
         for c in rows
     )
@@ -82,15 +97,20 @@ def ensure_signoffs(appraisal):
 
 
 def refresh_signoffs_after_recalc(appraisal):
-    """Re-hasheia cada linha DONE após um recálculo; volta para PENDING as
-    que mudaram (values_changed=True). Retorna
+    """Re-hasheia cada linha DONE do escopo após um recálculo; volta para
+    PENDING as que mudaram (values_changed=True). Retorna
     {"invalidated": [nomes ordenados], "kept": n} para o toast do frontend."""
     ensure_signoffs(appraisal)
+    scope = signoff_scope_ev_ids(appraisal.month, appraisal.year)
     invalidated, kept = [], 0
     rows = EvSignoff.query.filter_by(
         appraisal_id=appraisal.id, status=SignoffStatus.DONE,
     ).all()
     for row in rows:
+        # Linha DONE de EV fora do escopo é história congelada: não
+        # re-hasheia nem invalida (o gate e os totais já a ignoram).
+        if row.ev_id not in scope:
+            continue
         new_fp = compute_ev_fingerprint(
             row.ev_id, appraisal.month, appraisal.year,
         )
