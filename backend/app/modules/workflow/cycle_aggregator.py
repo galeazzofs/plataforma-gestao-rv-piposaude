@@ -73,9 +73,12 @@ def _ev_apuracao_status(month: int, year: int) -> dict:
         "has_contestation": bool(getattr(appraisal, "has_contestation", False)),
     }
     if appraisal.status == AppraisalStatus.CALCULATING:
-        # Progresso da conferência por EV — só faz sentido enquanto o
-        # RevOps está conferindo; depois o escopo recomputado viraria
-        # história reescrita (mesmo racional do expected em ciclos LOCKED).
+        # Restrito ao CALCULATING para o step-summary do trilho poder tratar
+        # signoffs_total truthy como "há conferência em andamento" — depois
+        # da conferência esses números ficariam positivos para sempre e
+        # esconderiam o contador de validações dos passos seguintes.
+        # (signoff_totals em si é seguro em qualquer status — já congela
+        # nas linhas gravadas fora do CALCULATING.)
         from app.modules.workflow.signoffs import signoff_totals
         totals = signoff_totals(appraisal)
         payload["signoffs_total"] = totals["total"]
