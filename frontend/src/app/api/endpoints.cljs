@@ -25,6 +25,8 @@
 (def appraisals (fn [] "/appraisals"))
 (def appraisal-detail (fn [id] (str "/appraisals/" id)))
 (def appraisal-recalculate (fn [id] (str "/appraisals/" id "/recalculate")))
+(def appraisal-signoff
+  (fn [id ev-id] (str "/appraisals/" id "/signoffs/" ev-id)))
 (def appraisal-preview "/appraisals/preview")
 
 ;; Achievements (per EV per quarter — manual editor)
