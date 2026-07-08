@@ -121,6 +121,54 @@
       [:span.badge.badge-pending
        (str (:done vs) "/" (:total vs) " aprovadas")])))
 
+;; ── Conferência por EV (sign-off) — helpers puros ─────────
+
+(defn signoff-status
+  "Estado efetivo da conferência de um bloco de EV:
+   :done / :changed / :pending / nil (payload sem conferência)."
+  [ev]
+  (let [s (:signoff ev)]
+    (cond
+      (nil? s)                nil
+      (= "DONE" (:status s))  :done
+      (:values_changed s)     :changed
+      :else                   :pending)))
+
+(defn signoff-progress
+  "{:total n :done m :all-done? bool} a partir do signoff_totals."
+  [appraisal]
+  (let [{:keys [total done all_done]} (:signoff_totals appraisal)]
+    {:total (or total 0) :done (or done 0) :all-done? (boolean all_done)}))
+
+(defn conference-active?
+  "A esteira de conferência só aparece durante o CALCULATING (depois vira
+   histórico read-only nos badges)."
+  [appraisal]
+  (and (= "CALCULATING" (:status appraisal))
+       (some? (:signoff_totals appraisal))))
+
+(defn sort-evs-for-conference
+  "Pendentes (incl. ⚠ valores mudaram) primeiro; alfabético dentro do grupo."
+  [evs]
+  (sort-by (fn [ev] [(if (= :done (signoff-status ev)) 1 0)
+                     (or (:ev_name ev) "")])
+           evs))
+
+(defn filter-evs-by-signoff [evs filter-k]
+  (case filter-k
+    :pendentes  (remove #(= :done (signoff-status %)) evs)
+    :conferidos (filter #(= :done (signoff-status %)) evs)
+    evs))
+
+(defn release-blocked?
+  "true quando o Liberar para EVs deve ficar desabilitado: CALCULATING com
+   conferências pendentes. O servidor também bloqueia (defesa em camadas)."
+  [appraisal]
+  (let [{:keys [total done]} (signoff-progress appraisal)]
+    (and (= "CALCULATING" (:status appraisal))
+         (pos? total)
+         (< done total))))
+
 (defn- lider-gate-callout
   "Shown when a fully-or-partly validated appraisal is held in VALIDATING
   because a required líder hasn't validated their own quarterly appraisal —
