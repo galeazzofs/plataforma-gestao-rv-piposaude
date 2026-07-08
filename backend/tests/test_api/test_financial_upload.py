@@ -1,6 +1,7 @@
 """End-to-end test for the financial upload endpoint (per-year ingestion)."""
 import io
 import uuid
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -117,7 +118,48 @@ def test_upload_rejects_non_xlsx(client, admin):
     assert resp.status_code == 400
 
 
+def test_upload_perks_csv_us_format_persists_intact_amounts(client, admin):
+    """End-to-end: a US-format Omie CSV is accepted by /upload-perks, parsed,
+    matched to a Client by name, and persisted WITHOUT the BR-format ~1000x
+    shrink — both OLX rows land at their real magnitudes."""
+    c = Client(name="OLX", name_normalized="olx")
+    db.session.add(c)
+    db.session.commit()
+
+    csv_bytes = (
+        "Cliente Pipo,Tipo Subsídio,Fornecedor,Ano,Mês (Competência),Valor,OBS\n"
+        'OLX,Academia,FOO,2026,01 - Janeiro,"(22,771.59)",GYMPASS\n'
+        'OLX,Cesta Natal,FOO,2026,01 - Janeiro,"(16,666.67)",BRINDES\n'
+    ).encode("utf-8")
+
+    resp = client.post(
+        "/api/v1/financial/upload-perks",
+        data={"file": (io.BytesIO(csv_bytes), "Omie Output.csv"), "year": "2026"},
+        content_type="multipart/form-data",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 201, resp.get_json()
+    body = resp.get_json()["data"]
+    assert body["matched"] == 2
+    assert body["missed"] == 0
+    perks = Perk.query.filter_by(client_id=c.id, month=1, year=2026).all()
+    assert {p.amount for p in perks} == {Decimal("22771.59"), Decimal("16666.67")}
+
+
+def test_upload_perks_rejects_unsupported_extension(client, admin):
+    resp = client.post(
+        "/api/v1/financial/upload-perks",
+        data={"file": (io.BytesIO(b"hello"), "notes.txt"), "year": "2026"},
+        content_type="multipart/form-data",
+        headers=_auth_header(admin),
+    )
+    assert resp.status_code == 400
+
+
 def test_upload_perks_returns_unique_matched_client_count(client, admin):
+    """matched conta linhas persistidas; matched_clients conta CLIENTES
+    distintos — duas linhas do mesmo cliente devem reportar 1 cliente."""
     db.session.add(Client(name="Acme Corp", name_normalized="acme corp"))
     db.session.commit()
     file_bytes = _xlsx_bytes(
