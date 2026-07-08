@@ -366,9 +366,12 @@
  :revops/recalculated
  (fn [_ [_ id resp]]
    (let [invalidated (get-in resp [:signoffs :invalidated])
+         shown       (take 5 invalidated)
+         more        (- (count invalidated) (count shown))
          msg (if (seq invalidated)
                (str "Recalculado. Conferências invalidadas: "
-                    (clojure.string/join ", " invalidated))
+                    (clojure.string/join ", " shown)
+                    (when (pos? more) (str " (+" more ")")))
                "Recalculado!")]
      {:dispatch-n [[:revops/fetch-appraisal-detail id]
                    [:ui/show-toast {:type :success :message msg}]]})))
