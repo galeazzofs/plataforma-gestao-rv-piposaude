@@ -7,6 +7,25 @@
 (defn api-url [path]
   (str config/api-base-url path))
 
+;; ── Extração de erros de respostas de falha do :http fx ─────────────
+;;
+;; Os dois transportes entregam shapes diferentes no on-failure: o caminho
+;; JSON (ajax-request/cljs-ajax) aninha o body parseado em :response
+;; ({:status .. :failure .. :response {:error ..}}), enquanto o caminho
+;; multipart (fetch-multipart!) entrega o body direto ({:error ..}).
+;; Handlers devem sempre passar por aqui em vez de ler [:error ..] direto.
+
+(defn error-body
+  "Body de erro parseado de uma resposta de falha do :http fx, aceitando
+  o shape dos dois transportes (ajax aninhado / multipart direto)."
+  [resp]
+  (or (:response resp) resp))
+
+(defn error-message
+  "Mensagem do envelope de erro de uma falha do :http fx, com fallback."
+  [resp fallback]
+  (or (get-in (error-body resp) [:error :message]) fallback))
+
 ;; Raw token subscription — used internally by the :http effect
 (rf/reg-sub
  :auth/access-token-raw

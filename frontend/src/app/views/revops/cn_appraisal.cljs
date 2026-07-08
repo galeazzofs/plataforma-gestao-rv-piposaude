@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [app.api.client :as client]
             [app.api.endpoints :as ep]
             [app.views.cn.calc :as calc]
             [app.ds.layout :as layout]
@@ -70,7 +71,8 @@
 (rf/reg-event-db
  :revops/cn-appraisal-run-error
  (fn [db [_ response]]
-   (assoc-in db [:admin :cn-appraisal-run-error] (:error response))))
+   (assoc-in db [:admin :cn-appraisal-run-error]
+             (:error (client/error-body response)))))
 
 (rf/reg-event-fx
  :revops/finalize-cn-appraisal
