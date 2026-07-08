@@ -20,10 +20,12 @@ from app.extensions import db
 from app.models import (
     User, UserRole, Policy, Client, Segment, BenefitType,
     FinancialImport, ImportBatch, Commission, EvQuarterAchievement,
-    Appraisal, AppraisalStatus, EvValidation, ValidationStatus,
-    Team, CommissionPctTable, LiderVendasQuarterAppraisal, AuditLog,
+    Appraisal, AppraisalStatus, EvSignoff, EvValidation, SignoffStatus,
+    ValidationStatus, Team, CommissionPctTable, LiderVendasQuarterAppraisal,
+    AuditLog,
 )
 from app.auth.jwt_manager import create_access_token
+from app.modules.workflow.signoffs import compute_ev_fingerprint, ensure_signoffs
 
 MONTH, YEAR, QUARTER = 5, 2027, 2  # Q2/2027 — isolated from other tests' periods
 
@@ -121,6 +123,10 @@ def lifecycle_setup():
     ap = Appraisal.query.filter_by(month=MONTH, year=YEAR).first()
     if ap:
         EvValidation.query.filter_by(appraisal_id=ap.id).delete()
+        # The CALCULATING transition now also seeds EvSignoff rows for the
+        # scope (Task 3, 2026-07-07); clear them before deleting the
+        # appraisal to avoid an FK violation.
+        EvSignoff.query.filter_by(appraisal_id=ap.id).delete()
     Commission.query.filter_by(month=MONTH, year=YEAR).delete()
     LiderVendasQuarterAppraisal.query.filter_by(quarter=QUARTER, year=YEAR).delete()
     FinancialImport.query.filter_by(month=MONTH, year=YEAR).delete()
@@ -172,6 +178,19 @@ def _approve_all_as(client, ev):
     return approved
 
 
+def _sign_off_all_evs(aid):
+    """Gate de conferência (Task 3, 2026-07-07): marca DONE o sign-off de
+    todo EV do escopo para liberar CALCULATING → VALIDATING via API."""
+    appraisal = db.session.get(Appraisal, aid)
+    ensure_signoffs(appraisal)
+    for sig in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all():
+        sig.status = SignoffStatus.DONE
+        sig.fingerprint = compute_ev_fingerprint(
+            sig.ev_id, appraisal.month, appraisal.year,
+        )
+    db.session.flush()
+
+
 @patch("slack_sdk.WebClient.chat_postMessage", MagicMock(return_value={"ok": True}))
 def test_lider_approve_sends_team_appraisal_to_revops(client, lifecycle_setup):
     """The líder's direct 'Aprovar apuração' button: blocked until every team EV
@@ -184,6 +203,7 @@ def test_lider_approve_sends_team_appraisal_to_revops(client, lifecycle_setup):
                       headers=_auth(admin)).get_json()["data"]["id"]
     client.post(f"/api/v1/appraisals/{aid}/transition",
                 json={"to": "CALCULATING"}, headers=_auth(admin))
+    _sign_off_all_evs(aid)
     client.post(f"/api/v1/appraisals/{aid}/transition",
                 json={"to": "VALIDATING"}, headers=_auth(admin))
 
@@ -234,6 +254,7 @@ def test_full_apuracao_lifecycle_create_to_locked(client, lifecycle_setup):
     assert Commission.query.filter_by(month=MONTH, year=YEAR).count() == 24
 
     # 3. VALIDATING — creates one EvValidation per commissioned policy.
+    _sign_off_all_evs(aid)
     resp = client.post(f"/api/v1/appraisals/{aid}/transition",
                        json={"to": "VALIDATING"}, headers=_auth(admin))
     assert resp.status_code == 200, resp.get_json()

@@ -222,6 +222,7 @@ def upload_perks():
                 "batch_id": str(result['batch_id']),
                 "year": year,
                 "matched": result['matched'],
+                "matched_clients": result['matched_clients'],
                 "missed": result['missed'],
                 "skipped_locked": result['skipped_locked'],
                 "missed_clients": result['missed_clients'],

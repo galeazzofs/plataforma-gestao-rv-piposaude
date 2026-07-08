@@ -21,6 +21,20 @@ def _auth_header(user):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _xlsx_bytes(headers, rows):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out.getvalue()
+
+
 @pytest.fixture
 def admin():
     suffix = uuid.uuid4().hex[:8]
@@ -141,3 +155,34 @@ def test_upload_perks_rejects_unsupported_extension(client, admin):
         headers=_auth_header(admin),
     )
     assert resp.status_code == 400
+
+
+def test_upload_perks_returns_unique_matched_client_count(client, admin):
+    """matched conta linhas persistidas; matched_clients conta CLIENTES
+    distintos — duas linhas do mesmo cliente devem reportar 1 cliente."""
+    db.session.add(Client(name="Acme Corp", name_normalized="acme corp"))
+    db.session.commit()
+    file_bytes = _xlsx_bytes(
+        ["Cliente Pipo", "Valor", "Mês (Competência)", "Ano"],
+        [
+            ["Acme Corp", -1000, "01 - Janeiro", 2026],
+            ["Acme Corp", -500, "02 - Fevereiro", 2026],
+        ],
+    )
+
+    resp = client.post(
+        "/api/v1/financial/upload-perks",
+        data={
+            "file": (io.BytesIO(file_bytes), "perks.xlsx"),
+            "year": "2026",
+        },
+        content_type="multipart/form-data",
+        headers=_auth_header(admin),
+    )
+
+    assert resp.status_code == 201, resp.get_json()
+    body = resp.get_json()["data"]
+    assert body["matched"] == 2
+    assert body["matched_clients"] == 1
+    assert body["missed"] == 0
+    assert Perk.query.filter_by(year=2026).count() == 2

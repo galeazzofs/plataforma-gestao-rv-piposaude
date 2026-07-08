@@ -1100,14 +1100,23 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
 }
 .appraisal-money-ledger.-ev .appraisal-money-amount{font-size:18px}
 .appraisal-money-ledger.-policy .appraisal-money-amount{font-size:13px}
-.appraisal-money-nf{
+.appraisal-money-breakdown{
   display:grid;grid-template-columns:auto auto;align-items:baseline;gap:8px;
   padding-top:5px;border-top:1px solid var(--border-subtle);
   font-family:var(--font-mono);font-size:11px;line-height:1;color:var(--fg-3);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
 }
-.appraisal-money-nf b{font-weight:700;color:var(--fg-2);white-space:nowrap}
-.appraisal-money-ledger.-policy .appraisal-money-nf{font-size:10.5px}
+.appraisal-money-breakdown b{font-weight:700;color:var(--fg-2);white-space:nowrap}
+.appraisal-money-deduction{color:var(--fg-1)!important}
+.appraisal-money-ledger.-policy .appraisal-money-breakdown{font-size:10.5px}
+.appraisal-commission-base-line{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin:0 0 10px;padding:9px 10px;background:var(--bg-2);
+  border:1px solid var(--border-subtle);border-radius:var(--r-sm);
+  font-family:var(--font-mono);font-size:11px;color:var(--fg-3);
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+}
+.appraisal-commission-base-line b{font-weight:700;color:var(--fg-1)}
 .appraisal-review-brief{
   display:grid;grid-template-columns:minmax(220px,0.9fr) minmax(0,1.6fr);gap:20px;align-items:stretch;
 }
@@ -1442,7 +1451,7 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   .appraisal-table-toolbar{justify-content:flex-start}
   .appraisal-review-row-button{flex-direction:column;align-items:stretch!important}
   .appraisal-money-ledger{align-items:flex-start;text-align:left;min-width:0;width:100%}
-  .appraisal-money-nf{width:100%;justify-content:space-between}
+  .appraisal-money-breakdown{width:100%;justify-content:space-between}
   .appraisal-ev-button{padding:14px 16px}
   .appraisal-policy-button{padding:12px}
   .appraisal-ev-detail{padding:0 14px 14px}
@@ -2458,4 +2467,41 @@ button.appraisal-period-cell:hover{box-shadow:var(--shadow-hover);background:var
   .policies-overdrive .chip .chip-count{transition:none}
   .policies-overdrive .ledger-row[data-saved="true"],
   .policies-overdrive .ledger-row[data-status-flash="true"] .badge{animation:none}
+}
+
+/* ── Conferência EV por EV (sign-off band) ───────────────── */
+.appraisal-signoff-band {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+.appraisal-signoff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.appraisal-signoff-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+.appraisal-signoff-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-3, #222);
+  overflow: hidden;
+}
+.appraisal-signoff-progress-fill {
+  height: 100%;
+  background: var(--accent, #4f7cff);
+  transition: width 0.2s ease;
+}
+.appraisal-signoff-actions {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 10px;
 }

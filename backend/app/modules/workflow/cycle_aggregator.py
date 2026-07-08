@@ -65,13 +65,25 @@ def _ev_apuracao_status(month: int, year: int) -> dict:
             ValidationStatus.RESOLVED,
         )
     )
-    return {
+    payload = {
         "status": appraisal.status.value,
         "appraisal_id": str(appraisal.id),
         "validations_total": len(validations),
         "validations_done": done,
         "has_contestation": bool(getattr(appraisal, "has_contestation", False)),
     }
+    if appraisal.status == AppraisalStatus.CALCULATING:
+        # Restrito ao CALCULATING para o step-summary do trilho poder tratar
+        # signoffs_total truthy como "há conferência em andamento" — depois
+        # da conferência esses números ficariam positivos para sempre e
+        # esconderiam o contador de validações dos passos seguintes.
+        # (signoff_totals em si é seguro em qualquer status — já congela
+        # nas linhas gravadas fora do CALCULATING.)
+        from app.modules.workflow.signoffs import signoff_totals
+        totals = signoff_totals(appraisal)
+        payload["signoffs_total"] = totals["total"]
+        payload["signoffs_done"] = totals["done"]
+    return payload
 
 
 def _summarize_status_set(statuses: list) -> str:

@@ -1,13 +1,16 @@
+import uuid as uuid_lib
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from flask import Blueprint, jsonify, request, g
+from sqlalchemy.exc import IntegrityError
 
 from app.auth.decorators import require_auth, require_role
 from app.models import (
     Appraisal, AppraisalStatus, UserRole, CommissionStatus,
     Commission, EvQuarterAchievement, FinancialImport, Policy, User,
-    EvValidation, ValidationStatus,
+    EvValidation, ValidationStatus, Perk, EvSignoff, SignoffStatus,
 )
 from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
@@ -179,9 +182,11 @@ def delete_appraisal(appraisal_id):
 
     month, year = appraisal.month, appraisal.year
 
-    # Drop the EV validations first — they FK appraisal_id with no cascade, so
-    # the appraisal can't be deleted while any exist (i.e. once released).
+    # Drop the EV validations and sign-offs first — they FK appraisal_id with
+    # no cascade, so the appraisal can't be deleted while any exist (i.e. once
+    # released / once the conferência seeded its rows).
     EvValidation.query.filter_by(appraisal_id=appraisal.id).delete()
+    EvSignoff.query.filter_by(appraisal_id=appraisal.id).delete()
 
     # Delete ALL commissions for this month (including is_final when LOCKED)
     Commission.query.filter_by(month=month, year=year).delete()
@@ -346,6 +351,161 @@ def resolve_contestation(appraisal_id):
     return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
 
 
+# ── Conferência por EV (sign-off) — spec 2026-07-07 ──────────────────
+
+
+def _serialize_signoff(row):
+    if row is None:
+        return None
+    return {
+        "status": row.status.value,
+        "values_changed": bool(row.values_changed),
+        "signed_off_by_name": row.signer.name if row.signer else None,
+        "signed_off_at": (
+            row.signed_off_at.isoformat() if row.signed_off_at else None
+        ),
+    }
+
+
+def _signoff_request_guard(appraisal_id, ev_id):
+    """Shared validation for the sign-off routes. Returns
+    (appraisal, ev_uuid, error_response); error_response is None when ok."""
+    appraisal = db.session.get(Appraisal, appraisal_id)
+    if appraisal is None:
+        return None, None, (jsonify({"error": {
+            "code": "NOT_FOUND", "message": "Appraisal not found",
+        }}), 404)
+    if appraisal.status != AppraisalStatus.CALCULATING:
+        return None, None, (jsonify({"error": {
+            "code": "INVALID_STATE",
+            "message": (
+                "Conferência só é permitida em CALCULATING "
+                f"(atual: {appraisal.status.value})"
+            ),
+        }}), 409)
+    try:
+        ev_uuid = uuid_lib.UUID(str(ev_id))
+    except ValueError:
+        return None, None, (jsonify({"error": {
+            "code": "VALIDATION_ERROR", "message": "ev_id inválido",
+        }}), 400)
+
+    from app.modules.workflow.signoffs import signoff_scope_ev_ids
+    scope = signoff_scope_ev_ids(appraisal.month, appraisal.year)
+    if ev_uuid not in scope:
+        return None, None, (jsonify({"error": {
+            "code": "VALIDATION_ERROR",
+            "message": "EV fora do escopo da conferência deste mês",
+        }}), 400)
+    return appraisal, ev_uuid, None
+
+
+@workflow_bp.route("/<appraisal_id>/signoffs/<ev_id>", methods=["POST"])
+@require_role(UserRole.ADMIN)
+def signoff_ev(appraisal_id, ev_id):
+    """RevOps marca a conferência de um EV como DONE. Idempotente."""
+    appraisal, ev_uuid, error = _signoff_request_guard(appraisal_id, ev_id)
+    if error:
+        return error
+
+    from app.modules.workflow.signoffs import (
+        compute_ev_fingerprint, ensure_signoffs, signoff_totals,
+    )
+    try:
+        ensure_signoffs(appraisal)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": "Conferência concorrente — tente novamente",
+        }}), 409
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev_uuid,
+    ).first()
+    if row is None:
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": ("EV saiu do escopo da conferência durante a "
+                        "requisição — tente novamente"),
+        }}), 409
+
+    if row.status != SignoffStatus.DONE:
+        row.status = SignoffStatus.DONE
+        row.fingerprint = compute_ev_fingerprint(
+            ev_uuid, appraisal.month, appraisal.year,
+        )
+        row.values_changed = False
+        row.signed_off_by = g.current_user.id
+        row.signed_off_at = datetime.now(timezone.utc)
+        log_audit(
+            "ev_signoffs", row.id, "UPDATE",
+            old_values={"status": SignoffStatus.PENDING.value},
+            new_values={"status": SignoffStatus.DONE.value,
+                        "ev_id": str(ev_uuid)},
+        )
+    # Commit sempre: ensure_signoffs pode ter criado linhas PENDING de
+    # OUTROS EVs que precisam persistir mesmo quando esta chamada é no-op
+    # (sem o commit, o teardown da request faz rollback delas).
+    db.session.commit()
+
+    return jsonify({"data": {
+        "ev_id": str(ev_uuid),
+        "signoff": _serialize_signoff(row),
+        "signoff_totals": signoff_totals(appraisal),
+    }})
+
+
+@workflow_bp.route("/<appraisal_id>/signoffs/<ev_id>", methods=["DELETE"])
+@require_role(UserRole.ADMIN)
+def reopen_signoff(appraisal_id, ev_id):
+    """RevOps reabre a conferência de um EV (DONE → PENDING). Idempotente."""
+    appraisal, ev_uuid, error = _signoff_request_guard(appraisal_id, ev_id)
+    if error:
+        return error
+
+    from app.modules.workflow.signoffs import ensure_signoffs, signoff_totals
+    try:
+        ensure_signoffs(appraisal)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": "Conferência concorrente — tente novamente",
+        }}), 409
+    row = EvSignoff.query.filter_by(
+        appraisal_id=appraisal.id, ev_id=ev_uuid,
+    ).first()
+    if row is None:
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": ("EV saiu do escopo da conferência durante a "
+                        "requisição — tente novamente"),
+        }}), 409
+
+    if row.status == SignoffStatus.DONE:
+        row.status = SignoffStatus.PENDING
+        row.fingerprint = None
+        row.values_changed = False
+        row.signed_off_by = None
+        row.signed_off_at = None
+        log_audit(
+            "ev_signoffs", row.id, "UPDATE",
+            old_values={"status": SignoffStatus.DONE.value},
+            new_values={"status": SignoffStatus.PENDING.value,
+                        "ev_id": str(ev_uuid)},
+        )
+    # Commit sempre: ensure_signoffs pode ter criado linhas PENDING de
+    # OUTROS EVs que precisam persistir mesmo quando esta chamada é no-op
+    # (sem o commit, o teardown da request faz rollback delas).
+    db.session.commit()
+
+    return jsonify({"data": {
+        "ev_id": str(ev_uuid),
+        "signoff": _serialize_signoff(row),
+        "signoff_totals": signoff_totals(appraisal),
+    }})
+
+
 @workflow_bp.route("/<appraisal_id>/recalculate", methods=["POST"])
 @require_role(UserRole.ADMIN)
 def recalculate(appraisal_id):
@@ -371,12 +531,14 @@ def recalculate(appraisal_id):
     from app.modules.commissions.calculator import (
         run_monthly_appraisal, MissingAchievementsError,
     )
+    from app.modules.workflow.signoffs import refresh_signoffs_after_recalc
     try:
         # Missing achievements don't block — they fall back to 0% and surface
         # as a warning in the detail payload (same as the preview).
         run_monthly_appraisal(
             appraisal.month, appraisal.year, validate_achievements=False
         )
+        signoffs_result = refresh_signoffs_after_recalc(appraisal)
         db.session.commit()
     except MissingAchievementsError as e:
         db.session.rollback()
@@ -387,8 +549,19 @@ def recalculate(appraisal_id):
                 "missing": e.missing,
             },
         }), 422
+    except IntegrityError:
+        # Mesma corrida do ensure_signoffs já tratada nos endpoints de
+        # conferência: dois requests simultâneos inserindo o mesmo EV novo.
+        db.session.rollback()
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": "Recálculo concorrente — tente novamente",
+        }}), 409
 
-    return jsonify({"data": _serialize_appraisal(appraisal, detail=True)})
+    return jsonify({
+        "data": _serialize_appraisal(appraisal, detail=True),
+        "signoffs": signoffs_result,
+    })
 
 
 @workflow_bp.route("/preview", methods=["POST"])
@@ -511,6 +684,18 @@ def _scope_detail_payload(data, visible_ev_ids):
         counts["all_done"] = counts["total"] > 0 and done == counts["total"]
         data["validation_totals"] = counts
 
+    if "signoff_totals" in data:
+        done = sum(
+            1 for s in ev_summary
+            if (s.get("signoff") or {}).get("status") == "DONE"
+        )
+        total = len(ev_summary)
+        data["signoff_totals"] = {
+            "total": total,
+            "done": done,
+            "all_done": done == total,
+        }
+
     return data
 
 
@@ -555,6 +740,7 @@ def _build_appraisal_detail(appraisal):
     _build_period_detail directly, has no validations."""
     detail = _build_period_detail(appraisal.month, appraisal.year)
     _attach_validation_status(appraisal, detail)
+    _attach_signoffs(appraisal, detail)
     _attach_lider_gate(appraisal, detail)
     return detail
 
@@ -617,6 +803,74 @@ def _attach_validation_status(appraisal, detail):
     detail["validation_totals"] = _validation_counts(validations)
 
 
+def _attach_signoffs(appraisal, detail):
+    """Anota cada bloco de EV com sua conferência e injeta os EVs do escopo
+    sem movimento (membros − quem tem comissão) como blocos zerados, para a
+    lista da conferência cobrir o escopo inteiro. Em CALCULATING os membros
+    vêm do escopo recomputado (roster vivo); fora, a lista congela nas linhas
+    gravadas — mesmo racional do signoff_totals. Só o detail da apuração — o
+    preview (que chama _build_period_detail direto) não tem conferência."""
+    from app.modules.workflow.signoffs import (
+        signoff_scope_ev_ids, signoff_totals,
+    )
+    rows = {
+        str(s.ev_id): s
+        for s in EvSignoff.query.filter_by(appraisal_id=appraisal.id).all()
+    }
+    present = {s["ev_id"] for s in detail["ev_summary"]}
+    if appraisal.status == AppraisalStatus.CALCULATING:
+        member_ids = {
+            str(x)
+            for x in signoff_scope_ev_ids(appraisal.month, appraisal.year)
+        }
+    else:
+        # História congelada (mesmo racional do signoff_totals): fora de
+        # CALCULATING a lista vem das linhas gravadas — EV contratado depois
+        # não vira linha fantasma; EV desligado com conferência gravada
+        # continua aparecendo.
+        member_ids = set(rows.keys())
+
+    missing_ids = member_ids - present
+    if missing_ids:
+        quarter = (appraisal.month - 1) // 3 + 1
+        users = User.query.filter(User.id.in_(list(missing_ids))).all()
+        ach_by_ev = {
+            a.ev_id: a
+            for a in EvQuarterAchievement.query.filter(
+                EvQuarterAchievement.ev_id.in_([u.id for u in users]),
+                EvQuarterAchievement.quarter == quarter,
+                EvQuarterAchievement.year == appraisal.year,
+            ).all()
+        }
+        for u in users:
+            ach = ach_by_ev.get(u.id)
+            detail["ev_summary"].append({
+                "ev_id": str(u.id),
+                "ev_name": u.name,
+                "ev_left_company": bool(u.left_company),
+                "no_movement": True,
+                "achievement_pct": (
+                    float(ach.achievement_pct * 100)
+                    if ach and ach.achievement_pct is not None else None
+                ),
+                "policies_count": 0,
+                "nao_apuradas_count": 0,
+                "nf_count": 0,
+                "nf_liquido_total": 0.0,
+                "subsidio_aplicado_total": 0.0,
+                "base_comissionavel_total": 0.0,
+                "total_commission": 0.0,
+                "policies": [],
+                "validation_status": _validation_counts([]),
+            })
+        detail["ev_summary"].sort(key=lambda s: s["ev_name"] or "")
+
+    for ev in detail["ev_summary"]:
+        ev["signoff"] = _serialize_signoff(rows.get(ev["ev_id"]))
+
+    detail["signoff_totals"] = signoff_totals(appraisal)
+
+
 def _build_period_detail(month, year):
     """Build the rich review payload: ev_summary with nested policies and NFs,
     plus unmatched / expired / nao_suportado tabs and totals. Keyed purely on
@@ -656,6 +910,39 @@ def _build_period_detail(month, year):
     by_ev = defaultdict(list)
     for c in commissions:
         by_ev[c.ev_id].append(c)
+
+    policy_nf_totals = {
+        policy_id: sum(
+            (Decimal(str(nf.nf_valor_liquido or 0)) for nf in nfs),
+            Decimal("0"),
+        )
+        for policy_id, nfs in nfs_by_policy.items()
+    }
+    client_nf_totals = defaultdict(Decimal)
+    for policy_id, nf_total in policy_nf_totals.items():
+        policy = policies.get(policy_id)
+        if policy and policy.client_id:
+            client_nf_totals[policy.client_id] += nf_total
+
+    perks_by_client = defaultdict(Decimal)
+    for perk in Perk.query.filter_by(month=month, year=year).all():
+        perks_by_client[perk.client_id] += Decimal(str(perk.amount or 0))
+
+    def _commission_base_breakdown(policy, nf_subtotal):
+        """Mirror calculator.py's client-level perk deduction for review UI."""
+        if policy is None or not policy.client_id:
+            return Decimal("0"), Decimal("0")
+
+        client_total = client_nf_totals.get(policy.client_id, Decimal("0"))
+        client_perks = perks_by_client.get(policy.client_id, Decimal("0"))
+        if client_total <= 0:
+            return Decimal("0"), Decimal("0")
+
+        share = nf_subtotal / client_total
+        net_client = max(Decimal("0"), client_total - client_perks)
+        base = (net_client * share).quantize(Decimal("0.01"))
+        subsidy = (nf_subtotal - base).quantize(Decimal("0.01"))
+        return subsidy, base
 
     # The Por EV view also lets the user filter to the EV's policies that did
     # NOT generate commission this month ("não apuradas"). To explain *why*
@@ -731,6 +1018,10 @@ def _build_period_detail(month, year):
             if p is None:
                 continue
             nfs = nfs_by_policy.get(p.id, [])
+            nf_subtotal = policy_nf_totals.get(p.id, Decimal("0"))
+            subsidy_applied, commission_base = _commission_base_breakdown(
+                p, nf_subtotal,
+            )
             block = _policy_base(p)
             block.update({
                 "apurada": True,
@@ -742,9 +1033,9 @@ def _build_period_detail(month, year):
                     float(c.commission_pct) if c.commission_pct else 0.0
                 ),
                 "subtotal": float(c.total_actual or 0),
-                "nf_liquido_total": float(
-                    sum(nf.nf_valor_liquido for nf in nfs)
-                ) if nfs else 0.0,
+                "nf_liquido_total": float(nf_subtotal) if nfs else 0.0,
+                "subsidio_aplicado": float(subsidy_applied),
+                "base_comissionavel": float(commission_base),
                 "nfs": [
                     {
                         "data_recebimento": (
@@ -771,6 +1062,8 @@ def _build_period_detail(month, year):
                 "commission_pct": None,
                 "subtotal": 0.0,
                 "nf_liquido_total": 0.0,
+                "subsidio_aplicado": 0.0,
+                "base_comissionavel": 0.0,
                 "nfs": [],
             })
             nao_apurada_blocks.append(block)
@@ -788,6 +1081,12 @@ def _build_period_detail(month, year):
             "nf_count": sum(len(b["nfs"]) for b in policy_blocks),
             "nf_liquido_total": float(
                 sum(b["nf_liquido_total"] for b in policy_blocks)
+            ),
+            "subsidio_aplicado_total": float(
+                sum(b["subsidio_aplicado"] for b in policy_blocks)
+            ),
+            "base_comissionavel_total": float(
+                sum(b["base_comissionavel"] for b in policy_blocks)
             ),
             "total_commission": float(
                 sum(c.total_actual or Decimal("0") for c in ev_commissions)
@@ -840,6 +1139,12 @@ def _build_period_detail(month, year):
     totals = {
         "total_commission": sum(s["total_commission"] for s in ev_summary),
         "nf_liquido_total": float(sum(s["nf_liquido_total"] for s in ev_summary)),
+        "subsidio_aplicado_total": float(
+            sum(s["subsidio_aplicado_total"] for s in ev_summary)
+        ),
+        "base_comissionavel_total": float(
+            sum(s["base_comissionavel_total"] for s in ev_summary)
+        ),
         "ev_count": len(ev_summary),
         "left_company_ev_count": sum(
             1 for s in ev_summary if s.get("ev_left_company")

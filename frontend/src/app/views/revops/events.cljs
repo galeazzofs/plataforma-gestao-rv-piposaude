@@ -364,9 +364,17 @@
 
 (rf/reg-event-fx
  :revops/recalculated
- (fn [_ [_ id _resp]]
-   {:dispatch-n [[:revops/fetch-appraisal-detail id]
-                 [:ui/show-toast {:type :success :message "Recalculado!"}]]}))
+ (fn [_ [_ id resp]]
+   (let [invalidated (get-in resp [:signoffs :invalidated])
+         shown       (take 5 invalidated)
+         more        (- (count invalidated) (count shown))
+         msg (if (seq invalidated)
+               (str "Recalculado. Conferências invalidadas: "
+                    (clojure.string/join ", " shown)
+                    (when (pos? more) (str " (+" more ")")))
+               "Recalculado!")]
+     {:dispatch-n [[:revops/fetch-appraisal-detail id]
+                   [:ui/show-toast {:type :success :message msg}]]})))
 
 (rf/reg-event-fx
  :revops/release-to-validation
@@ -375,7 +383,64 @@
            :url        (str "/appraisals/" id "/transition")
            :body       {:to "VALIDATING"}
            :on-success [:revops/validation-released]
-           :on-failure [:revops/appraisals-error]}}))
+           :on-failure [:revops/release-blocked]}}))
+
+(rf/reg-event-fx
+ :revops/release-blocked
+ (fn [_ [_ resp]]
+   ;; cljs-ajax aninha o body de erro em :response; o caminho direto fica
+   ;; como fallback defensivo (mesmo padrão de lider_vendas/events.cljs).
+   (let [msg (or (get-in resp [:response :error :message])
+                 (get-in resp [:error :message])
+                 "Não foi possível liberar para validação.")]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))
+
+;; ---- Conferência por EV (sign-off) ----
+
+(rf/reg-event-fx
+ :revops/signoff-ev
+ (fn [_ [_ appraisal-id ev-id]]
+   {:http {:method     :post
+           :url        (ep/appraisal-signoff appraisal-id ev-id)
+           :on-success [:revops/signoff-updated appraisal-id]
+           :on-failure [:revops/signoff-error]}}))
+
+(rf/reg-event-fx
+ :revops/reopen-signoff
+ (fn [_ [_ appraisal-id ev-id]]
+   {:http {:method     :delete
+           :url        (ep/appraisal-signoff appraisal-id ev-id)
+           :on-success [:revops/signoff-updated appraisal-id]
+           :on-failure [:revops/signoff-error]}}))
+
+(rf/reg-event-db
+ :revops/signoff-updated
+ ;; Merge do delta (signoff do EV + totais) no item da lista — sem refetch
+ ;; do detail inteiro a cada clique da esteira de conferência.
+ (fn [db [_ appraisal-id response]]
+   (let [{:keys [ev_id signoff signoff_totals]} (:data response)]
+     (update-in db [:appraisal :list]
+                (fn [items]
+                  (map (fn [a]
+                         (if (= (:id a) appraisal-id)
+                           (-> a
+                               (assoc :signoff_totals signoff_totals)
+                               (update :ev_summary
+                                       (fn [evs]
+                                         (mapv #(if (= (:ev_id %) ev_id)
+                                                  (assoc % :signoff signoff)
+                                                  %)
+                                               (or evs [])))))
+                           a))
+                       (or items [])))))))
+
+(rf/reg-event-fx
+ :revops/signoff-error
+ (fn [_ [_ resp]]
+   (let [msg (or (get-in resp [:response :error :message])
+                 (get-in resp [:error :message])
+                 "Erro ao atualizar a conferência.")]
+     {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 (rf/reg-event-fx
  :revops/validation-released

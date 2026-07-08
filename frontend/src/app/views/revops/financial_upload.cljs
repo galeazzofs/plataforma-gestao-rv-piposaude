@@ -24,6 +24,33 @@
                        :when (some? v)]
                    (str (or v 0) " " label)))]]]))
 
+(defn- perk-result-stats [result]
+  (let [stats           (or (:stats result) {})
+        matched-clients (or (:matched_clients result) 0)
+        matched-rows    (or (:matched result) 0)
+        missed          (or (:missed result) 0)
+        skipped-locked  (or (:skipped_locked result) 0)
+        missed-clients  (or (:missed_clients result) [])]
+    [:div.callout {:style {:border-color "var(--success-light)"
+                           :background "var(--success-lightest)"}}
+     [layout/icon "check" {:width 20 :height 20}]
+     [:div {:style {:flex 1}}
+      [:strong (str "Subsídios aplicados: " matched-clients " clientes")]
+      [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
+       (str/join " · "
+                 [(str matched-rows " linhas aplicadas")
+                  (str missed " sem cliente cadastrado")
+                  (str skipped-locked " em meses locked preservados")
+                  (str (or (:total_lidas stats) 0) " lidas")
+                  (str (or (:descartadas_periodo stats) 0) " fora do período")
+                  (str (or (:descartadas_vazias stats) 0) " vazias")])]
+      (when (seq missed-clients)
+        [:p {:style {:font-size "13px" :color "var(--fg-3)" :margin-top "2px"}}
+         (str "Clientes não encontrados: "
+              (str/join ", " (take 8 missed-clients))
+              (when (> (count missed-clients) 8)
+                (str " +" (- (count missed-clients) 8))))])]]))
+
 (defn- upload-form []
   (let [form (r/atom {:year 2026 :file nil})]
     (fn [{:keys [on-file kind]}]
@@ -110,12 +137,7 @@
            "Processando subsídios…"]
 
           perk-result
-          [:div.callout {:style {:border-color "var(--success-light)"
-                                 :background "var(--success-lightest)"}}
-           [layout/icon "check" {:width 20 :height 20}]
-           [:div {:style {:flex 1}}
-            [:strong (str "Subsídios aplicados: "
-                          (count (or (:items perk-result) [])) " clientes")]]]
+          [perk-result-stats perk-result]
 
           :else
           [upload-form
