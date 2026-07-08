@@ -194,6 +194,8 @@
       [:span.appraisal-signoff-count
        (str done " de " total " EVs conferidos")]]
      [:div.appraisal-signoff-progress
+      {:role "progressbar" :aria-valuemin 0 :aria-valuemax total
+       :aria-valuenow done}
       [:div.appraisal-signoff-progress-fill {:style {:width (str pct "%")}}]]
      [:div.filter-row {:role "group" :aria-label "Filtro de conferência"}
       (for [[k label] [[:pendentes "Pendentes"]
@@ -402,7 +404,7 @@
 (defn- ev-row []
   (let [open? (r/atom false)
         apurada-filter (r/atom :apuradas)]
-    (fn [ev tipo-filter operadora-filter {:keys [appraisal-id conference? admin?]}]
+    (fn [ev tipo-filter operadora-filter {:keys [appraisal-id conference?]}]
       (let [filter-nfs (fn [nfs]
                          (if (or (nil? tipo-filter) (= "Todos" tipo-filter))
                            nfs
@@ -447,7 +449,7 @@
                          :size :ev}]]
          (when @open?
            [:div.appraisal-ev-detail
-            (when (and conference? admin?)
+            (when conference?
               [:div.appraisal-signoff-actions
                (if (= :done (signoff-status ev))
                  [:button.btn.btn-secondary.btn-sm
@@ -459,7 +461,8 @@
                                             appraisal-id (:ev_id ev)])}
                   "Marcar como conferido"])
                [:button.btn.btn-secondary.btn-sm
-                {:on-click #(rf/dispatch [:revops/recalculate-appraisal
+                {:title "Recalcula a competência inteira; conferências de EVs sem mudança são preservadas"
+                 :on-click #(rf/dispatch [:revops/recalculate-appraisal
                                           appraisal-id])}
                 [layout/icon "refresh" {:width 12 :height 12}]
                 " Recalcular"]])
@@ -491,12 +494,13 @@
         op-filter      (r/atom "Todas")
         signoff-filter (r/atom :todos)]
     (fn [appraisal ev-summary user]
-      (let [conference? (conference-active? appraisal)
-            admin?      (= "ADMIN" (:role user))
-            evs         (cond->> ev-summary
-                          conference? sort-evs-for-conference
-                          conference? (#(filter-evs-by-signoff
-                                         % @signoff-filter)))
+      (let [admin?      (= "ADMIN" (:role user))
+            conference? (and (conference-active? appraisal) admin?)
+            evs         (if conference?
+                          (-> ev-summary
+                              sort-evs-for-conference
+                              (filter-evs-by-signoff @signoff-filter))
+                          ev-summary)
             all-ops (->> ev-summary
                          (mapcat :policies)
                          (map :operadora)
@@ -542,8 +546,7 @@
               ^{:key (:ev_id ev)}
               [ev-row ev @tipo-filter @op-filter
                {:appraisal-id (:id appraisal)
-                :conference?  conference?
-                :admin?       admin?}])])]))))
+                :conference?  conference?}])])]))))
 
 ;; ── Monthly review summary ────────────────────────────────
 
