@@ -385,7 +385,10 @@
 (rf/reg-event-fx
  :revops/release-blocked
  (fn [_ [_ resp]]
-   (let [msg (or (get-in resp [:error :message])
+   ;; cljs-ajax aninha o body de erro em :response; o caminho direto fica
+   ;; como fallback defensivo (mesmo padrão de lider_vendas/events.cljs).
+   (let [msg (or (get-in resp [:response :error :message])
+                 (get-in resp [:error :message])
                  "Não foi possível liberar para validação.")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
@@ -431,7 +434,8 @@
 (rf/reg-event-fx
  :revops/signoff-error
  (fn [_ [_ resp]]
-   (let [msg (or (get-in resp [:error :message])
+   (let [msg (or (get-in resp [:response :error :message])
+                 (get-in resp [:error :message])
                  "Erro ao atualizar a conferência.")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
