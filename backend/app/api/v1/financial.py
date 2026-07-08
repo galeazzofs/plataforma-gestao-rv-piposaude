@@ -14,7 +14,7 @@ from app.api.middlewares import paginate_query, log_audit
 from app.extensions import db
 from app.models import ImportBatch, UserRole
 from app.modules.financial.parser import parse_financial_xlsx, ParseError
-from app.modules.financial.perk_parser import parse_perk_xlsx, PerkParseError
+from app.modules.financial.perk_parser import parse_perk_file, PerkParseError
 from app.modules.financial.processor import (
     persist_financial_rows, persist_perk_rows, UploadBlockedError,
 )
@@ -166,11 +166,11 @@ def upload_perks():
         }), 400
 
     file = request.files["file"]
-    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+    if not file.filename or not file.filename.lower().endswith((".csv", ".xlsx", ".xls")):
         return jsonify({
             "error": {
                 "code": "VALIDATION_ERROR",
-                "message": "Only .xlsx/.xls files accepted",
+                "message": "Only .csv/.xlsx/.xls files accepted",
             },
         }), 400
 
@@ -187,13 +187,14 @@ def upload_perks():
             "error": {"code": "VALIDATION_ERROR", "message": "year out of range"},
         }), 400
 
-    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    ext = os.path.splitext(file.filename)[1].lower() or ".xlsx"
+    fd, path = tempfile.mkstemp(suffix=ext)
     os.close(fd)
     file.save(path)
 
     try:
         try:
-            parsed = parse_perk_xlsx(path, year)
+            parsed = parse_perk_file(path, year, original_filename=file.filename)
         except PerkParseError as e:
             return jsonify({
                 "error": {"code": "PARSE_ERROR", "message": str(e)},

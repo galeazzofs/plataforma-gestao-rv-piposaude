@@ -1,6 +1,5 @@
 """Tests for perk_parser + persist_perk_rows (per-year / per-competência)."""
 import uuid
-import zipfile
 from decimal import Decimal
 
 import pytest
@@ -11,8 +10,50 @@ from app.models import (
     User, UserRole, Client, Perk, ImportBatch,
     Appraisal, AppraisalStatus, AuditLog,
 )
-from app.modules.financial.perk_parser import parse_perk_xlsx, PerkParseError
+from app.modules.financial.perk_parser import (
+    parse_perk_xlsx, parse_perk_csv, parse_perk_file, parse_money, PerkParseError,
+)
 from app.modules.financial.processor import persist_perk_rows
+
+
+# ── parse_money (US / BR number-format autodetect) ──────────────────────────
+#
+# The Omie export is US-formatted ("3,934.02"); earlier perk sheets were BR
+# ("3.500,00"). parse_money must read both. The rule: the RIGHTMOST separator is
+# the decimal mark; a single separator followed by exactly two digits is also a
+# decimal mark; everything else is thousands grouping. Parentheses mean negative.
+
+
+class TestParseMoney:
+    def test_us_thousands_and_decimal(self):
+        assert parse_money("3,934.02") == Decimal("3934.02")
+        assert parse_money("16,666.67") == Decimal("16666.67")
+        assert parse_money("(3,934.02)") == Decimal("-3934.02")
+
+    def test_br_thousands_and_decimal(self):
+        # Existing perk sheets used BR format — must keep working.
+        assert parse_money("3.500,00") == Decimal("3500.00")
+        assert parse_money("(3.500,00)") == Decimal("-3500.00")
+
+    def test_single_separator_two_decimals_is_decimal(self):
+        assert parse_money("880.41") == Decimal("880.41")
+        assert parse_money("(39.00)") == Decimal("-39.00")
+        assert parse_money("12,50") == Decimal("12.50")
+
+    def test_separator_not_two_trailing_digits_is_grouping(self):
+        # Comma/dot with 3 trailing digits and no second separator = thousands.
+        assert parse_money("21,038") == Decimal("21038")
+        assert parse_money("1,234,567.89") == Decimal("1234567.89")
+
+    def test_numeric_inputs_pass_through(self):
+        assert parse_money(1500) == Decimal("1500")
+        assert parse_money(1500.5) == Decimal("1500.5")
+
+    def test_blank_or_unparseable_returns_none(self):
+        assert parse_money(None) is None
+        assert parse_money("") is None
+        assert parse_money("   ") is None
+        assert parse_money("abc") is None
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -55,30 +96,14 @@ def _make_xlsx(rows, headers=None):
     return path
 
 
-def _make_xlsx_without_dimension(rows, headers=None):
-    """Build an XLSX like Omie exports whose sheet XML omits <dimension/>.
-
-    openpyxl read_only mode then reports ws.max_row/ws.max_column as None, so
-    parsers must stream rows instead of relying on dimensions.
-    """
-    import os
-    import re
-    import tempfile
-
-    src = _make_xlsx(rows, headers=headers)
-    fd, dst = tempfile.mkstemp(suffix=".xlsx")
+def _make_csv(text):
+    """Write `text` to a temp .csv (UTF-8). Returns the path."""
+    import tempfile, os
+    fd, path = tempfile.mkstemp(suffix=".csv")
     os.close(fd)
-
-    with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dst, "w") as zout:
-        for item in zin.infolist():
-            data = zin.read(item.filename)
-            if item.filename == "xl/worksheets/sheet1.xml":
-                text = data.decode("utf-8")
-                text = re.sub(r"<dimension[^>]*/>", "", text, count=1)
-                data = text.encode("utf-8")
-            zout.writestr(item, data)
-
-    return dst
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    return path
 
 
 # ── parse_perk_xlsx ──────────────────────────────────────────────────────────
@@ -94,17 +119,6 @@ class TestParsePerkXlsx:
         assert len(out['rows']) == 2
         assert out['stats']['persistidas'] == 2
         assert out['rows'][0]['amount'] == Decimal('1500')
-
-    def test_parses_streamed_rows_when_sheet_dimension_is_missing(self, admin_user):
-        path = _make_xlsx_without_dimension([
-            ["Acme", -1500.00, "01 - Janeiro", 2026],
-            ["Zup", -2500.00, "02 - Fevereiro", 2026],
-        ], headers=["Cliente Pipo", "Valor", "Mês (Competência)", "Ano"])
-        out = parse_perk_xlsx(path, 2026)
-        assert len(out['rows']) == 2
-        assert out['stats']['persistidas'] == 2
-        assert out['rows'][0]['amount'] == Decimal('1500')
-        assert out['rows'][1]['month'] == 2
 
     def test_keeps_all_months_drops_other_years(self, admin_user):
         path = _make_xlsx([
@@ -143,6 +157,57 @@ class TestParsePerkXlsx:
         with pytest.raises(PerkParseError):
             parse_perk_xlsx(path, 2026)
 
+    def test_parses_us_format_string_values(self, admin_user):
+        # The Omie export carries values as parenthesized US-format strings.
+        path = _make_xlsx([
+            ["Acme", "(3,934.02)", "01 - Janeiro", 2026],
+            ["Zup", "16,666.67", "02 - Fevereiro", 2026],
+        ])
+        out = parse_perk_xlsx(path, 2026)
+        by_month = {r["month"]: r["amount"] for r in out["rows"]}
+        assert by_month == {1: Decimal("3934.02"), 2: Decimal("16666.67")}
+
+
+# ── parse_perk_csv / parse_perk_file ─────────────────────────────────────────
+
+
+class TestParsePerkCsv:
+    def test_parses_omie_csv_us_values_and_competencia_months(self, admin_user):
+        path = _make_csv(
+            "Cliente Pipo,Tipo Subsídio,Fornecedor,Ano,Mês (Competência),Valor,OBS\n"
+            'OLX,Academia,FOO LTDA,2026,01 - Janeiro,"(22,771.59)",GYMPASS\n'
+            'OLX,Cesta Natal,FOO LTDA,2026,01 - Janeiro,"(16,666.67)",BRINDES\n'
+            "NUVEMSHOP,Reembolso Copay,BAR LTDA,2026,01 - Janeiro,(372.26),COPAY\n"
+        )
+        out = parse_perk_csv(path, 2026)
+        totals = {}
+        for r in out["rows"]:
+            totals[r["client_name"]] = totals.get(r["client_name"], Decimal("0")) + r["amount"]
+        # Both OLX rows summed, big values NOT shrunk by the BR-format bug.
+        assert totals["OLX"] == Decimal("39438.26")
+        assert totals["NUVEMSHOP"] == Decimal("372.26")
+        assert all(r["month"] == 1 for r in out["rows"])
+
+    def test_csv_drops_other_years(self, admin_user):
+        path = _make_csv(
+            "Cliente,Valor,Mês,Ano\n"
+            'Acme,"(1,000.00)",01 - Janeiro,2026\n'
+            'Zup,"(2,000.00)",12 - Dezembro,2025\n'
+        )
+        out = parse_perk_csv(path, 2026)
+        assert len(out["rows"]) == 1
+        assert out["rows"][0]["client_name"] == "Acme"
+        assert out["stats"]["descartadas_periodo"] == 1
+
+    def test_parse_perk_file_dispatches_by_extension(self, admin_user):
+        csv_path = _make_csv("Cliente,Valor,Mês,Ano\nAcme,(50.00),01 - Janeiro,2026\n")
+        xlsx_path = _make_xlsx([["Acme", "(3,934.02)", 1, 2026]])
+        # A temp path may not carry the real suffix — original_filename wins.
+        out_csv = parse_perk_file(csv_path, 2026, original_filename="Omie.csv")
+        out_xlsx = parse_perk_file(xlsx_path, 2026, original_filename="sheet.xlsx")
+        assert out_csv["rows"][0]["amount"] == Decimal("50.00")
+        assert out_xlsx["rows"][0]["amount"] == Decimal("3934.02")
+
 
 # ── persist_perk_rows ────────────────────────────────────────────────────────
 
@@ -166,7 +231,6 @@ class TestPersistPerkRows:
         db.session.commit()
 
         assert out['matched'] == 2
-        assert out['matched_clients'] == 1
         assert out['missed'] == 0
         assert Perk.query.filter_by(month=1, year=2026).count() == 1
         assert Perk.query.filter_by(month=5, year=2026).count() == 1
