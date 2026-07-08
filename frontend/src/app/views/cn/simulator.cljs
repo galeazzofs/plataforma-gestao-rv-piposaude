@@ -4,6 +4,7 @@
             [re-frame.core :as rf]
             ["recharts" :refer [ResponsiveContainer LineChart Line XAxis YAxis
                                 CartesianGrid Tooltip ReferenceLine ReferenceDot]]
+            [app.api.client :as client]
             [app.api.endpoints :as ep]
             [app.views.cn.calc :as calc]
             [app.ds.layout :as layout]
@@ -52,8 +53,8 @@
        (assoc-in [:cn :simulator :result] nil)
        (assoc-in [:cn :simulator :simulating?] false)
        (assoc-in [:cn :simulator :error]
-                 (or (get-in response [:error :message])
-                     "Nao foi possivel confirmar a simulacao agora.")))))
+                 (client/error-message
+                  response "Nao foi possivel confirmar a simulacao agora.")))))
 
 (rf/reg-event-db
  :cn/simulator-clear

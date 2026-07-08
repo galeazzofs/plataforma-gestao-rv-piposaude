@@ -1,5 +1,6 @@
 (ns app.views.revops.events
   (:require [re-frame.core :as rf]
+            [app.api.client :as client]
             [app.api.endpoints :as ep]))
 
 ;; ---- Users ----
@@ -242,7 +243,7 @@
 (rf/reg-event-fx
  :revops/upload-error
  (fn [{:keys [db]} [_ resp]]
-   (let [err (or (get-in resp [:error :message]) "Erro ao processar arquivo")]
+   (let [err (client/error-message resp "Erro ao processar arquivo")]
      {:db (assoc-in db [:admin :upload-loading?] false)
       :dispatch [:ui/show-toast {:type :error :message err}]})))
 
@@ -285,7 +286,7 @@
 (rf/reg-event-fx
  :revops/perk-upload-error
  (fn [{:keys [db]} [_ resp]]
-   (let [err (or (get-in resp [:error :message]) "Erro ao processar arquivo de subsídios")]
+   (let [err (client/error-message resp "Erro ao processar arquivo de subsídios")]
      {:db (assoc-in db [:admin :perk-upload-loading?] false)
       :dispatch [:ui/show-toast {:type :error :message err}]})))
 
@@ -347,7 +348,7 @@
 (rf/reg-event-fx
  :revops/appraisal-calculate-error
  (fn [_ [_ resp]]
-   (let [err (get-in resp [:error] {})
+   (let [err (get-in (client/error-body resp) [:error] {})
          msg (cond
                (= "MISSING_ACHIEVEMENTS" (:code err))
                (str "Faltam atingimentos: " (clojure.string/join ", " (or (:missing err) [])))
@@ -388,11 +389,8 @@
 (rf/reg-event-fx
  :revops/release-blocked
  (fn [_ [_ resp]]
-   ;; cljs-ajax aninha o body de erro em :response; o caminho direto fica
-   ;; como fallback defensivo (mesmo padrão de lider_vendas/events.cljs).
-   (let [msg (or (get-in resp [:response :error :message])
-                 (get-in resp [:error :message])
-                 "Não foi possível liberar para validação.")]
+   (let [msg (client/error-message
+              resp "Não foi possível liberar para validação.")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 ;; ---- Conferência por EV (sign-off) ----
@@ -437,9 +435,7 @@
 (rf/reg-event-fx
  :revops/signoff-error
  (fn [_ [_ resp]]
-   (let [msg (or (get-in resp [:response :error :message])
-                 (get-in resp [:error :message])
-                 "Erro ao atualizar a conferência.")]
+   (let [msg (client/error-message resp "Erro ao atualizar a conferência.")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 (rf/reg-event-fx
@@ -524,7 +520,7 @@
 (rf/reg-event-fx
  :revops/preview-failure
  (fn [{:keys [db]} [_ resp]]
-   (let [msg (or (get-in resp [:error :message]) "Erro ao gerar a prévia")]
+   (let [msg (client/error-message resp "Erro ao gerar a prévia")]
      {:db (-> db
               (assoc-in [:appraisal :preview :loading?] false)
               (assoc-in [:appraisal :preview :error]    msg)
@@ -872,7 +868,7 @@
 (rf/reg-event-fx
  :revops/monthly-cycle-open-error
  (fn [_ [_ resp]]
-   (let [msg (or (get-in resp [:error :message]) "Erro ao abrir ciclo")]
+   (let [msg (client/error-message resp "Erro ao abrir ciclo")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 (rf/reg-event-fx
@@ -900,8 +896,7 @@
 (rf/reg-event-fx
  :revops/monthly-cycle-delete-error
  (fn [_ [_ resp]]
-   (let [msg (or (get-in resp [:error :message])
-                 "Erro ao excluir ciclo")]
+   (let [msg (client/error-message resp "Erro ao excluir ciclo")]
      {:dispatch-n [[:revops/fetch-monthly-cycles]
                    [:ui/show-toast {:type :error :message msg}]]})))
 
@@ -939,8 +934,7 @@
 (rf/reg-event-fx
  :revops/cycle-action-error
  (fn [_ [_ cycle-id resp]]
-   (let [msg (or (get-in resp [:error :message])
-                 "Erro ao executar a ação")]
+   (let [msg (client/error-message resp "Erro ao executar a ação")]
      {:dispatch-n
       (cond-> [[:ui/show-toast {:type :error :message msg}]]
         cycle-id (conj [:revops/fetch-monthly-cycle-detail cycle-id]))})))
@@ -976,6 +970,5 @@
 (rf/reg-event-fx
  :revops/contestation-action-err
  (fn [_ [_ resp]]
-   (let [msg (or (get-in resp [:error :message])
-                 "Erro ao processar contestação")]
+   (let [msg (client/error-message resp "Erro ao processar contestação")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))

@@ -1,5 +1,6 @@
 (ns app.views.lider-vendas.events
   (:require [re-frame.core :as rf]
+            [app.api.client :as client]
             [app.api.endpoints :as ep]))
 
 (rf/reg-event-fx
@@ -83,9 +84,7 @@
 (rf/reg-event-fx
  :lider-vendas/team-appraisal-action-err
  (fn [_ [_ response]]
-   (let [msg (or (get-in response [:response :error :message])
-                 (get-in response [:error :message])
-                 "Erro ao aprovar a apuração.")]
+   (let [msg (client/error-message response "Erro ao aprovar a apuração.")]
      {:dispatch [:ui/show-toast {:type :error :message msg}]})))
 
 (rf/reg-event-fx
