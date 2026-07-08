@@ -301,8 +301,11 @@
   "One line with the numbers that matter for a component."
   [k component]
   (let [{:keys [validations_total validations_done rows final expected
-                month has_contestation]} component
+                month has_contestation signoffs_total signoffs_done]} component
         text (cond
+               (and signoffs_total (pos? signoffs_total))
+               (str signoffs_done " / " signoffs_total " EVs conferidos")
+
                (and validations_total (pos? validations_total))
                (str validations_done " / " validations_total
                     " validações concluídas")

@@ -169,6 +169,43 @@
          (pos? total)
          (< done total))))
 
+(defn- signoff-badge [ev]
+  (let [s (:signoff ev)]
+    (case (signoff-status ev)
+      :done    [:span.badge.badge-approved
+                (str "✓ conferido"
+                     (when-let [n (:signed_off_by_name s)]
+                       (str " · " n)))]
+      :changed [:span.badge.badge-review "⚠ valores mudaram"]
+      :pending [:span.badge.badge-pending "⏳ conferência pendente"]
+      nil)))
+
+(defn- signoff-band
+  "Progresso da conferência + filtro Pendentes/Conferidos/Todos."
+  [appraisal signoff-filter]
+  (let [{:keys [total done]} (signoff-progress appraisal)
+        pct (if (pos? total) (js/Math.round (* 100 (/ done total))) 0)]
+    [:div.card.appraisal-signoff-band
+     [:div.appraisal-signoff-head
+      [:div
+       [:strong "Conferência EV por EV"]
+       [:div.card-sub
+        "Confira e feche cada EV; a liberação para validação abre com 100%."]]
+      [:span.appraisal-signoff-count
+       (str done " de " total " EVs conferidos")]]
+     [:div.appraisal-signoff-progress
+      [:div.appraisal-signoff-progress-fill {:style {:width (str pct "%")}}]]
+     [:div.filter-row {:role "group" :aria-label "Filtro de conferência"}
+      (for [[k label] [[:pendentes "Pendentes"]
+                       [:conferidos "Conferidos"]
+                       [:todos "Todos"]]]
+        ^{:key k}
+        [:button {:type "button"
+                  :class (str "chip" (when (= k @signoff-filter) " active"))
+                  :aria-pressed (str (= k @signoff-filter))
+                  :on-click #(reset! signoff-filter k)}
+         label])]]))
+
 (defn- lider-gate-callout
   "Shown when a fully-or-partly validated appraisal is held in VALIDATING
   because a required líder hasn't validated their own quarterly appraisal —
@@ -365,7 +402,7 @@
 (defn- ev-row []
   (let [open? (r/atom false)
         apurada-filter (r/atom :apuradas)]
-    (fn [ev tipo-filter operadora-filter]
+    (fn [ev tipo-filter operadora-filter {:keys [appraisal-id conference? admin?]}]
       (let [filter-nfs (fn [nfs]
                          (if (or (nil? tipo-filter) (= "Todos" tipo-filter))
                            nfs
@@ -394,12 +431,15 @@
             (when (:ev_left_company ev)
               [:span.badge.badge-review
                "Saiu"])
-            [validation-ev-badge (:validation_status ev)]]
+            [validation-ev-badge (:validation_status ev)]
+            [signoff-badge ev]]
            [:div.appraisal-ev-meta
-            (str (:policies_count ev) " apuradas · "
-                 (when (pos? nao-count) (str nao-count " não apuradas · "))
-                 (:nf_count ev) " NFs · atingimento "
-                 (or (fmt-pct (:achievement_pct ev)) "·") "%")]]
+            (if (:no_movement ev)
+              "sem movimento no mês"
+              (str (:policies_count ev) " apuradas · "
+                   (when (pos? nao-count) (str nao-count " não apuradas · "))
+                   (:nf_count ev) " NFs · atingimento "
+                   (or (fmt-pct (:achievement_pct ev)) "·") "%"))]]
           [money-ledger {:amount (:total_commission ev)
                          :nf-total (:nf_liquido_total ev)
                          :subsidy-total (:subsidio_aplicado_total ev)
@@ -407,35 +447,64 @@
                          :size :ev}]]
          (when @open?
            [:div.appraisal-ev-detail
-            [:div.filter-row.appraisal-subfilter-row
-             {:role "group" :aria-label "Filtro de apuração"}
-             (for [[k label cnt] [[:apuradas "Apuradas" (count apuradas)]
-                                  [:nao-apuradas "Não apuradas" (count nao-apuradas)]
-                                  [:todas "Todas" (count base)]]]
-               ^{:key k}
-               [:button {:type "button"
-                         :class (str "chip" (when (= k @apurada-filter) " active"))
-                         :aria-pressed (str (= k @apurada-filter))
-                         :on-click #(reset! apurada-filter k)}
-                (str label " (" cnt ")")])]
-            (if (empty? visible)
+            (when (and conference? admin?)
+              [:div.appraisal-signoff-actions
+               (if (= :done (signoff-status ev))
+                 [:button.btn.btn-secondary.btn-sm
+                  {:on-click #(rf/dispatch [:revops/reopen-signoff
+                                            appraisal-id (:ev_id ev)])}
+                  "Reabrir conferência"]
+                 [:button.btn.btn-primary.btn-sm
+                  {:on-click #(rf/dispatch [:revops/signoff-ev
+                                            appraisal-id (:ev_id ev)])}
+                  "Marcar como conferido"])
+               [:button.btn.btn-secondary.btn-sm
+                {:on-click #(rf/dispatch [:revops/recalculate-appraisal
+                                          appraisal-id])}
+                [layout/icon "refresh" {:width 12 :height 12}]
+                " Recalcular"]])
+            (if (:no_movement ev)
               [:div.appraisal-empty-panel
-               "Nenhuma apólice neste filtro"]
-              (for [p visible]
-                ^{:key (:policy_id p)} [policy-block p]))])]))))
+               "Sem movimento no mês — nenhuma NF e nenhuma comissão para este EV."]
+              [:<>
+               [:div.filter-row.appraisal-subfilter-row
+                {:role "group" :aria-label "Filtro de apuração"}
+                (for [[k label cnt] [[:apuradas "Apuradas" (count apuradas)]
+                                     [:nao-apuradas "Não apuradas" (count nao-apuradas)]
+                                     [:todas "Todas" (count base)]]]
+                  ^{:key k}
+                  [:button {:type "button"
+                            :class (str "chip" (when (= k @apurada-filter) " active"))
+                            :aria-pressed (str (= k @apurada-filter))
+                            :on-click #(reset! apurada-filter k)}
+                   (str label " (" cnt ")")])]
+               (if (empty? visible)
+                 [:div.appraisal-empty-panel
+                  "Nenhuma apólice neste filtro"]
+                 (for [p visible]
+                   ^{:key (:policy_id p)} [policy-block p]))])])]))))
 
 ;; ── Por EV tab ────────────────────────────────────────────
 
 (defn por-ev-tab []
-  (let [tipo-filter (r/atom "Todos")
-        op-filter   (r/atom "Todas")]
-    (fn [ev-summary]
-      (let [all-ops (->> ev-summary
+  (let [tipo-filter    (r/atom "Todos")
+        op-filter      (r/atom "Todas")
+        signoff-filter (r/atom :todos)]
+    (fn [appraisal ev-summary user]
+      (let [conference? (conference-active? appraisal)
+            admin?      (= "ADMIN" (:role user))
+            evs         (cond->> ev-summary
+                          conference? sort-evs-for-conference
+                          conference? (#(filter-evs-by-signoff
+                                         % @signoff-filter)))
+            all-ops (->> ev-summary
                          (mapcat :policies)
                          (map :operadora)
                          (remove nil?)
                          distinct sort)]
         [:div
+         (when conference?
+           [signoff-band appraisal signoff-filter])
          [:div.appraisal-filter-band
           [:div.appraisal-filter-group
            [:div.appraisal-filter-label "receita"]
@@ -463,13 +532,18 @@
                         :aria-pressed (str (= o @op-filter))
                         :on-click #(reset! op-filter o)}
                o])]]]
-         (if (empty? ev-summary)
+         (if (empty? evs)
            [:div.appraisal-empty-panel.-large
-            "Nenhum EV com comissão calculada"]
+            (if conference?
+              "Nenhum EV neste filtro de conferência"
+              "Nenhum EV com comissão calculada")]
            [:div.appraisal-ev-list
-            (for [ev ev-summary]
+            (for [ev evs]
               ^{:key (:ev_id ev)}
-              [ev-row ev @tipo-filter @op-filter])])]))))
+              [ev-row ev @tipo-filter @op-filter
+               {:appraisal-id (:id appraisal)
+                :conference?  conference?
+                :admin?       admin?}])])]))))
 
 ;; ── Monthly review summary ────────────────────────────────
 
@@ -633,9 +707,21 @@
                      [layout/icon "refresh" {:width 14 :height 14}] "Recalcular"])
 
               (= st "CALCULATING")
-              (conj [:button.btn.btn-primary
-                     {:on-click #(rf/dispatch [:revops/release-to-validation appraisal-id])}
-                     [layout/icon "check" {:width 14 :height 14}] "Liberar para EVs"])
+              (conj (let [{:keys [total done]} (signoff-progress appraisal)
+                          blocked? (release-blocked? appraisal)]
+                      [:button.btn.btn-primary
+                       {:disabled blocked?
+                        :title (when blocked?
+                                 (str "Faltam " (- total done)
+                                      " conferência(s) para liberar."))
+                        :on-click #(when-not blocked?
+                                     (rf/dispatch
+                                      [:revops/release-to-validation
+                                       appraisal-id]))}
+                       [layout/icon "check" {:width 14 :height 14}]
+                       (if blocked?
+                         (str "Liberar para EVs (faltam " (- total done) ")")
+                         "Liberar para EVs")]))
 
               (= st "LIDER_REVIEW")
               (conj [:button.btn.btn-primary
@@ -710,7 +796,7 @@
             [tab-button active-tab :nao-sup "Não suportado" (count nao-sup) :neutral]]]
           [:div.appraisal-review-content
            (case @active-tab
-             :por-ev    [por-ev-tab ev-summary]
+             :por-ev    [por-ev-tab appraisal ev-summary user]
              :unmatched [:<>
                          [:div.appraisal-table-toolbar
                           [export-csv-button unmatched "nao-matcheadas.csv"]]
