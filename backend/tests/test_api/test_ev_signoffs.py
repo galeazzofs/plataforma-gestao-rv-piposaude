@@ -455,3 +455,25 @@ def test_delete_appraisal_removes_signoffs(client, signoff_setup):
                          headers=_auth_header(admin))
     assert resp.status_code == 200
     assert EvSignoff.query.filter_by(appraisal_id=appraisal.id).count() == 0
+
+
+def test_recalculate_after_release_still_flags_changes(client, signoff_setup):
+    """Recalcular em VALIDATING+ continua permitido: o gate já passou, mas o
+    hook ainda roda e marca values_changed (informativo, spec)."""
+    admin, ev1, ev2, _, appraisal, _ = signoff_setup
+    for ev in (ev1, ev2):
+        client.post(
+            f"/api/v1/appraisals/{appraisal.id}/signoffs/{ev.id}",
+            headers=_auth_header(admin),
+        )
+    appraisal.status = AppraisalStatus.VALIDATING
+    db.session.commit()
+
+    resp = client.post(f"/api/v1/appraisals/{appraisal.id}/recalculate",
+                       headers=_auth_header(admin))
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["signoffs"]["invalidated"] == [ev1.name]
+
+    by_id = {s["ev_id"]: s for s in body["data"]["ev_summary"]}
+    assert by_id[str(ev1.id)]["signoff"]["values_changed"] is True

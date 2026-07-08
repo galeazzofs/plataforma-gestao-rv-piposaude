@@ -182,8 +182,9 @@ def delete_appraisal(appraisal_id):
 
     month, year = appraisal.month, appraisal.year
 
-    # Drop the EV validations first — they FK appraisal_id with no cascade, so
-    # the appraisal can't be deleted while any exist (i.e. once released).
+    # Drop the EV validations and sign-offs first — they FK appraisal_id with
+    # no cascade, so the appraisal can't be deleted while any exist (i.e. once
+    # released / once the conferência seeded its rows).
     EvValidation.query.filter_by(appraisal_id=appraisal.id).delete()
     EvSignoff.query.filter_by(appraisal_id=appraisal.id).delete()
 
@@ -548,6 +549,14 @@ def recalculate(appraisal_id):
                 "missing": e.missing,
             },
         }), 422
+    except IntegrityError:
+        # Mesma corrida do ensure_signoffs já tratada nos endpoints de
+        # conferência: dois requests simultâneos inserindo o mesmo EV novo.
+        db.session.rollback()
+        return jsonify({"error": {
+            "code": "CONFLICT",
+            "message": "Recálculo concorrente — tente novamente",
+        }}), 409
 
     return jsonify({
         "data": _serialize_appraisal(appraisal, detail=True),
