@@ -310,3 +310,23 @@ def test_calculating_transition_creates_signoff_rows(db_session):
     rows = EvSignoff.query.filter_by(appraisal_id=appraisal.id).all()
     assert {r.ev_id for r in rows} == {ev.id}
     assert rows[0].status == SignoffStatus.PENDING
+
+
+def test_cycle_aggregator_exposes_signoff_counters_in_calculating(db_session):
+    from app.modules.workflow.cycle_aggregator import _ev_apuracao_status
+
+    suffix = uuid.uuid4().hex[:8]
+    admin, ev, _ = _mk_users(suffix)
+    appraisal = _mk_appraisal(admin, month=11)
+    ensure_signoffs(appraisal)
+
+    status = _ev_apuracao_status(11, 2026)
+    assert status["status"] == "CALCULATING"
+    assert status["signoffs_total"] == 1
+    assert status["signoffs_done"] == 0
+
+    # Fora de CALCULATING os contadores somem (histórico não recomputado).
+    appraisal.status = AppraisalStatus.VALIDATING
+    db.session.flush()
+    status = _ev_apuracao_status(11, 2026)
+    assert "signoffs_total" not in status

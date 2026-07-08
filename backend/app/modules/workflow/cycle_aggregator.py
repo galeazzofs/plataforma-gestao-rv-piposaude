@@ -65,13 +65,22 @@ def _ev_apuracao_status(month: int, year: int) -> dict:
             ValidationStatus.RESOLVED,
         )
     )
-    return {
+    payload = {
         "status": appraisal.status.value,
         "appraisal_id": str(appraisal.id),
         "validations_total": len(validations),
         "validations_done": done,
         "has_contestation": bool(getattr(appraisal, "has_contestation", False)),
     }
+    if appraisal.status == AppraisalStatus.CALCULATING:
+        # Progresso da conferência por EV — só faz sentido enquanto o
+        # RevOps está conferindo; depois o escopo recomputado viraria
+        # história reescrita (mesmo racional do expected em ciclos LOCKED).
+        from app.modules.workflow.signoffs import signoff_totals
+        totals = signoff_totals(appraisal)
+        payload["signoffs_total"] = totals["total"]
+        payload["signoffs_done"] = totals["done"]
+    return payload
 
 
 def _summarize_status_set(statuses: list) -> str:
